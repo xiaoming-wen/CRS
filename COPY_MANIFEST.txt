@@ -1,0 +1,44 @@
+# 自 gpt-free 复制的文件（webapps 相对路径）
+
+## 视图 views/manus
+CompetitionRegistrationSystem.vue
+CompetitionRegistrationFullPage.vue
+CompetitionDetailStandalone.vue
+CompetitionAltRegister.vue
+MyCompetitionEnrollments.vue
+MyCompetitionEnrollmentsFullPage.vue
+ManuAltIdentityPanel.vue
+
+## API
+api/competition.js
+api/altIdentity.js
+
+## 工具 utils
+competitionAuthFlow.js
+competitionRequestAuth.js
+competitionSubmissionCycle.js
+qrImageValidate.js
+registerConflict.js
+openRouteInNewTab.js
+apiBase.js
+request.js
+axios.js
+mixin.js
+device.js
+
+## Store（request 拦截器依赖）
+store/mutation-types.js
+
+## 静态资源
+src/assets/背景图.jpeg
+src/assets/background.svg
+public/vendor/jsQR.umd.js
+
+## 配置摘录
+src/config/router.competition-routes.extract.js
+
+## 未复制（仍在 gpt-free 主工程中）
+- package.json / vue.config.js / main.js / App.vue
+- 完整 src/store、permission、layouts
+- src/config/router.config.js（仅摘录竞赛路由）
+- public/index.html（需在独立工程中保留 jsQR 脚本引用）

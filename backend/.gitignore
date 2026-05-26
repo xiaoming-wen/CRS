@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.env
+*.db
+competition_submissions/
+competition_qr_codes/
+test_results/
+.venv/
+venv/

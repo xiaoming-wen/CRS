@@ -1,0 +1,42 @@
+{
+  "name": "competition-registration-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "竞赛报名系统独立前端（从 gpt-free 分离）",
+  "scripts": {
+    "serve": "vue-cli-service serve",
+    "build": "vue-cli-service build",
+    "lint": "vue-cli-service lint"
+  },
+  "dependencies": {
+    "ant-design-vue": "^1.6.4",
+    "axios": "^0.19.0",
+    "core-js": "^3.1.2",
+    "enquire.js": "^2.1.6",
+    "nprogress": "^0.2.0",
+    "regenerator-runtime": "^0.13.11",
+    "vue": "2.6.12",
+    "vue-ls": "^3.2.1",
+    "vue-router": "^3.1.2",
+    "vuex": "^3.1.1"
+  },
+  "devDependencies": {
+    "@vue/cli-plugin-babel": "^4.0.4",
+    "@vue/cli-plugin-eslint": "^4.0.4",
+    "@vue/cli-service": "^4.0.4",
+    "@vue/eslint-config-standard": "^4.0.0",
+    "babel-eslint": "^10.0.1",
+    "babel-plugin-import": "^1.12.2",
+    "eslint": "^5.16.0",
+    "eslint-plugin-vue": "^5.2.3",
+    "less": "^3.0.4",
+    "less-loader": "^5.0.0",
+    "vue-template-compiler": "2.6.12"
+  },
+  "overrides": {
+    "@achrinza/node-ipc": "9.2.9"
+  },
+  "resolutions": {
+    "@achrinza/node-ipc": "9.2.9"
+  }
+}

@@ -1,0 +1,48 @@
+# 自 llm_AIO 复制的后端文件（相对路径）
+
+## 应用核心
+app/config.py
+app/database.py
+app/datetime_utils.py
+app/permissions.py
+app/schemas.py
+app/main.py                    # 本仓库新建：仅竞赛 + alt-identity 路由
+
+## 路由与模型
+app/routers/competitions.py
+app/models/competition.py
+app/models/user.py             # 含 files 表，作品提交依赖
+
+## 第二套登录/注册（竞赛主体）
+app/alt_auth/__init__.py
+app/alt_auth/bootstrap.py
+app/alt_auth/context.py
+app/alt_auth/database.py
+app/alt_auth/models.py
+app/alt_auth/password_codec.py
+app/alt_auth/payloads.py
+app/alt_auth/permission_view.py
+app/alt_auth/router.py
+app/alt_auth/settings.py
+app/alt_auth/time_util.py
+app/alt_auth/token_codec.py
+
+## 脚本与测试
+scripts/migrate_competition_user_ids_to_alt.py
+tests/test_competitions.py
+
+## 本仓库新增（非 llm_AIO 内）
+init_db.py
+requirements.txt
+start.bat
+.env.example
+README.md
+.gitignore
+
+## 未复制（仍在 llm_AIO 主工程）
+- 其余 routers（chat、exams、llmfactory 等）
+- convert_url、RAG、多模态适配器等
+- app/main.py 全量网关入口
+
+## 原 llm_AIO 仓库
+未修改；竞赛 API 仍可通过主站 app.main 挂载。
