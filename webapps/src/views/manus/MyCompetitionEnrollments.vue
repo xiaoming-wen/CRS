@@ -26,23 +26,23 @@
           size="middle"
           :locale="{ emptyText: '暂无报名记录' }"
         >
-        <template slot="enrollStatus" slot-scope="text">
-          <a-tag :color="enrollStatusColor(text)">{{ enrollStatusText(text) }}</a-tag>
-        </template>
-        <template slot="actions" slot-scope="text, record">
-          <a-button
-            type="primary"
-            size="small"
-            :loading="withdrawLoading"
-            :disabled="withdrawLoading || !record || record.status !== 'enrolled'"
-            @click="handleWithdraw(record)"
-          >
-            退赛
-          </a-button>
-        </template>
-        <template slot="competitionStatus" slot-scope="text">
-          <a-tag :color="competitionStatusColor(text)">{{ competitionStatusText(text) }}</a-tag>
-        </template>
+          <template slot="enrollStatus" slot-scope="text">
+            <a-tag :color="enrollStatusColor(text)">{{ enrollStatusText(text) }}</a-tag>
+          </template>
+          <template slot="actions" slot-scope="text, record">
+            <a-button
+              type="primary"
+              size="small"
+              :loading="withdrawLoading"
+              :disabled="withdrawLoading || !record || record.status !== 'enrolled'"
+              @click="handleWithdraw(record)"
+            >
+              退赛
+            </a-button>
+          </template>
+          <template slot="competitionStatus" slot-scope="text">
+            <a-tag :color="competitionStatusColor(text)">{{ competitionStatusText(text) }}</a-tag>
+          </template>
         </a-table>
       </div>
     </a-card>
@@ -51,7 +51,10 @@
 
 <script>
 import { getMyCompetitionEnrollments, withdrawCompetition } from '@/api/competition'
-import { markCompetitionWithdrawnForResubmit } from '@/utils/competitionSubmissionCycle'
+import {
+  markCompetitionWithdrawnForResubmit,
+  getEnrollmentScope
+} from '@/utils/competitionSubmissionCycle'
 
 /** 报名记录展示：仅使用接口返回值，空则显示 "-" */
 function enrollmentCell (v) {
@@ -82,6 +85,12 @@ export default {
       withdrawLoading: false,
       columns: [
         { title: '竞赛', dataIndex: 'competitionName', key: 'competitionName', ellipsis: true, width: 180 },
+        {
+          title: '赛道',
+          dataIndex: 'track_label',
+          key: 'track_label',
+          width: 72
+        },
         { title: '竞赛状态', dataIndex: 'competitionStatus', key: 'competitionStatus', width: 82, scopedSlots: { customRender: 'competitionStatus' } },
         { title: '竞赛开始', dataIndex: 'start_at', key: 'start_at', width: 132 },
         { title: '竞赛结束', dataIndex: 'end_at', key: 'end_at', width: 132 },
@@ -115,10 +124,14 @@ export default {
         // team_id === null 视为个人报名：不显示队伍相关信息
         const isTeam = row.team_id !== null && row.team_id !== undefined
 
+        const enrollTrack = getEnrollmentScope(row)
+
         return {
           key: row.id != null ? `e-${row.id}` : `row-${index}`,
           id: row.id,
           competition_id: row.competition_id,
+          enroll_track: enrollTrack,
+          track_label: enrollTrack === 'team' ? '组队' : '个人',
           competitionName: enrollmentCell(c.name || row.competition_name),
           competitionStatus: c.status,
           /** 以下字段仅来自报名接口返回，空显示 "-" */
@@ -141,13 +154,31 @@ export default {
     this.fetchList()
   },
   methods: {
+    getWithdrawErrorMessage (error) {
+      const respData = error && error.response ? error.response.data : null
+      const raw =
+        (respData && (respData.detail || respData.message || respData.error)) ||
+        (error && error.message) ||
+        ''
+      const text = typeof raw === 'string' ? raw : JSON.stringify(raw || {})
+      if (/specify track=individual or track=team/i.test(text)) {
+        return '本竞赛同时存在个人与组队报名，请指定要退出的赛道'
+      }
+      if (/transfer.*captain|captain.*transfer|队长.*转让/i.test(text)) {
+        return '您是队长且队内仍有其他成员，请先转让队长后再退赛'
+      }
+      return text || '未知错误'
+    },
+
     async handleWithdraw (record) {
       if (!record || record.competition_id == null) return
       if (record.status !== 'enrolled') return
+      const track = record.enroll_track === 'team' ? 'team' : 'individual'
+      const trackLabel = track === 'team' ? '组队' : '个人'
       try {
         await this.$confirm({
-          title: '确认退赛',
-          content: '退赛后当前报名资格将取消；若再次报名，需重新提交作品。是否继续？',
+          title: `确认退出${trackLabel}赛道`,
+          content: `将取消本竞赛的${trackLabel}赛道报名；另一赛道不受影响。退赛后若再次报名，需重新提交该赛道作品。是否继续？`,
           okText: '退赛',
           cancelText: '取消',
           okType: 'danger'
@@ -157,12 +188,12 @@ export default {
       }
       this.withdrawLoading = true
       try {
-        await withdrawCompetition(record.competition_id)
+        await withdrawCompetition(record.competition_id, { track })
         markCompetitionWithdrawnForResubmit(record.competition_id)
-        this.$message.success('退赛成功，再次报名后请重新提交作品')
+        this.$message.success(`${trackLabel}赛道退赛成功`)
         await this.fetchList()
       } catch (e) {
-        this.$message.error('退赛失败：' + (e && e.message ? e.message : '未知错误'))
+        this.$message.error('退赛失败：' + this.getWithdrawErrorMessage(e))
       } finally {
         this.withdrawLoading = false
       }

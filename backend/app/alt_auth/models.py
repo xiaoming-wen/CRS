@@ -50,6 +50,9 @@ class AltAuthUserRecord(Base):
 
     school = Column(String(200), nullable=True)
 
+    # 竞赛专家：须由管理员设为 true 后才可担任评委（避免自注册专家随意打分）
+    expert_verified = Column(Boolean, nullable=False, default=False)
+
     # 历史：曾用统一 account + account_kind；可为空
 
     account = Column(String(256), nullable=True, index=True)

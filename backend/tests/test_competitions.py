@@ -22,7 +22,7 @@ os.makedirs(TEST_RESULTS_DIR, exist_ok=True)
 
 
 def migrate_enrollment_columns():
-    """自动给 competition_enrollments 表补加缺失的学生信息列（SQLite ALTER TABLE）"""
+    """自动给 competition_enrollments 表补加缺失列，并迁移双赛道唯一约束。"""
     db_path = os.path.join(PROJECT_ROOT, "user_management.db")
     if not os.path.exists(db_path):
         print("⚠️  数据库文件不存在，跳过迁移（将由 init_db 创建）")
@@ -51,9 +51,19 @@ def migrate_enrollment_columns():
             conn.commit()
             print(f"✅ 数据库迁移：已为 competition_enrollments 添加列 {added}")
         else:
-            print("✅ 数据库迁移：列已存在，无需变更")
+            print("✅ 数据库迁移：学生信息列已存在")
     finally:
         conn.close()
+
+    try:
+        from sqlalchemy import create_engine
+        from app.competition_enrollment_migrate import migrate_competition_enrollment_dual_track
+
+        engine = create_engine(f"sqlite:///{db_path}")
+        migrate_competition_enrollment_dual_track(engine)
+        print("✅ 数据库迁移：competition_enrollments 双赛道（individual+team）")
+    except Exception as e:
+        print(f"⚠️  双赛道迁移跳过或失败: {e}")
 
 access_token = None
 
@@ -190,7 +200,7 @@ def run():
     s1 = ensure_alt_user("student", "stu1", "stu1@example.com", "admin123")
     s2 = ensure_alt_user("student", "stu2", "stu2@example.com", "admin123")
     s3 = ensure_alt_user("student", "stu3", "stu3@example.com", "admin123")
-    t1 = ensure_alt_user("teacher", "tea1", "tea1@example.com", "admin123")
+    t1 = ensure_alt_user("advisor", "tea1", "tea1@example.com", "admin123")
 
     if not (s1.get("ok") and s2.get("ok") and s3.get("ok") and t1.get("ok")):
         print_result(
@@ -233,6 +243,29 @@ def run():
         sys.exit(1)
     print_result("发布竞赛", True, f"comp_id={comp_id}")
 
+    expert_seed = ensure_alt_user("student", "expert1", "expert1@example.com", "admin123")
+    if not expert_seed.get("ok"):
+        print_result("专家组 seed 用户", False, "失败", expert_seed)
+        sys.exit(1)
+    ex_patch = requests.patch(
+        f"{BASE_URL}/competitions/admin/alt-users/{expert_seed['user_id']}",
+        headers=get_headers(),
+        json={"role": "expert", "expert_verified": True},
+        timeout=10,
+    )
+    if ex_patch.status_code != 200:
+        print_result("管理员设置专家帐号", False, f"状态码: {ex_patch.status_code}", ex_patch.text)
+        sys.exit(1)
+    ex_assign = requests.post(
+        f"{BASE_URL}/competitions/{comp_id}/experts/{expert_seed['user_id']}",
+        headers=get_headers(),
+        timeout=10,
+    )
+    if ex_assign.status_code not in (200, 201):
+        print_result("指派竞赛专家", False, f"状态码: {ex_assign.status_code}", ex_assign.text)
+        sys.exit(1)
+    print_result("指派竞赛专家", True, f"expert_user_id={expert_seed['user_id']}")
+
     # 2.5) 修改竞赛规则
     update_comp = requests.put(
         f"{BASE_URL}/competitions/{comp_id}",
@@ -255,6 +288,17 @@ def run():
 
     def hdr(token):
         return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+
+    expert_login = requests.post(
+        f"{ALT_URL}/session",
+        json={"username": "expert1", "password": "admin123"},
+        headers={"Content-Type": "application/json"},
+        timeout=10,
+    )
+    if expert_login.status_code != 200:
+        print_result("专家登录", False, expert_login.text)
+        sys.exit(1)
+    expert_token = expert_login.json().get("access_token")
 
     enroll1 = requests.post(
         f"{BASE_URL}/competitions/enroll",
@@ -410,10 +454,10 @@ def run():
     if not found_team:
         sys.exit(1)
 
-    # 个人 / 组队参赛者分接口 + 竞赛内序号
+    # 个人 / 组队参赛者花名册：仅管理员或被指派专家可查，此处用管理员令牌
     indiv_resp = requests.get(
         f"{BASE_URL}/competitions/{comp_id}/participants/individual",
-        headers=hdr(stu1_token),
+        headers=get_headers(),
         timeout=10,
     )
     indiv_ok = indiv_resp.status_code == 200
@@ -436,7 +480,7 @@ def run():
 
     teams_part_resp = requests.get(
         f"{BASE_URL}/competitions/{comp_id}/participants/teams",
-        headers=hdr(stu1_token),
+        headers=get_headers(),
         timeout=10,
     )
     tp_ok = teams_part_resp.status_code == 200
@@ -555,34 +599,58 @@ def run():
         sys.exit(1)
     print_result("查看作品详情（管理员）", True, "成功", sub_detail.json())
 
-    # 教师查看提交详情（应允许）
-    teacher_detail = requests.get(
+    # 指导老师无权查看其他队伍作品
+    advisor_detail = requests.get(
         f"{BASE_URL}/competitions/submissions/{submission_id}",
         headers={"Authorization": f"Bearer {t1['token']}"},
         timeout=10,
     )
-    if teacher_detail.status_code == 200:
-        print_result("查看作品详情（教师）", True, "成功", teacher_detail.json())
+    if advisor_detail.status_code == 403:
+        print_result("指导老师越权查看他人作品", True, "返回 403（符合预期）", advisor_detail.json())
     else:
-        print_result("查看作品详情（教师）", False, f"状态码: {teacher_detail.status_code}", teacher_detail.text)
+        print_result("指导老师越权查看他人作品", False, f"期望 403，实际 {advisor_detail.status_code}", advisor_detail.text)
         sys.exit(1)
 
-    # 教师评分（用于统计/排行）
+    # 指派专家可查看
+    expert_detail = requests.get(
+        f"{BASE_URL}/competitions/submissions/{submission_id}",
+        headers={"Authorization": f"Bearer {expert_token}"},
+        timeout=10,
+    )
+    if expert_detail.status_code != 200:
+        print_result("专家查看作品详情", False, f"状态码: {expert_detail.status_code}", expert_detail.text)
+        sys.exit(1)
+    print_result("专家查看作品详情", True, "成功", expert_detail.json())
+
+    # 管理员不参与评分
+    admin_grade_denied = requests.put(
+        f"{BASE_URL}/competitions/submissions/{submission_id}/review-grade",
+        headers={**get_headers(), "Content-Type": "application/json"},
+        json={"score": 91.0, "feedback": "admin try"},
+        timeout=10,
+    )
+    if admin_grade_denied.status_code == 403:
+        print_result("管理员不参与评分", True, "返回 403（符合预期）", admin_grade_denied.json())
+    else:
+        print_result("管理员不参与评分", False, f"期望 403，实际 {admin_grade_denied.status_code}", admin_grade_denied.text)
+        sys.exit(1)
+
+    # 专家评分
     teacher_grade = requests.put(
         f"{BASE_URL}/competitions/submissions/{submission_id}/review-grade",
-        headers={"Authorization": f"Bearer {t1['token']}", "Content-Type": "application/json"},
+        headers={"Authorization": f"Bearer {expert_token}", "Content-Type": "application/json"},
         json={"score": 95.0, "feedback": "great"},
         timeout=10,
     )
     if teacher_grade.status_code != 200:
-        print_result("教师评分", False, f"状态码: {teacher_grade.status_code}", teacher_grade.text)
+        print_result("专家评分", False, f"状态码: {teacher_grade.status_code}", teacher_grade.text)
         sys.exit(1)
-    print_result("教师评分", True, "成功", teacher_grade.json())
+    print_result("专家评分", True, "成功", teacher_grade.json())
 
     # 重复 PUT 应 400；PATCH 改分应 200
     dup_grade = requests.put(
         f"{BASE_URL}/competitions/submissions/{submission_id}/review-grade",
-        headers={"Authorization": f"Bearer {t1['token']}", "Content-Type": "application/json"},
+        headers={"Authorization": f"Bearer {expert_token}", "Content-Type": "application/json"},
         json={"score": 80.0, "feedback": "dup"},
         timeout=10,
     )
@@ -593,7 +661,7 @@ def run():
 
     patch_grade = requests.patch(
         f"{BASE_URL}/competitions/submissions/{submission_id}/review-grade",
-        headers={"Authorization": f"Bearer {t1['token']}", "Content-Type": "application/json"},
+        headers={"Authorization": f"Bearer {expert_token}", "Content-Type": "application/json"},
         json={"score": 88.0, "feedback": "revised"},
         timeout=10,
     )
@@ -608,7 +676,7 @@ def run():
 
     get_grade = requests.get(
         f"{BASE_URL}/competitions/submissions/{submission_id}/review-grade",
-        headers={"Authorization": f"Bearer {t1['token']}"},
+        headers={"Authorization": f"Bearer {expert_token}"},
         timeout=10,
     )
     if get_grade.status_code != 200:

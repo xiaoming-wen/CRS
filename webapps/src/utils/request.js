@@ -2,8 +2,8 @@ import Vue from 'vue'
 import axios from 'axios'
 import store from '@/store'
 import notification from 'ant-design-vue/es/notification'
-import {VueAxios} from './axios'
-import {ACCESS_TOKEN} from '@/store/mutation-types'
+import { VueAxios } from './axios'
+import { ACCESS_TOKEN } from '@/store/mutation-types'
 import { clearAltIdentityStorage, getStoredAltToken } from '@/api/altIdentity'
 import { isCompetitionApiPath, resolveRequestBearer } from '@/utils/competitionRequestAuth'
 
@@ -113,10 +113,10 @@ service.interceptors.request.use(config => {
             delete config.headers['content-type']
             console.log('删除了不完整的 Content-Type，让 axios 自动设置')
         }
-        
+
         // 验证 FormData 内容（仅用于调试）
         const entries = []
-        for (let pair of config.data.entries()) {
+        for (const pair of config.data.entries()) {
             if (pair[0] === 'file') {
                 entries.push(`${pair[0]}: [File对象: ${pair[1].name || '未知'}]`)
             } else {
@@ -146,7 +146,7 @@ service.interceptors.response.use((response) => {
 
 const installer = {
     vm: {},
-    install(Vue) {
+    install (Vue) {
         Vue.use(VueAxios, service)
     }
 }

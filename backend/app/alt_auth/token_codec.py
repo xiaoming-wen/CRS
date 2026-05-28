@@ -86,7 +86,7 @@ def decode_alt_access_token_strict(token: str | None) -> dict | None:
         return None
 
     # 仅接受签发时写入 role 的令牌，避免误判主站 JWT
-    if role is None or role not in ("super_admin", "teacher", "student"):
+    if role is None or role not in ("super_admin", "teacher", "student", "advisor", "expert"):
         return None
 
     return data

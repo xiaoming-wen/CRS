@@ -7,104 +7,110 @@
     >
       <template v-if="!standaloneDetailMode">
         <div class="top-row">
-        <a-input-search
-          v-model="keyword"
-          placeholder="搜索竞赛名称/简介（可选）"
-          style="width: 360px"
-          @search="fetchCompetitions"
-        />
-        <a-button type="primary" :loading="competitionsLoading" @click="fetchCompetitions">
-          刷新竞赛
-        </a-button>
-        <template v-if="isAdminTeacher">
-          <a-divider type="vertical" />
-          <a-button type="primary" :loading="adminCreateLoading" @click="showCreateCompetitionModal = true">
-            创建竞赛
+          <a-input-search
+            v-model="keyword"
+            placeholder="搜索竞赛名称/简介（可选）"
+            style="width: 360px"
+            @search="fetchCompetitions"
+          />
+          <a-button type="primary" :loading="competitionsLoading" @click="fetchCompetitions">
+            刷新竞赛
           </a-button>
-          <a-button
-            :loading="publishLoading"
-            @click="handlePublish"
-            :disabled="!selectedCompetitionId"
-            style="margin-left: 8px"
-          >
-            发布竞赛
-          </a-button>
-
-          <a-button
-            style="margin-left: 8px"
-            :disabled="!selectedCompetitionId"
-            @click="openEditCompetitionModal"
-          >
-            修改竞赛
-          </a-button>
-
-          <a-button
-            style="margin-left: 8px"
-            type="primary"
-            ghost
-            :loading="adminLockLoading"
-            @click="handleLockCompetition"
-            :disabled="!selectedCompetitionId"
-          >
-            锁定竞赛
-          </a-button>
-
-          <a-button
-            style="margin-left: 8px"
-            type="danger"
-            :loading="adminDeleteLoading"
-            @click="handleDeleteCompetition"
-            :disabled="!selectedCompetitionId"
-          >
-            删除竞赛
-          </a-button>
-        </template>
-      </div>
-
-      <div v-if="isAdminTeacher" class="muted" style="margin-top: 8px; font-size: 13px">
-        请在表格左侧勾选一条竞赛，以便使用顶部「发布 / 修改 / 锁定 / 删除」等操作；完整管理与评阅请在「操作」列点击「查看详情」在新标签页打开。
-      </div>
-      <div v-else-if="isStudent" class="muted" style="margin-top: 8px; font-size: 13px">
-        学生请在「操作」列点击「查看详情」，在新标签页中报名与提交作品。
-      </div>
-
-      <a-alert
-        v-if="competitionsError"
-        type="warning"
-        show-icon
-        :message="competitionsError"
-        style="margin-top: 16px"
-      />
-
-      <div style="margin-top: 16px">
-        <a-table
-          row-key="id"
-          size="middle"
-          :loading="competitionsLoading"
-          :columns="competitionListColumns"
-          :data-source="competitionListTableData"
-          :pagination="competitionListPagination"
-          :row-selection="competitionListRowSelection"
-          :row-class-name="competitionListRowClassName"
-          :scroll="{ x: 1040 }"
-        >
-          <template slot="status" slot-scope="text">
-            <a-tag
-              :color="getStatusColor(text)"
-              :style="text === 'draft' ? { color: '#000' } : null"
+          <span v-if="isStudent && studentAccountIdLabel" class="student-account-id-hint">
+            学生ID：<strong>{{ studentAccountIdLabel }}</strong>
+          </span>
+          <template v-if="canManageCompetitions">
+            <a-divider type="vertical" />
+            <a-button type="primary" :loading="adminCreateLoading" @click="showCreateCompetitionModal = true">
+              创建竞赛
+            </a-button>
+            <a-button
+              :loading="publishLoading"
+              @click="handlePublish"
+              :disabled="!selectedCompetitionId"
+              style="margin-left: 8px"
             >
-              {{ getStatusText(text) }}
-            </a-tag>
-          </template>
-          <template slot="listActions" slot-scope="text, record">
-            <a @click.stop.prevent="openCompetitionDetailInNewTab(record.id)">查看详情</a>
-          </template>
-        </a-table>
-      </div>
+              发布竞赛
+            </a-button>
 
-      <!-- <div v-if="!competitionsLoading && filteredCompetitions.length === 0" class="empty-competitions">
-        <a-empty description="暂无竞赛" />
-      </div> -->
+            <a-button
+              style="margin-left: 8px"
+              :disabled="!selectedCompetitionId"
+              @click="openEditCompetitionModal"
+            >
+              修改竞赛
+            </a-button>
+
+            <a-button
+              style="margin-left: 8px"
+              type="primary"
+              ghost
+              :loading="adminLockLoading"
+              @click="handleLockCompetition"
+              :disabled="!selectedCompetitionId"
+            >
+              锁定竞赛
+            </a-button>
+
+            <a-button
+              style="margin-left: 8px"
+              type="danger"
+              :loading="adminDeleteLoading"
+              @click="handleDeleteCompetition"
+              :disabled="!selectedCompetitionId"
+            >
+              删除竞赛
+            </a-button>
+          </template>
+        </div>
+
+        <div v-if="canManageCompetitions" class="muted" style="margin-top: 8px; font-size: 13px">
+          请在表格左侧勾选一条竞赛，以便使用顶部「发布 / 修改 / 锁定 / 删除」等操作；完整管理与评阅请在「操作」列点击「查看详情」在新标签页打开。专家核验与按赛指派请使用左侧目录「专家指派」。
+        </div>
+        <div v-else-if="isStudent" class="muted" style="margin-top: 8px; font-size: 13px">
+          学生请在「操作」列点击「查看详情」，在新标签页中报名与提交作品。
+        </div>
+        <div v-else-if="showAdvisorTeamPanel" class="muted" style="margin-top: 8px; font-size: 13px">
+          指导老师请在「操作」列点击「查看详情」，在详情页进行组班、邀请队员与管理队名。
+        </div>
+        <div v-else-if="isCompetitionExpert" class="muted" style="margin-top: 8px; font-size: 13px">
+          专家请在「操作」列打开<strong>已指派</strong>的竞赛详情，进行作品评阅、查看评分汇总与排行榜。
+        </div>
+
+        <a-alert
+          v-if="competitionsError"
+          type="warning"
+          show-icon
+          :message="competitionsError"
+          style="margin-top: 16px"
+        />
+
+        <div style="margin-top: 16px">
+          <a-table
+            row-key="id"
+            size="middle"
+            :loading="competitionsLoading"
+            :columns="competitionListColumns"
+            :data-source="competitionListTableData"
+            :pagination="competitionListPagination"
+            :row-selection="competitionListRowSelection"
+            :row-class-name="competitionListRowClassName"
+            :scroll="{ x: 1040 }"
+          >
+            <template slot="status" slot-scope="text">
+              <a-tag
+                :color="getStatusColor(text)"
+                :style="text === 'draft' ? { color: '#000' } : null"
+              >
+                {{ getStatusText(text) }}
+              </a-tag>
+            </template>
+            <template slot="listActions" slot-scope="text, record">
+              <a @click.stop.prevent="openCompetitionDetailInNewTab(record.id)">查看详情</a>
+            </template>
+          </a-table>
+        </div>
+
       </template>
 
       <div
@@ -112,535 +118,821 @@
         class="competition-detail-below-list competition-detail-transparent-tables"
         :class="{ 'competition-detail-below-list--solo': standaloneDetailMode }"
       >
-      <!-- 详情头图：学生端展示；教师/管理员独立详情页不展示（直接进入竞赛信息） -->
-      <div
-        v-if="!isAdminTeacher"
-        class="competition-hero-banner"
-        :class="{ 'competition-hero-banner--solo': standaloneDetailMode }"
-      >
-        <div class="competition-hero-banner__glow" aria-hidden="true" />
-        <div class="competition-hero-banner__inner competition-hero-banner__inner--center">
-          <div class="competition-hero-banner__copy">
-            <div v-if="competitionHeroYear" class="competition-hero-banner__year">{{ competitionHeroYear }}</div>
-            <h1 class="competition-hero-banner__title">
-              {{ activeCompetition ? activeCompetition.name : `竞赛 #${activeCompetitionId}` }}
-            </h1>
-            <div class="competition-hero-banner__title-meta">
-              <a-tag
-                v-if="activeCompetition"
-                class="competition-hero-banner__status-tag"
-                :color="getStatusColor(competitionDisplayStatusKey)"
-                :style="competitionDisplayStatusKey === 'draft' ? { color: '#1a1a1a', borderColor: 'rgba(0,0,0,0.15)' } : null"
-              >
-                {{ getStatusText(competitionDisplayStatusKey) }}
-              </a-tag>
-              <span class="competition-hero-banner__id">ID {{ activeCompetitionId }}</span>
-            </div>
-            <p v-if="competitionHeroSubtitleEn" class="competition-hero-banner__title-en">{{ competitionHeroSubtitleEn }}</p>
-            <p v-if="competitionHeroSlogan" class="competition-hero-banner__slogan">{{ competitionHeroSlogan }}</p>
-            <div v-if="activeCompetition" class="competition-hero-banner__dates">
-              <span class="competition-hero-banner__dates-label">活动时间</span>
-              <span class="competition-hero-banner__dates-range">{{ competitionHeroDateRange }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 学生独立详情：赛题说明（参考赛事说明页：双栏、网格底、章节编号） -->
-      <a-card
-        v-if="activeCompetition && isStudent && standaloneDetailMode"
-        size="small"
-        class="sub-card competition-briefing-card competition-info-card"
-        :bordered="false"
-      >
-        <div class="competition-briefing">
-          <header class="competition-briefing__header">
-            <h2 class="competition-briefing__main-title">竞赛相关</h2>
-            <p class="competition-briefing__sub-en">DIRECTIONS</p>
-          </header>
-          <div class="competition-briefing__frame">
-            <div class="competition-briefing__grid" aria-hidden="true" />
-            <div class="competition-briefing__body">
-              <div class="competition-briefing__col competition-briefing__col--main">
-                <div
-                  v-for="block in studentBriefingBlocks"
-                  :key="block.num + block.title"
-                  class="competition-briefing__section"
+        <!-- 详情头图：学生端展示；教师/管理员独立详情页不展示（直接进入竞赛信息） -->
+        <div
+          v-if="isStudent"
+          class="competition-hero-banner"
+          :class="{ 'competition-hero-banner--solo': standaloneDetailMode }"
+        >
+          <div class="competition-hero-banner__glow" aria-hidden="true" />
+          <div class="competition-hero-banner__inner competition-hero-banner__inner--center">
+            <div class="competition-hero-banner__copy">
+              <div v-if="competitionHeroYear" class="competition-hero-banner__year">{{ competitionHeroYear }}</div>
+              <h1 class="competition-hero-banner__title">
+                {{ activeCompetition ? activeCompetition.name : `竞赛 #${activeCompetitionId}` }}
+              </h1>
+              <div class="competition-hero-banner__title-meta">
+                <a-tag
+                  v-if="activeCompetition"
+                  class="competition-hero-banner__status-tag"
+                  :color="getStatusColor(activeCompetition.status)"
+                  :style="activeCompetition.status === 'draft' ? { color: '#1a1a1a', borderColor: 'rgba(0,0,0,0.15)' } : null"
                 >
-                  <span class="competition-briefing__section-bg-num" aria-hidden="true">{{ block.num }}</span>
-                  <h3 class="competition-briefing__section-title">{{ block.title }}</h3>
-                  <div class="competition-briefing__section-text">{{ block.body }}</div>
-                </div>
-                <ul class="competition-briefing__footnotes">
-                  
-                  <li>请勿使用未经授权的他人作品素材；提交作品即表示同意遵守主办方公布的赛事规则。</li>
-                </ul>
+                  {{ getStatusText(activeCompetition.status) }}
+                </a-tag>
+                <span class="competition-hero-banner__id">ID {{ activeCompetitionId }}</span>
               </div>
-              <div class="competition-briefing__col competition-briefing__col--aside">
-                <div class="competition-briefing__aside-inner">
-                  <img
-                    v-if="studentBriefingQrObjectUrl"
-                    :src="studentBriefingQrObjectUrl"
-                    class="competition-briefing__qr"
-                    alt="赛事交流群二维码"
-                  />
-                  <div v-else class="competition-briefing__qr-placeholder">暂无二维码</div>
-
-                  <div v-if="studentBriefingContactLine" class="competition-briefing__contact">
-                    电话联系方式：<span class="competition-briefing__contact-num">{{ studentBriefingContactLine }}</span>
-                  </div>
-                  <div v-else class="competition-briefing__contact muted-soft">
-                    联系电话请见群内公告或主办方通知。
-                  </div>
-                </div>
+              <p v-if="competitionHeroSubtitleEn" class="competition-hero-banner__title-en">{{ competitionHeroSubtitleEn }}</p>
+              <p v-if="competitionHeroSlogan" class="competition-hero-banner__slogan">{{ competitionHeroSlogan }}</p>
+              <div v-if="activeCompetition" class="competition-hero-banner__dates">
+                <span class="competition-hero-banner__dates-label">活动时间</span>
+                <span class="competition-hero-banner__dates-range">{{ competitionHeroDateRange }}</span>
               </div>
             </div>
           </div>
         </div>
-      </a-card>
 
-      <a-card
-        v-else-if="activeCompetition"
-        size="small"
-        class="sub-card competition-info-card"
-        :bordered="true"
-        title="竞赛信息"
-      >
-        <a-descriptions :column="2" size="small" bordered>
-          <a-descriptions-item label="竞赛ID">{{ activeCompetition.id }}</a-descriptions-item>
-          <a-descriptions-item label="竞赛名称">{{ activeCompetition.name }}</a-descriptions-item>
-          <a-descriptions-item label="简介" :span="2">{{ activeCompetition.description || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="规则说明" :span="2">{{ activeCompetition.rules_text || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="开始时间">{{ formatDateTime(activeCompetition.start_at) }}</a-descriptions-item>
-          <a-descriptions-item label="结束时间">{{ formatDateTime(activeCompetition.end_at) }}</a-descriptions-item>
-          <a-descriptions-item label="允许个人参赛">{{ activeCompetition.allow_individual ? '是' : '否' }}</a-descriptions-item>
-          <a-descriptions-item label="允许团队参赛">{{ activeCompetition.allow_team ? '是' : '否' }}</a-descriptions-item>
-          <a-descriptions-item label="状态">{{ getStatusText(competitionDisplayStatusKey) }}</a-descriptions-item>
-          <a-descriptions-item label="创建时间">{{ formatDateTime(activeCompetition.created_at) }}</a-descriptions-item>
-          <a-descriptions-item label="更新时间" :span="2">{{ formatDateTime(activeCompetition.updated_at) }}</a-descriptions-item>
-        </a-descriptions>
-      </a-card>
+        <!-- 学生独立详情：赛题说明（参考赛事说明页：双栏、网格底、章节编号） -->
+        <a-card
+          v-if="activeCompetition && isStudent && standaloneDetailMode"
+          size="small"
+          class="sub-card competition-briefing-card competition-info-card"
+          :bordered="false"
+        >
+          <div class="competition-briefing">
+            <header class="competition-briefing__header">
+              <h2 class="competition-briefing__main-title">竞赛相关</h2>
+              <p class="competition-briefing__sub-en">DIRECTIONS</p>
+            </header>
+            <div class="competition-briefing__frame">
+              <div class="competition-briefing__grid" aria-hidden="true" />
+              <div class="competition-briefing__body">
+                <div class="competition-briefing__col competition-briefing__col--main">
+                  <div
+                    v-for="block in studentBriefingBlocks"
+                    :key="block.num + block.title"
+                    class="competition-briefing__section"
+                  >
+                    <span class="competition-briefing__section-bg-num" aria-hidden="true">{{ block.num }}</span>
+                    <h3 class="competition-briefing__section-title">{{ block.title }}</h3>
+                    <div class="competition-briefing__section-text">{{ block.body }}</div>
+                  </div>
+                  <ul class="competition-briefing__footnotes">
 
-      <a-divider />
+                    <li>请勿使用未经授权的他人作品素材；提交作品即表示同意遵守主办方公布的赛事规则。</li>
+                  </ul>
+                </div>
+                <div class="competition-briefing__col competition-briefing__col--aside">
+                  <div class="competition-briefing__aside-inner">
+                    <img
+                      v-if="studentBriefingQrObjectUrl"
+                      :src="studentBriefingQrObjectUrl"
+                      class="competition-briefing__qr"
+                      alt="赛事交流群二维码"
+                    />
+                    <div v-else class="competition-briefing__qr-placeholder">暂无二维码</div>
 
-      <!-- 学生区（非独立详情页：内联展示） -->
-      <div v-if="isStudent && !standaloneDetailMode">
-        <a-card size="small" class="sub-card" :bordered="true" title="报名与组队">
-          <a-alert
-            v-if="enrollBlockedHint"
-            type="warning"
-            show-icon
-            :message="enrollBlockedHint"
-            style="margin-bottom: 12px"
-          />
-          <a-form layout="inline" :style="{ marginBottom: '12px' }">
-            <a-form-item label="参赛方式">
-              <a-radio-group v-model="enrollMode">
-                <a-radio-button value="individual" :disabled="!allowIndividual || enrollTeamBlocksIndividual">个人参赛</a-radio-button>
-                <a-radio-button value="team" :disabled="!allowTeam || enrollIndividualBlocksTeam">队伍参赛</a-radio-button>
-              </a-radio-group>
-            </a-form-item>
-          </a-form>
-
-          <a-form layout="vertical" class="enroll-profile-form" style="margin-top: 4px; max-width: 640px">
-            <div class="muted" style="margin-bottom: 8px; font-size: 13px">
-              报名信息（选填）：学号、姓名、学院、年级、联系方式将随报名一并提交；未填写也可报名。
+                    <div v-if="studentBriefingContactLine" class="competition-briefing__contact">
+                      电话联系方式：<span class="competition-briefing__contact-num">{{ studentBriefingContactLine }}</span>
+                    </div>
+                    <div v-else class="competition-briefing__contact muted-soft">
+                      联系电话请见群内公告或主办方通知。
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <a-row :gutter="12">
-              <a-col :xs="24" :sm="12">
-                <a-form-item label="学号" :colon="false">
-                  <a-input
-                    v-model="enrollProfileForm.student_no"
-                    placeholder="选填"
-                    :allow-clear="!enrollProfileLockedAfterSuccess"
-                    :disabled="enrollProfileLockedAfterSuccess"
-                  />
-                </a-form-item>
-              </a-col>
-              <a-col :xs="24" :sm="12">
-                <a-form-item label="姓名" :colon="false">
-                  <a-input
-                    v-model="enrollProfileForm.real_name"
-                    placeholder="选填"
-                    :allow-clear="!enrollProfileLockedAfterSuccess"
-                    :disabled="enrollProfileLockedAfterSuccess"
-                  />
-                </a-form-item>
-              </a-col>
-              <a-col :xs="24" :sm="12">
-                <a-form-item label="学院" :colon="false">
-                  <a-input
-                    v-model="enrollProfileForm.college"
-                    placeholder="选填"
-                    :allow-clear="!enrollProfileLockedAfterSuccess"
-                    :disabled="enrollProfileLockedAfterSuccess"
-                  />
-                </a-form-item>
-              </a-col>
-              <a-col :xs="24" :sm="12">
-                <a-form-item label="年级" :colon="false">
-                  <a-input
-                    v-model="enrollProfileForm.grade"
-                    placeholder="如 2023级，选填"
-                    :allow-clear="!enrollProfileLockedAfterSuccess"
-                    :disabled="enrollProfileLockedAfterSuccess"
-                  />
-                </a-form-item>
-              </a-col>
-              <a-col :xs="24" :sm="12">
-                <a-form-item label="联系方式" :colon="false">
-                  <a-input
-                    v-model="enrollProfileForm.contact"
-                    placeholder="手机或邮箱，选填"
-                    :allow-clear="!enrollProfileLockedAfterSuccess"
-                    :disabled="enrollProfileLockedAfterSuccess"
-                  />
-                </a-form-item>
-              </a-col>
-            </a-row>
-          </a-form>
-
-          <div v-if="enrollMode === 'team'" class="muted" style="margin-bottom: 12px; font-size: 13px">
-            队伍参赛流程：① 创建队伍 <strong>或</strong> 加入已有队伍 → ② 获得「我的队伍ID」后 → ③ 若后端未自动报名，再点击「报名（队伍）」。（部分接口在创建队伍时已自动完成竞赛报名，此时无需再点报名。）
           </div>
+        </a-card>
 
-          <div class="row">
-            <a-button
-              type="primary"
-              :loading="enrollLoading"
-              @click="handleEnrollIndividual"
-              v-if="enrollMode === 'individual'"
-              :disabled="!canEnrollCompetition || !allowIndividual || enrollTeamBlocksIndividual || activeCompetitionMyEnrollKind === 'individual'"
-            >
-              {{ activeCompetitionMyEnrollKind === 'individual' ? '你已报名成功' : '报名个人' }}
-            </a-button>
+        <a-card
+          v-else-if="activeCompetition"
+          size="small"
+          class="sub-card competition-info-card"
+          :bordered="true"
+          title="竞赛信息"
+        >
+          <a-descriptions :column="2" size="small" bordered>
+            <a-descriptions-item label="竞赛ID">{{ activeCompetition.id }}</a-descriptions-item>
+            <a-descriptions-item label="竞赛名称">{{ activeCompetition.name }}</a-descriptions-item>
+            <a-descriptions-item label="简介" :span="2">{{ activeCompetition.description || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="规则说明" :span="2">{{ activeCompetition.rules_text || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="开始时间">{{ formatDateTime(activeCompetition.start_at) }}</a-descriptions-item>
+            <a-descriptions-item label="结束时间">{{ formatDateTime(activeCompetition.end_at) }}</a-descriptions-item>
+            <a-descriptions-item label="允许个人参赛">{{ activeCompetition.allow_individual ? '是' : '否' }}</a-descriptions-item>
+            <a-descriptions-item label="允许团队参赛">{{ activeCompetition.allow_team ? '是' : '否' }}</a-descriptions-item>
+            <a-descriptions-item label="状态">{{ getStatusText(activeCompetition.status) }}</a-descriptions-item>
+            <a-descriptions-item label="创建时间">{{ formatDateTime(activeCompetition.created_at) }}</a-descriptions-item>
+            <a-descriptions-item label="更新时间" :span="2">{{ formatDateTime(activeCompetition.updated_at) }}</a-descriptions-item>
+          </a-descriptions>
+        </a-card>
 
-            <template v-else>
+        <a-divider />
+
+        <!-- 学生区（非独立详情页：内联展示） -->
+        <div v-if="isStudent && !standaloneDetailMode">
+          <a-card size="small" class="sub-card" :bordered="true" title="报名与组队">
+            <a-alert
+              v-if="competitionEnrollPublishBlocked"
+              type="warning"
+              show-icon
+              :message="competitionEnrollBlockedAlertTitle"
+              :description="competitionEnrollBlockedAlertDescription"
+              style="margin-bottom: 12px"
+            />
+            <a-form layout="inline" :style="{ marginBottom: '12px' }">
+              <a-form-item label="参赛方式">
+                <a-radio-group v-model="enrollMode">
+                  <a-radio-button value="individual" :disabled="!allowIndividual">个人参赛</a-radio-button>
+                  <a-radio-button value="team" :disabled="!allowTeam">队伍参赛</a-radio-button>
+                </a-radio-group>
+              </a-form-item>
+            </a-form>
+           
+
+            <a-form layout="vertical" class="enroll-profile-form" style="margin-top: 4px; max-width: 640px">
+              
+              <a-row :gutter="12">
+                <a-col :xs="24" :sm="12">
+                  <a-form-item label="学号" :colon="false">
+                    <a-input
+                      v-model="enrollProfileForm.student_no"
+                      placeholder="选填"
+                      :allow-clear="!enrollProfileLockedAfterSuccess"
+                      :disabled="enrollProfileLockedAfterSuccess"
+                    />
+                  </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="12">
+                  <a-form-item label="姓名" :colon="false">
+                    <a-input
+                      v-model="enrollProfileForm.real_name"
+                      placeholder="选填"
+                      :allow-clear="!enrollProfileLockedAfterSuccess"
+                      :disabled="enrollProfileLockedAfterSuccess"
+                    />
+                  </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="12">
+                  <a-form-item label="学院" :colon="false">
+                    <a-input
+                      v-model="enrollProfileForm.college"
+                      placeholder="选填"
+                      :allow-clear="!enrollProfileLockedAfterSuccess"
+                      :disabled="enrollProfileLockedAfterSuccess"
+                    />
+                  </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="12">
+                  <a-form-item label="年级" :colon="false">
+                    <a-input
+                      v-model="enrollProfileForm.grade"
+                      placeholder="如 2023级，选填"
+                      :allow-clear="!enrollProfileLockedAfterSuccess"
+                      :disabled="enrollProfileLockedAfterSuccess"
+                    />
+                  </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="12">
+                  <a-form-item label="联系方式" :colon="false">
+                    <a-input
+                      v-model="enrollProfileForm.contact"
+                      placeholder="手机或邮箱，选填"
+                      :allow-clear="!enrollProfileLockedAfterSuccess"
+                      :disabled="enrollProfileLockedAfterSuccess"
+                    />
+                  </a-form-item>
+                </a-col>
+              </a-row>
+            </a-form>
+
+            <div v-if="enrollMode === 'team'" class="muted" style="margin-bottom: 12px; font-size: 13px">
+              <template v-if="studentTeamEnrolledAsMember">
+                您已完成队伍赛道报名（队员身份）。队伍由队长统一管理，无需创建/加入队伍或进行队长操作。
+              </template>
+              <template v-else>
+                队伍参赛流程：① 创建队伍 <strong>或</strong> 加入已有队伍 → ② 获得「我的队伍ID」后 → ③ 若后端未自动报名，再点击「报名（队伍）」。（部分接口在创建队伍时已自动完成竞赛报名，此时无需再点报名。）
+              </template>
+            </div>
+
+            <div class="row">
               <a-button
                 type="primary"
                 :loading="enrollLoading"
-                @click="handleCreateTeamOnly"
-                :disabled="!canEnrollCompetition || !allowTeam || enrollIndividualBlocksTeam"
-                style="margin-right: 8px"
+                @click="handleEnrollIndividual"
+                v-if="enrollMode === 'individual'"
+                :disabled="competitionEnrollPublishBlocked || !allowIndividual || myEnrolledIndividual"
               >
-                创建队伍（自动队长）
+                {{ myEnrolledIndividual ? '个人已报名' : '报名个人' }}
               </a-button>
-              <a-button
-                type="primary"
-                :loading="enrollLoading"
-                @click="handleEnrollWithTeam"
-                :disabled="!canEnrollCompetition || !allowTeam || enrollIndividualBlocksTeam || activeCompetitionMyEnrollKind === 'team' || !teamEnrollmentEligible || !myTeamId"
-              >
-                {{ activeCompetitionMyEnrollKind === 'team' ? '你已报名成功' : '报名（队伍）' }}
-              </a-button>
-            </template>
-          </div>
 
-          <div v-if="enrollMode === 'team'" style="margin-top: 12px">
+              <template v-else>
+                <a-button
+                  v-if="showStudentTeamCreateJoinOps"
+                  type="primary"
+                  :loading="enrollLoading"
+                  @click="handleCreateTeamOnly"
+                  :disabled="competitionEnrollPublishBlocked || !allowTeam || studentHasTeamForCurrentCompetition"
+                  style="margin-right: 8px"
+                >
+                  创建队伍（自动队长）
+                </a-button>
+                <a-button
+                  type="primary"
+                  :loading="enrollLoading"
+                  @click="handleEnrollWithTeam"
+                  :disabled="competitionEnrollPublishBlocked || !allowTeam || myEnrolledTeam || !teamEnrollmentEligible || !myTeamId || teamEnrollActionBlockedForMember"
+                >
+                  {{ myEnrolledTeam ? '队伍已报名' : '报名（队伍）' }}
+                </a-button>
+              </template>
+            </div>
+            <p v-if="enrollMode === 'team' && teamEnrollActionBlockedForMember" class="muted" style="margin: 8px 0 0; font-size: 13px">
+              您已完成队伍报名且为队员，无需重复报名；创建队伍、加入队伍等操作已由队长负责。
+            </p>
+
+            <div v-if="enrollMode === 'team'" style="margin-top: 12px">
+              <a-form layout="vertical">
+                <a-form-item label="我的队伍ID（创建或加入成功后自动填入）">
+                  <a-input-number
+                    v-model="myTeamId"
+                    :min="1"
+                    placeholder="请先创建队伍或加入队伍"
+                    style="width: 240px"
+                    :disabled="true"
+                  />
+                </a-form-item>
+                <a-form-item v-if="showStudentTeamCreateJoinOps" label="加入已有队伍（输入队长提供的队伍ID）">
+                  <div class="row">
+                    <a-input-number
+                      v-model="joinTeamId"
+                      :min="1"
+                      placeholder="请输入队伍ID"
+                      style="width: 180px"
+                      :disabled="competitionEnrollPublishBlocked || studentHasTeamForCurrentCompetition"
+                    />
+                    <a-button
+                      :loading="teamLoading"
+                      :disabled="competitionEnrollPublishBlocked || studentHasTeamForCurrentCompetition"
+                      @click="handleJoinTeam"
+                    >
+                      加入队伍
+                    </a-button>
+                  </div>
+                </a-form-item>
+              </a-form>
+
+              <template v-if="showStudentTeamCaptainOptionalOps">
+              <a-divider />
+              <a-form layout="vertical">
+                <a-form-item label="队长转让（可选）">
+                  <div class="row">
+                    <a-input-number v-model="transferTeamId" :min="1" placeholder="队伍ID" style="width: 180px" />
+                    <a-input-number
+                      v-model="newCaptainId"
+                      :min="1"
+                      placeholder="新队长用户ID"
+                      style="width: 180px"
+                    />
+                    <a-button
+                      :loading="teamLoading"
+                      @click="handleTransferCaptain"
+                      :disabled="!transferTeamId || !newCaptainId"
+                    >
+                      转让
+                    </a-button>
+                  </div>
+                </a-form-item>
+                <a-form-item label="队长退队（可选，强制先转让）">
+                  <div class="row">
+                    <a-input-number v-model="leaveTeamId" :min="1" placeholder="队伍ID" style="width: 180px" />
+                    <a-button
+                      danger
+                      :loading="teamLoading"
+                      @click="handleLeaveTeam"
+                      :disabled="!leaveTeamId"
+                    >
+                      退队
+                    </a-button>
+                  </div>
+                </a-form-item>
+                <template v-if="isCurrentTeamCaptain">
+                  <a-form-item label="邀请队员（队长）">
+                    <div class="row">
+                      <a-input-number
+                        v-model="studentTeamInviteId"
+                        :min="1"
+                        placeholder="队员用户ID"
+                        style="width: 220px"
+                        :disabled="competitionTeamCreateInviteBlocked"
+                      />
+                      <a-button
+                        type="primary"
+                        :loading="teamLoading"
+                        :disabled="competitionTeamCreateInviteBlocked || !studentTeamInviteId || !myTeamId"
+                        @click="handleStudentTeamInviteMember"
+                      >
+                        邀请队员
+                      </a-button>
+                    </div>
+                  </a-form-item>
+                  <a-form-item label="移除队员（队长）">
+                    <div class="row">
+                      <a-input-number
+                        v-model="studentTeamRemoveMemberId"
+                        :min="1"
+                        placeholder="待移除队员用户ID"
+                        style="width: 220px"
+                        :disabled="competitionTeamRemoveMemberBlocked"
+                      />
+                      <a-button
+                        danger
+                        :loading="teamLoading"
+                        :disabled="competitionTeamRemoveMemberBlocked || !studentTeamRemoveMemberId || !myTeamId"
+                        @click="handleStudentTeamRemoveMember"
+                      >
+                        移除队员
+                      </a-button>
+                    </div>
+                  </a-form-item>
+                </template>
+              </a-form>
+              </template>
+            </div>
+          </a-card>
+
+          <a-card
+            v-if="hasAnyEnrollment && showSubmissionPanelInEnrollView"
+            size="small"
+            class="sub-card"
+            :bordered="true"
+            title="作品提交"
+            style="margin-top: 16px"
+          >
             <a-form layout="vertical">
-              <a-form-item label="我的队伍ID（创建或加入成功后自动填入）">
-                <a-input-number
-                  v-model="myTeamId"
-                  :min="1"
-                  placeholder="请先创建队伍或加入队伍"
-                  style="width: 240px"
-                  :disabled="true"
+              <a-form-item label="作品标题" required>
+                <a-input v-model="submissionForm.title" placeholder="请输入作品标题" style="max-width: 520px" />
+              </a-form-item>
+              <a-form-item label="作品描述">
+                <a-textarea
+                  v-model="submissionForm.description"
+                  :rows="3"
+                  placeholder="选填"
+                  style="max-width: 520px"
                 />
               </a-form-item>
-              <a-form-item label="加入已有队伍（输入队长提供的队伍ID）">
-                <div class="row">
-                  <a-input-number
-                    v-model="joinTeamId"
-                    :min="1"
-                    placeholder="请输入队伍ID"
-                    style="width: 180px"
-                  />
-                  <a-button
-                    :loading="teamLoading"
-                    :disabled="enrollIndividualBlocksTeam"
-                    @click="handleJoinTeam"
-                  >
-                    加入队伍
-                  </a-button>
+              <a-form-item label="文本内容（选填，与文件二选一至少一个）">
+                <a-textarea
+                  v-model="submissionForm.content_text"
+                  :rows="4"
+                  placeholder="选填"
+                  style="max-width: 520px"
+                />
+              </a-form-item>
+              <a-form-item label="文件（选填，支持上传；与文本至少一个）">
+                <input type="file" @change="handleFileChange" />
+                <div v-if="submissionForm.file" class="muted" style="margin-top: 6px">
+                  已选择：{{ submissionForm.file.name }}
                 </div>
               </a-form-item>
-            </a-form>
 
-            <a-divider />
-            <a-form layout="vertical">
-              <a-form-item label="队长转让（可选）">
-                <div class="row">
-                  <a-input-number v-model="transferTeamId" :min="1" placeholder="队伍ID" style="width: 180px" />
-                  <a-input-number
-                    v-model="newCaptainId"
-                    :min="1"
-                    placeholder="新队长用户ID"
-                    style="width: 180px"
-                  />
-                  <a-button
-                    :loading="teamLoading"
-                    @click="handleTransferCaptain"
-                    :disabled="!transferTeamId || !newCaptainId"
-                  >
-                    转让
-                  </a-button>
-                </div>
+              <a-form-item label="提交类型">
+                <a-radio-group v-model="submissionMode" @change="onSubmissionModeChange">
+                  <a-radio-button value="individual" :disabled="!myEnrolledIndividual || !allowIndividual">个人提交</a-radio-button>
+                  <a-radio-button value="team" :disabled="!myEnrolledTeam || !allowTeam || !isCurrentTeamCaptain">队伍提交</a-radio-button>
+                </a-radio-group>
               </a-form-item>
-              <a-form-item label="队长退队（可选，强制先转让）">
-                <div class="row">
-                  <a-input-number v-model="leaveTeamId" :min="1" placeholder="队伍ID" style="width: 180px" />
-                  <a-button
-                    danger
-                    :loading="teamLoading"
-                    @click="handleLeaveTeam"
-                    :disabled="!leaveTeamId"
-                  >
-                    退队
-                  </a-button>
-                </div>
-              </a-form-item>
-            </a-form>
-          </div>
-        </a-card>
 
-        <a-card
-          v-if="activeCompetitionMyEnrollKind"
-          size="small"
-          class="sub-card"
-          :bordered="true"
-          title="作品提交"
-          style="margin-top: 16px"
-        >
-          <a-form layout="vertical">
-            <a-form-item label="作品标题" required>
-              <a-input v-model="submissionForm.title" placeholder="请输入作品标题" style="max-width: 520px" />
-            </a-form-item>
-            <a-form-item label="作品描述">
-              <a-textarea
-                v-model="submissionForm.description"
-                :rows="3"
-                placeholder="选填"
-                style="max-width: 520px"
-              />
-            </a-form-item>
-            <a-form-item label="文本内容（选填，与文件二选一至少一个）">
-              <a-textarea
-                v-model="submissionForm.content_text"
-                :rows="4"
-                placeholder="选填"
-                style="max-width: 520px"
-              />
-            </a-form-item>
-            <a-form-item label="文件（选填，支持上传；与文本至少一个）">
-              <input type="file" @change="handleFileChange" />
-              <div v-if="submissionForm.file" class="muted" style="margin-top: 6px">
-                已选择：{{ submissionForm.file.name }}
+              <div class="row">
+                <a-button type="primary" :loading="submitLoading" @click="handleSubmitSubmission">
+                  提交作品
+                </a-button>
+                <a-button style="margin-left: 8px" @click="refreshMySubmissions" :loading="submissionsLoading">
+                  刷新我的作品
+                </a-button>
+                <a-button style="margin-left: 8px" @click="refreshMyScores(true)" :loading="scoresLoading">
+                  查看我的成绩
+                </a-button>
               </div>
-            </a-form-item>
+            </a-form>
+          </a-card>
+          <a-alert
+            v-else-if="myEnrolledTeam && enrollMode === 'team' && !isCurrentTeamCaptain"
+            type="info"
+            show-icon
+            message="当前账号为队员，只有队长可以提交队伍作品"
+            style="margin-top: 16px"
+          />
 
-            <a-form-item label="提交类型">
-              <a-radio-group v-model="submissionMode">
-                <!-- 提交类型仅跟随当前报名类型（个人参赛/队伍参赛） -->
-                <a-radio-button value="individual" :disabled="enrollMode !== 'individual' || !allowIndividual">个人提交</a-radio-button>
-                <a-radio-button value="team" :disabled="enrollMode !== 'team' || !allowTeam">队伍提交</a-radio-button>
-              </a-radio-group>
-            </a-form-item>
-
-            <a-form-item v-if="submissionMode === 'team'" label="队伍ID">
-              <a-input-number
-                v-model="submissionTeamId"
-                :min="1"
-                placeholder="建议使用你自己的队伍ID"
-                style="width: 240px"
-              />
-            </a-form-item>
-
-            <div class="row">
-              <a-button type="primary" :loading="submitLoading" @click="handleSubmitSubmission">
-                提交作品
-              </a-button>
-              <a-button style="margin-left: 8px" @click="refreshMySubmissions" :loading="submissionsLoading">
-                刷新我的作品
-              </a-button>
-              <a-button style="margin-left: 8px" @click="refreshMyScores(true)" :loading="scoresLoading">
-                查看我的成绩
-              </a-button>
+          <a-card size="small" class="sub-card" :bordered="true" title="我的作品" style="margin-top: 16px">
+            <a-empty v-if="mySubmissions.length === 0" description="暂无作品，请先报名并提交" />
+            <div v-else class="submissions-list">
+              <a-card
+                v-for="s in mySubmissions"
+                :key="s.id"
+                size="small"
+                class="submission-item"
+                :bordered="false"
+              >
+                <div class="submission-title-row">
+                  <div class="submission-title">{{ s.title || '-' }}</div>
+                  <a-tag :color="getSubmissionStatusColor(s.status)">
+                    {{ getSubmissionStatusText(s.status) }}
+                  </a-tag>
+                </div>
+                <div class="muted" style="margin-top: 6px">
+                  提交时间：{{ formatDateTime(s.submitted_at) }}
+                </div>
+                <div class="row" style="margin-top: 10px">
+                  <a-button size="small" :disabled="!s.id" @click="downloadSubmission(s.id)">
+                    下载文件
+                  </a-button>
+                </div>
+              </a-card>
             </div>
-          </a-form>
-        </a-card>
+          </a-card>
 
-        <a-card size="small" class="sub-card" :bordered="true" title="我的作品" style="margin-top: 16px">
-          <a-empty v-if="mySubmissions.length === 0" description="暂无作品，请先报名并提交" />
-          <div v-else class="submissions-list">
-            <a-card
-              v-for="s in mySubmissions"
-              :key="s.id"
-              size="small"
-              class="submission-item"
-              :bordered="false"
-            >
-              <div class="submission-title-row">
-                <div class="submission-title">{{ s.title || '-' }}</div>
-                <a-tag :color="getSubmissionStatusColor(s.status)">
-                  {{ getSubmissionStatusText(s.status) }}
-                </a-tag>
-              </div>
-              <div class="muted" style="margin-top: 6px">
-                提交时间：{{ formatDateTime(s.submitted_at) }}
-              </div>
-              <div class="row" style="margin-top: 10px">
-                <a-button size="small" :disabled="!s.id" @click="downloadSubmission(s.id)">
-                  下载文件
-                </a-button>
-              </div>
-            </a-card>
-          </div>
-        </a-card>
+        </div>
 
-      </div>
+        <!-- 指导老师/教师：组班与队务（§8.12 / §8.12.1–§8.12.3） -->
+        <div v-else-if="showAdvisorTeamPanel">
+          <a-card size="small" class="sub-card" :bordered="true" title="组班与队务（指导老师）" style="margin-top: 16px">
+            <a-alert
+              v-if="competitionTeamCreateInviteBlocked"
+              type="warning"
+              show-icon
+              message="当前不可新建队伍或邀请队员"
+              :description="competitionTeamCreateInviteBlockedDescription"
+              style="margin-bottom: 12px"
+            />
+            
 
-      <!-- 教师/管理员区 -->
-      <div v-else-if="isAdminTeacher">
-        <a-card size="small" class="sub-card" :bordered="true" title="作品列表（竞赛维度）" style="margin-top: 16px">
-          <div style="display: flex; justify-content: flex-end; margin-bottom: 8px">
-            <a-button :loading="adminSubmissionsLoading" :disabled="!activeCompetitionId" @click="refreshAdminSubmissions">
-              刷新该竞赛全部作品
-            </a-button>
-          </div>
-          <p
-            v-if="adminSubmissionsHiddenByWithdrawCount > 0"
-            class="muted"
-            style="margin: 0 0 8px; font-size: 13px"
-          >
-            已隐藏 {{ adminSubmissionsHiddenByWithdrawCount }} 条退赛前的作品，仅展示当前有效报名周期内的提交。
-          </p>
-          <a-empty v-if="adminSubmissions.length === 0" :description="adminSubmissionsEmptyDescription" />
-          <div v-else class="submissions-list">
-            <a-card
-              v-for="s in adminSubmissions"
-              :key="s.id"
-              size="small"
-              class="submission-item"
-              :bordered="false"
-            >
-              <div class="submission-title-row">
-                <div class="submission-title">{{ s.title || '-' }}</div>
-                <a-tag :color="getSubmissionStatusColor(s.status)">
-                  {{ getSubmissionStatusText(s.status) }}
-                </a-tag>
-              </div>
-              <div class="submission-meta muted" style="margin-top: 6px">
-                <span>提交ID：{{ s.id }}</span>
-                <span style="margin-left: 12px">队伍ID：{{ s.team_id != null ? s.team_id : '-' }}</span>
-                <span style="margin-left: 12px">学生ID：{{ s.student_id != null ? s.student_id : '-' }}</span>
-                <span style="margin-left: 12px">提交人ID：{{ s.submitter_id != null ? s.submitter_id : '-' }}</span>
-                <span style="margin-left: 12px">提交时间：{{ formatDateTime(s.submitted_at) }}</span>
-              </div>
-              <div v-if="isSubmissionGraded(s)" class="muted" style="margin-top: 4px; font-size: 12px">
-                分数：{{ formatScoreCell(s) }}
-              </div>
-              <div v-if="s.content_text" class="muted" style="margin-top: 4px; font-size: 12px; max-height: 60px; overflow: hidden; text-overflow: ellipsis">
-                文本内容：{{ s.content_text }}
-              </div>
-              
-              <div class="row" style="margin-top: 10px">
-                <a-button
-                  v-if="!isSubmissionGraded(s)"
-                  size="small"
-                  type="primary"
-                  :disabled="s.status === 'draft'"
-                  @click="fillGradeForm(s.id, false)"
-                >
-                  评分
-                </a-button>
-                <a-button
-                  v-else
-                  size="small"
-                  type="primary"
-                  @click="fillGradeForm(s.id, true)"
-                >
-                  修改评分
-                </a-button>
-                <a-button size="small" style="margin-left: 8px" :disabled="!s.file_id" @click="downloadSubmission(s.id)">
-                  下载文件
-                </a-button>
-              </div>
-            </a-card>
-          </div>
-        </a-card>
-
-        <a-card
-          v-if="showGradeAudit"
-          size="small"
-          class="sub-card"
-          :bordered="true"
-          :title="gradeFormIsEdit ? '修改评分（评委）' : '评分/审核（评委）'"
-          style="margin-top: 16px"
-        >
-          <a-form layout="vertical">
-            <a-form-item label="作品提交ID" required>
-              <a-input-number v-model="gradeForm.submission_id" :min="1" placeholder="请输入作品提交ID" style="width: 240px" />
-            </a-form-item>
-            <a-form-item label="分数" required>
-              <a-input v-model="gradeForm.score" placeholder="例如：95.0" style="width: 240px" />
-            </a-form-item>
-            <a-form-item label="反馈">
-              <a-textarea v-model="gradeForm.feedback" :rows="3" placeholder="选填" style="max-width: 520px" />
-            </a-form-item>
-            <div class="row">
+            <a-divider orientation="left">创建队伍</a-divider>
+            <a-form layout="vertical" style="max-width: 720px">
+              <a-row :gutter="12">
+                <a-col :xs="24" :sm="12">
+                  <a-form-item label="队名（选填）">
+                    <a-input
+                      v-model="advisorCreateForm.name"
+                      placeholder="如：一班代表队"
+                      :disabled="competitionTeamCreateInviteBlocked || !allowTeam"
+                    />
+                  </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="12">
+                  <a-form-item label="队长学生 ID">
+                    <a-input-number
+                      v-model="advisorCreateForm.captain_student_id"
+                      :min="1"
+                      placeholder="默认同队员列表首人"
+                      style="width: 100%"
+                      :disabled="competitionTeamCreateInviteBlocked || !allowTeam"
+                    />
+                  </a-form-item>
+                </a-col>
+                <a-col :span="24">
+                  <a-form-item label="初始队员 ID（必填，逗号分隔）" required>
+                    <a-input
+                      v-model="advisorCreateForm.initial_member_ids_text"
+                      placeholder="如：7,8,9"
+                      :disabled="competitionTeamCreateInviteBlocked || !allowTeam"
+                    />
+                  </a-form-item>
+                </a-col>
+              </a-row>
               <a-button
                 type="primary"
-                :loading="gradeLoading"
-                @click="handleReviewGrade"
-                :disabled="!gradeForm.submission_id"
+                :loading="advisorCreateLoading"
+                :disabled="competitionTeamCreateInviteBlocked || !allowTeam || !activeCompetitionId"
+                @click="handleAdvisorCreateTeam"
               >
-                {{ gradeFormIsEdit ? '保存修改' : '提交评分' }}
+                创建队伍并拉入队员
               </a-button>
-              <a-button style="margin-left: 8px" @click="cancelGradeAudit" :disabled="gradeLoading">
-                取消
+            </a-form>
+
+            <a-divider orientation="left">队伍列表与队务</a-divider>
+            <div class="row" style="margin-bottom: 12px">
+              <a-button
+                :loading="advisorTeamsLoading"
+                :disabled="!activeCompetitionId"
+                @click="refreshAdvisorTeams"
+              >
+                刷新队伍列表
               </a-button>
             </div>
-          </a-form>
-        </a-card>
-
-        <a-card size="small" class="sub-card" :bordered="true" title="参赛者名单（竞赛维度）" style="margin-top: 16px">
-          <div class="row">
-            <a-button
-              :loading="participantsIndividualLoading"
-              @click="refreshParticipantsIndividual"
-              :disabled="!activeCompetitionId"
-              type="primary"
+            <a-empty v-if="!advisorTeamsLoading && advisorTeams.length === 0" description="暂无队伍，请先创建或刷新" />
+            <a-table
+              v-else
+              class="advisor-teams-table"
+              row-key="id"
+              size="small"
+              bordered
+              :loading="advisorTeamsLoading"
+              :columns="advisorTeamsTableColumns"
+              :data-source="advisorTeamsTableData"
+              :pagination="{ pageSize: 8, showSizeChanger: true }"
+              :scroll="{ x: 880 }"
             >
-              查看个人参赛者
-            </a-button>
-            <a-button
-              style="margin-left: 8px"
-              :loading="participantsTeamsLoading"
-              @click="refreshParticipantsTeams"
-              :disabled="!activeCompetitionId"
+              <template slot="teamActions" slot-scope="text, record">
+                <a-button
+                  size="small"
+                  type="link"
+                  class="advisor-team-manage-btn"
+                  @click.stop="selectAdvisorTeam(record.id)"
+                >
+                  管理
+                </a-button>
+              </template>
+            </a-table>
+
+            <a-card
+              v-if="advisorSelectedTeam"
+              size="small"
+              class="sub-card advisor-manage-team-card"
+              :bordered="true"
+              :title="`管理队伍 #${advisorSelectedTeam.id}`"
+              style="margin-top: 16px"
             >
-              查看组队参赛者
-            </a-button>
-          </div>
-        </a-card>
+              <a-descriptions size="small" bordered :column="2">
+                <a-descriptions-item label="队名">{{ advisorSelectedTeam.name || '（未设置）' }}</a-descriptions-item>
+                <a-descriptions-item label="队长 ID">{{ advisorSelectedTeam.captain_id }}</a-descriptions-item>
+                <a-descriptions-item label="状态">{{ participantTeamStatusText(advisorSelectedTeam.status) }}</a-descriptions-item>
+                <a-descriptions-item label="建队老师 ID">{{ advisorSelectedTeam.created_by_advisor_id != null ? advisorSelectedTeam.created_by_advisor_id : '-' }}</a-descriptions-item>
+              </a-descriptions>
 
-        <a-card size="small" class="sub-card" :bordered="true" title="评分汇总/排行榜" style="margin-top: 16px">
-          <div class="row">
-            <a-button :loading="summaryLoading" @click="refreshScoresSummary" :disabled="!activeCompetitionId">
-              查看评分汇总
-            </a-button>
-            <a-button :loading="rankingsLoading" @click="openRankingsModal" :disabled="!activeCompetitionId">
-              查看排行榜
-            </a-button>
-          </div>
-        </a-card>
-      </div>
+              <div class="advisor-manage-team-ops">
+                <a-form layout="inline" style="margin-top: 12px">
+                  <a-form-item label="新队名">
+                    <a-input
+                      v-model="advisorRenameName"
+                      placeholder="可留空表示清空展示名"
+                      style="width: 220px"
+                      :disabled="!canOperateAdvisorSelectedTeam"
+                    />
+                  </a-form-item>
+                  <a-form-item>
+                    <a-button
+                      type="primary"
+                      :loading="advisorTeamOpLoading"
+                      :disabled="!canOperateAdvisorSelectedTeam"
+                      @click="handleAdvisorRenameTeam"
+                    >
+                      保存队名
+                    </a-button>
+                  </a-form-item>
+                </a-form>
 
-      <a-empty
-        v-if="!isStudent && !isAdminTeacher"
-        style="margin-top: 16px"
-        description="当前角色暂无竞赛报名/管理权限"
-      />
+                <a-form layout="inline" style="margin-top: 8px">
+                  <a-form-item label="邀请学生 ID">
+                    <a-input-number
+                      v-model="advisorInviteStudentId"
+                      :min="1"
+                      placeholder=""
+                      style="width: 180px"
+                      :disabled="!canOperateAdvisorSelectedTeam || competitionTeamCreateInviteBlocked"
+                    />
+                  </a-form-item>
+                  <a-form-item>
+                    <a-button
+                      type="primary"
+                      :loading="advisorTeamOpLoading"
+                      :disabled="!canOperateAdvisorSelectedTeam || competitionTeamCreateInviteBlocked || !advisorInviteStudentId"
+                      @click="handleAdvisorInviteMember"
+                    >
+                      邀请入队
+                    </a-button>
+                  </a-form-item>
+                </a-form>
+              </div>
+              <div v-if="advisorSelectedTeamMembers.length" class="advisor-team-members-list" style="margin-top: 12px">
+                <div class="advisor-team-members-label" style="margin-bottom: 6px; font-size: 13px">队员</div>
+                <div
+                  v-for="m in advisorSelectedTeamMembers"
+                  :key="'tm-' + m.id + '-' + m.user_id"
+                  class="row advisor-team-member-row"
+                  style="justify-content: space-between; padding: 6px 0"
+                >
+                  <span>
+                    用户 ID {{ m.user_id }}
+                    <a-tag v-if="m.is_captain" color="blue" style="margin-left: 8px">队长</a-tag>
+                  </span>
+                  <a-button
+                    v-if="canOperateAdvisorSelectedTeam && !m.is_captain && !competitionTeamRemoveMemberBlocked"
+                    size="small"
+                    type="link"
+                    danger
+                    :loading="advisorTeamOpLoading && advisorRemovingUserId === m.user_id"
+                    @click="handleAdvisorRemoveMember(advisorSelectedTeam.id, m.user_id)"
+                  >
+                    移除
+                  </a-button>
+                </div>
+              </div>
+              <p v-if="!canOperateAdvisorSelectedTeam" class="muted" style="margin: 8px 0 0; font-size: 13px">
+                当前队伍非您创建且您无队务权限，仅可查看；改队名、邀请队员需由建队老师或队长操作。
+              </p>
+              <p
+                v-else-if="competitionTeamCreateInviteBlocked"
+                class="muted advisor-manage-team-hint"
+                style="margin: 8px 0 0; font-size: 13px"
+              >
+                {{ competitionTeamCreateInviteBlockedDescription }}
+              </p>
+              <p
+                v-if="canOperateAdvisorSelectedTeam && competitionTeamRemoveMemberBlocked && advisorSelectedTeamMembers.length"
+                class="muted advisor-manage-team-hint"
+                style="margin: 8px 0 0; font-size: 13px"
+              >
+                {{ competitionTeamRemoveMemberBlockedMessage }}
+              </p>
+            </a-card>
+          </a-card>
+        </div>
+
+        <a-alert
+          v-if="showExpertNotAssignedHint"
+          type="warning"
+          show-icon
+          style="margin-top: 16px"
+          message="未指派到本竞赛"
+          :description="roleNoPermissionDescription"
+        />
+
+        <!-- 管理员 / 已指派专家评阅区 -->
+        <div v-if="isCompetitionWorkbench">
+          <a-card
+            v-if="canViewCompetitionSubmissions"
+            size="small"
+            class="sub-card"
+            :bordered="true"
+            title="作品列表（竞赛维度）"
+            style="margin-top: 16px"
+          >
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 8px">
+              <a-button :loading="adminSubmissionsLoading" :disabled="!activeCompetitionId" @click="refreshAdminSubmissions">
+                刷新该竞赛全部作品
+              </a-button>
+            </div>
+            <p
+              v-if="adminSubmissionsHiddenByWithdrawCount > 0"
+              class="muted"
+              style="margin: 0 0 8px; font-size: 13px"
+            >
+              仅展示当前有效报名周期内的提交。
+            </p>
+            <a-empty v-if="adminSubmissions.length === 0" :description="adminSubmissionsEmptyDescription" />
+            <div v-else class="submissions-list">
+              <a-card
+                v-for="s in adminSubmissions"
+                :key="s.id"
+                size="small"
+                class="submission-item"
+                :bordered="false"
+              >
+                <div class="submission-title-row">
+                  <div class="submission-title">{{ s.title || '-' }}</div>
+                  <a-tag :color="getSubmissionStatusColor(s.status)">
+                    {{ getSubmissionStatusText(s.status) }}
+                  </a-tag>
+                </div>
+                <div class="submission-meta muted" style="margin-top: 6px">
+                  <span>提交ID：{{ s.id }}</span>
+                  <span style="margin-left: 12px">队伍ID：{{ s.team_id != null ? s.team_id : '-' }}</span>
+                  <span style="margin-left: 12px">学生ID：{{ s.student_id != null ? s.student_id : '-' }}</span>
+                  <span style="margin-left: 12px">提交人ID：{{ s.submitter_id != null ? s.submitter_id : '-' }}</span>
+                  <span style="margin-left: 12px">提交时间：{{ formatDateTime(s.submitted_at) }}</span>
+                </div>
+                <div v-if="isSubmissionGraded(s)" class="muted" style="margin-top: 4px; font-size: 12px">
+                  分数：{{ formatScoreCell(s) }}
+                </div>
+                <div v-if="s.content_text" class="muted" style="margin-top: 4px; font-size: 12px; max-height: 60px; overflow: hidden; text-overflow: ellipsis">
+                  文本内容：{{ s.content_text }}
+                </div>
+
+                <div class="row" style="margin-top: 10px">
+                  <template v-if="canReviewSubmissions">
+                    <a-button
+                      v-if="!isSubmissionGraded(s)"
+                      size="small"
+                      type="primary"
+                      :disabled="s.status === 'draft'"
+                      @click="fillGradeForm(s.id, false)"
+                    >
+                      评分
+                    </a-button>
+                    <a-button
+                      v-else
+                      size="small"
+                      type="primary"
+                      @click="fillGradeForm(s.id, true)"
+                    >
+                      修改评分
+                    </a-button>
+                  </template>
+                  <a-button size="small" style="margin-left: 8px" :disabled="!s.file_id" @click="downloadSubmission(s.id)">
+                    下载文件
+                  </a-button>
+                </div>
+              </a-card>
+            </div>
+          </a-card>
+
+          <a-card
+            v-if="showGradeAudit && canReviewSubmissions"
+            size="small"
+            class="sub-card"
+            :bordered="true"
+            :title="gradeFormIsEdit ? '修改评分（评委）' : '评分/审核（评委）'"
+            style="margin-top: 16px"
+          >
+            <a-form layout="vertical">
+              <a-form-item label="作品提交ID" required>
+                <a-input-number v-model="gradeForm.submission_id" :min="1" placeholder="请输入作品提交ID" style="width: 240px" />
+              </a-form-item>
+              <a-form-item label="分数" required>
+                <a-input v-model="gradeForm.score" placeholder="例如：95.0" style="width: 240px" />
+              </a-form-item>
+              <a-form-item label="反馈">
+                <a-textarea v-model="gradeForm.feedback" :rows="3" placeholder="选填" style="max-width: 520px" />
+              </a-form-item>
+              <div class="row">
+                <a-button
+                  type="primary"
+                  :loading="gradeLoading"
+                  @click="handleReviewGrade"
+                  :disabled="!gradeForm.submission_id"
+                >
+                  {{ gradeFormIsEdit ? '保存修改' : '提交评分' }}
+                </a-button>
+                <a-button style="margin-left: 8px" @click="cancelGradeAudit" :disabled="gradeLoading">
+                  取消
+                </a-button>
+              </div>
+            </a-form>
+          </a-card>
+
+          <a-card
+            v-if="canViewParticipantsRoster"
+            size="small"
+            class="sub-card"
+            :bordered="true"
+            title="参赛者名单（竞赛维度）"
+            style="margin-top: 16px"
+          >
+            <div class="row">
+              <a-button
+                :loading="participantsIndividualLoading"
+                @click="refreshParticipantsIndividual"
+                :disabled="!activeCompetitionId"
+                type="primary"
+              >
+                查看个人参赛者
+              </a-button>
+              <a-button
+                style="margin-left: 8px"
+                :loading="participantsTeamsLoading"
+                @click="refreshParticipantsTeams"
+                :disabled="!activeCompetitionId"
+              >
+                查看组队参赛者
+              </a-button>
+              <a-button
+                v-if="canManageCompetitions"
+                style="margin-left: 8px"
+                type="primary"
+                :loading="participantsTeamsExportLoading"
+                @click="exportTeamsExcel"
+                :disabled="!activeCompetitionId"
+              >
+                导出队伍 Excel
+              </a-button>
+            </div>
+          </a-card>
+
+          <a-card
+            v-if="canViewScoreAnalytics"
+            size="small"
+            class="sub-card"
+            :bordered="true"
+            title="评分汇总/排行榜"
+            style="margin-top: 16px"
+          >
+            <div class="row">
+              <a-button :loading="summaryLoading" @click="refreshScoresSummary" :disabled="!activeCompetitionId">
+                查看评分汇总
+              </a-button>
+              <a-button :loading="rankingsLoading" @click="openRankingsModal" :disabled="!activeCompetitionId">
+                查看排行榜
+              </a-button>
+            </div>
+          </a-card>
+        </div>
+
+        <a-empty
+          v-if="!isStudent && !showAdvisorTeamPanel && !isCompetitionWorkbench && !showExpertNotAssignedHint"
+          style="margin-top: 16px"
+          :description="roleNoPermissionDescription"
+        />
       </div>
 
     </a-card>
@@ -657,25 +949,24 @@
     >
       <div class="standalone-modal-scroll">
         <a-alert
-          v-if="enrollBlockedHint"
+          v-if="competitionEnrollPublishBlocked"
           type="warning"
           show-icon
-          :message="enrollBlockedHint"
+          :message="competitionEnrollBlockedAlertTitle"
+          :description="competitionEnrollBlockedAlertDescription"
           style="margin-bottom: 12px"
         />
         <a-form layout="inline" :style="{ marginBottom: '12px' }">
           <a-form-item label="参赛方式">
             <a-radio-group v-model="enrollMode">
-              <a-radio-button value="individual" :disabled="!allowIndividual || enrollTeamBlocksIndividual">个人参赛</a-radio-button>
-              <a-radio-button value="team" :disabled="!allowTeam || enrollIndividualBlocksTeam">队伍参赛</a-radio-button>
+              <a-radio-button value="individual" :disabled="!allowIndividual">个人参赛</a-radio-button>
+              <a-radio-button value="team" :disabled="!allowTeam">队伍参赛</a-radio-button>
             </a-radio-group>
           </a-form-item>
         </a-form>
-
+        
         <a-form layout="vertical" class="enroll-profile-form" style="margin-top: 4px; max-width: 640px">
-          <div class="muted" style="margin-bottom: 8px; font-size: 13px">
-            报名信息（选填）：学号、姓名、学院、年级、联系方式将随报名一并提交；未填写也可报名。
-          </div>
+          
           <a-row :gutter="12">
             <a-col :xs="24" :sm="12">
               <a-form-item label="学号" :colon="false">
@@ -731,7 +1022,12 @@
         </a-form>
 
         <div v-if="enrollMode === 'team'" class="muted" style="margin-bottom: 12px; font-size: 13px">
-          队伍参赛流程：① 创建队伍 <strong>或</strong> 加入已有队伍 → ② 获得「我的队伍ID」后 → ③ 若后端未自动报名，再点击「报名（队伍）」。（部分接口在创建队伍时已自动完成竞赛报名，此时无需再点报名。）
+          <template v-if="studentTeamEnrolledAsMember">
+            您已完成队伍赛道报名（队员身份）。队伍由队长统一管理，无需创建/加入队伍或进行队长操作。
+          </template>
+          <template v-else>
+            队伍参赛流程：① 创建队伍 <strong>或</strong> 加入已有队伍 → ② 获得「我的队伍ID」后 → ③ 若后端未自动报名，再点击「报名（队伍）」。（部分接口在创建队伍时已自动完成竞赛报名，此时无需再点报名。）
+          </template>
         </div>
 
         <div class="row">
@@ -740,17 +1036,18 @@
             :loading="enrollLoading"
             @click="handleEnrollIndividual"
             v-if="enrollMode === 'individual'"
-            :disabled="!canEnrollCompetition || !allowIndividual || enrollTeamBlocksIndividual || activeCompetitionMyEnrollKind === 'individual'"
+            :disabled="competitionEnrollPublishBlocked || !allowIndividual || myEnrolledIndividual"
           >
-            {{ activeCompetitionMyEnrollKind === 'individual' ? '你已报名成功' : '报名个人' }}
+            {{ myEnrolledIndividual ? '个人已报名' : '报名个人' }}
           </a-button>
 
           <template v-else>
             <a-button
+              v-if="showStudentTeamCreateJoinOps"
               type="primary"
               :loading="enrollLoading"
               @click="handleCreateTeamOnly"
-              :disabled="!canEnrollCompetition || !allowTeam || enrollIndividualBlocksTeam"
+              :disabled="competitionEnrollPublishBlocked || !allowTeam || studentHasTeamForCurrentCompetition"
               style="margin-right: 8px"
             >
               创建队伍（自动队长）
@@ -759,13 +1056,16 @@
               type="primary"
               :loading="enrollLoading"
               @click="handleEnrollWithTeam"
-              :disabled="!canEnrollCompetition || !allowTeam || enrollIndividualBlocksTeam || activeCompetitionMyEnrollKind === 'team' || !teamEnrollmentEligible || !myTeamId"
+              :disabled="competitionEnrollPublishBlocked || !allowTeam || myEnrolledTeam || !teamEnrollmentEligible || !myTeamId || teamEnrollActionBlockedForMember"
             >
-              {{ activeCompetitionMyEnrollKind === 'team' ? '你已报名成功' : '报名（队伍）' }}
+              {{ myEnrolledTeam ? '队伍已报名' : '报名（队伍）' }}
             </a-button>
           </template>
-          
+
         </div>
+        <p v-if="enrollMode === 'team' && teamEnrollActionBlockedForMember" class="muted" style="margin: 8px 0 0; font-size: 13px">
+          您已完成队伍报名且为队员，无需重复报名；创建队伍、加入队伍等操作已由队长负责。
+        </p>
 
         <div v-if="enrollMode === 'team'" style="margin-top: 12px">
           <a-form layout="vertical">
@@ -778,17 +1078,18 @@
                 :disabled="true"
               />
             </a-form-item>
-            <a-form-item label="加入已有队伍（输入队长提供的队伍ID）">
+            <a-form-item v-if="showStudentTeamCreateJoinOps" label="加入已有队伍（输入队长提供的队伍ID）">
               <div class="row">
                 <a-input-number
                   v-model="joinTeamId"
                   :min="1"
                   placeholder="请输入队伍ID"
                   style="width: 180px"
+                  :disabled="competitionEnrollPublishBlocked || studentHasTeamForCurrentCompetition"
                 />
                 <a-button
                   :loading="teamLoading"
-                  :disabled="enrollIndividualBlocksTeam"
+                  :disabled="competitionEnrollPublishBlocked || studentHasTeamForCurrentCompetition"
                   @click="handleJoinTeam"
                 >
                   加入队伍
@@ -797,6 +1098,7 @@
             </a-form-item>
           </a-form>
 
+          <template v-if="showStudentTeamCaptainOptionalOps">
           <a-divider />
           <a-form layout="vertical">
             <a-form-item label="队长转让（可选）">
@@ -830,14 +1132,55 @@
                 </a-button>
               </div>
             </a-form-item>
+            <template v-if="isCurrentTeamCaptain">
+              <a-form-item label="邀请队员（队长）">
+                <div class="row">
+                  <a-input-number
+                    v-model="studentTeamInviteId"
+                    :min="1"
+                    placeholder="学生用户ID（alt_auth_users.id）"
+                    style="width: 220px"
+                    :disabled="competitionTeamCreateInviteBlocked"
+                  />
+                  <a-button
+                    type="primary"
+                    :loading="teamLoading"
+                    :disabled="competitionTeamCreateInviteBlocked || !studentTeamInviteId || !myTeamId"
+                    @click="handleStudentTeamInviteMember"
+                  >
+                    邀请队员
+                  </a-button>
+                </div>
+              </a-form-item>
+              <a-form-item label="移除队员（队长）">
+                <div class="row">
+                  <a-input-number
+                    v-model="studentTeamRemoveMemberId"
+                    :min="1"
+                    placeholder="待移除队员用户ID"
+                    style="width: 220px"
+                    :disabled="competitionTeamRemoveMemberBlocked"
+                  />
+                  <a-button
+                    danger
+                    :loading="teamLoading"
+                    :disabled="competitionTeamRemoveMemberBlocked || !studentTeamRemoveMemberId || !myTeamId"
+                    @click="handleStudentTeamRemoveMember"
+                  >
+                    移除队员
+                  </a-button>
+                </div>
+              </a-form-item>
+            </template>
           </a-form>
+          </template>
         </div>
 
-        <template v-if="activeCompetitionMyEnrollKind">
+        <template v-if="hasAnyEnrollment && showSubmissionPanelInEnrollView">
           <a-divider />
           <h4 class="standalone-modal-section-title">作品提交</h4>
-          <p v-if="standaloneEnrollSubmissionLocked" class="muted" style="margin: 0 0 12px; font-size: 13px">
-            本报名周期已提交作品，无法再次提交。退赛后重新报名须提交新作品；可在「作品」弹窗查看历史记录。
+          <p v-if="enrollModalSubmissionLocked" class="muted" style="margin: 0 0 12px; font-size: 13px">
+            当前{{ submissionMode === 'team' ? '队伍' : '个人' }}赛道在本报名周期已提交作品，无法再次提交。退赛后重新报名须提交新作品；可在「作品」弹窗查看历史记录。
           </p>
           <p v-else-if="ignoreSubmissionsBeforeReenrollAt" class="muted" style="margin: 0 0 12px; font-size: 13px">
             您已退赛，请完成报名后重新提交作品。
@@ -848,7 +1191,7 @@
                 v-model="submissionForm.title"
                 placeholder="请输入作品标题"
                 style="max-width: 520px"
-                :disabled="standaloneEnrollSubmissionLocked"
+                :disabled="enrollModalSubmissionLocked"
               />
             </a-form-item>
             <a-form-item label="作品描述">
@@ -857,7 +1200,7 @@
                 :rows="3"
                 placeholder="选填"
                 style="max-width: 520px"
-                :disabled="standaloneEnrollSubmissionLocked"
+                :disabled="enrollModalSubmissionLocked"
               />
             </a-form-item>
             <a-form-item label="文本内容（选填，与文件二选一至少一个）">
@@ -866,38 +1209,32 @@
                 :rows="4"
                 placeholder="选填"
                 style="max-width: 520px"
-                :disabled="standaloneEnrollSubmissionLocked"
+                :disabled="enrollModalSubmissionLocked"
               />
             </a-form-item>
             <a-form-item label="文件（选填，支持上传；与文本至少一个）">
-              <input type="file" :disabled="standaloneEnrollSubmissionLocked" @change="handleFileChange" />
+              <input type="file" :disabled="enrollModalSubmissionLocked" @change="handleFileChange" />
               <div v-if="submissionForm.file" class="muted" style="margin-top: 6px">
                 已选择：{{ submissionForm.file.name }}
               </div>
             </a-form-item>
 
             <a-form-item label="提交类型">
-              <a-radio-group v-model="submissionMode" :disabled="standaloneEnrollSubmissionLocked">
-                <a-radio-button value="individual" :disabled="enrollMode !== 'individual' || !allowIndividual">个人提交</a-radio-button>
-                <a-radio-button value="team" :disabled="enrollMode !== 'team' || !allowTeam">队伍提交</a-radio-button>
+              <a-radio-group
+                v-model="submissionMode"
+                :disabled="enrollModalSubmissionLocked"
+                @change="onSubmissionModeChange"
+              >
+                <a-radio-button value="individual" :disabled="!myEnrolledIndividual || !allowIndividual">个人提交</a-radio-button>
+                <a-radio-button value="team" :disabled="!myEnrolledTeam || !allowTeam || !isCurrentTeamCaptain">队伍提交</a-radio-button>
               </a-radio-group>
-            </a-form-item>
-
-            <a-form-item v-if="submissionMode === 'team'" label="队伍ID">
-              <a-input-number
-                v-model="submissionTeamId"
-                :min="1"
-                placeholder="建议使用你自己的队伍ID"
-                style="width: 240px"
-                :disabled="standaloneEnrollSubmissionLocked"
-              />
             </a-form-item>
 
             <div class="row">
               <a-button
                 type="primary"
                 :loading="submitLoading"
-                :disabled="standaloneEnrollSubmissionLocked"
+                :disabled="enrollModalSubmissionLocked"
                 @click="handleSubmitSubmission"
               >
                 提交作品
@@ -905,6 +1242,13 @@
             </div>
           </a-form>
         </template>
+        <a-alert
+          v-else-if="myEnrolledTeam && enrollMode === 'team' && !isCurrentTeamCaptain"
+          type="info"
+          show-icon
+          message="当前账号为队员，只有队长可以提交队伍作品"
+          style="margin-top: 12px"
+        />
 
         <div class="standalone-modal-footer-actions">
           <a-button @click="showStandaloneEnrollModal = false">关闭</a-button>
@@ -964,7 +1308,7 @@
     <!-- 创建竞赛弹窗（教师/管理员） -->
     <a-modal
       v-model="showCreateCompetitionModal"
-      title="创建竞赛（管理员 / 教师）"
+      title="创建竞赛"
       :maskClosable="false"
       :confirmLoading="adminCreateLoading"
       okText="创建"
@@ -1018,7 +1362,7 @@
     <!-- 修改竞赛弹窗（竞赛列表 §8.3） -->
     <a-modal
       v-model="showEditCompetitionModal"
-      title="修改竞赛（管理员 / 教师）"
+      title="修改竞赛"
       :maskClosable="false"
       :confirmLoading="adminEditLoading"
       okText="保存"
@@ -1226,8 +1570,13 @@ import {
   lockCompetition,
   getCompetitionParticipantsIndividual,
   getCompetitionParticipantsTeams,
+  exportCompetitionTeamsExcel,
   enrollCompetition,
+  getCompetitionTeams,
   createCompetitionTeam,
+  patchCompetitionTeam,
+  inviteCompetitionTeamMember,
+  removeCompetitionTeamMember,
   addTeamMember,
   transferTeamCaptain,
   leaveTeam,
@@ -1238,6 +1587,7 @@ import {
   downloadCompetitionSubmissionFile,
   reviewCompetitionSubmissionGrade,
   patchCompetitionSubmissionReviewGrade,
+  getCompetitionSubmissionReviewGrade,
   getCompetitionScoresSummary,
   getCompetitionRankings,
   getMyCompetitionScores,
@@ -1252,10 +1602,26 @@ import {
   clearCompetitionWithdrawSubmissionCutoff,
   isWithdrawnOrSupersededSubmission as isWithdrawnSubmissionRow,
   buildEnrollmentVisibilityIndex,
+  splitEnrollmentsByTrack,
   filterAdminSubmissionsByActiveEnrollments,
-  normalizeCompetitionApiList
+  filterSubmissionsForEnrollmentTrack,
+  normalizeCompetitionApiList,
+  saveSubmissionReviewGradeCache,
+  getSubmissionReviewGradeCache
 } from '@/utils/competitionSubmissionCycle'
-import { getStoredAltToken, isAltCompetitionStudent, isAltCompetitionTeacherOrAdmin, getAltProfileFromStorage } from '@/api/altIdentity'
+import {
+  getStoredAltToken,
+  isAltCompetitionStudent,
+  isAltCompetitionSuperAdmin,
+  isAltCompetitionAdvisorOrTeacher,
+  isAltCompetitionExpertVerified,
+  isAltCompetitionExpert,
+  isAltExpertAssignedToCompetition,
+  hasAltPermission,
+  getAltProfileFromStorage,
+  fetchAltIdentityMe,
+  applyAltIdentityMeToStorage
+} from '@/api/altIdentity'
 
 export default {
   name: 'CompetitionRegistrationSystem',
@@ -1302,6 +1668,8 @@ export default {
       },
 
       joinTeamId: null,
+      studentTeamInviteId: null,
+      studentTeamRemoveMemberId: null,
       transferTeamId: null,
       newCaptainId: null,
       leaveTeamId: null,
@@ -1310,13 +1678,36 @@ export default {
       teamLoading: false,
       /** 仅在本竞赛下完成「创建队伍」或「加入队伍」后为 true，才允许「报名（队伍）」 */
       teamEnrollmentEligible: false,
-      /** 当前选中竞赛下，本人有效报名方式：null | 'individual' | 'team'（与另一种互斥） */
+      /** 学生端：当前竞赛内已成功创建过队伍（用于展示队长操作区） */
+      studentCreatedTeamInCurrentCompetition: false,
+      /** 当前 UI 赛道（个人/队伍），与 enrollMode 一致，用于作品提交上下文 */
       activeCompetitionMyEnrollKind: null,
-      /** 当前有效报名记录 ID（enrollments/me 中 status=enrolled 的 id） */
+      /** 当前赛道对应报名记录 ID（随 enrollMode 切换） */
       activeCompetitionEnrollmentId: null,
+      /** 本竞赛是否已个人报名 / 已队伍报名（可同时为 true） */
+      myEnrolledIndividual: false,
+      myEnrolledTeam: false,
+      activeCompetitionEnrollmentRows: { individual: null, team: null },
       /** 退赛后忽略此前作品的时间戳（接口未带 enrollment_id 时用于区分旧作品） */
       ignoreSubmissionsBeforeReenrollAt: null,
       withdrawLoading: false,
+
+      /** 指导老师：组班与队务（§8.12.x） */
+      advisorTeamsLoading: false,
+      advisorTeams: [],
+      advisorSelectedTeamId: null,
+      advisorCreateLoading: false,
+      advisorTeamOpLoading: false,
+      advisorRemovingUserId: null,
+      advisorCreateForm: {
+        name: '',
+        captain_student_id: null,
+        initial_member_ids_text: ''
+      },
+      advisorRenameName: '',
+      advisorInviteStudentId: null,
+      /** 本会话内由当前老师创建的队伍 ID（列表未带 created_by_advisor_id 时仍可管理） */
+      advisorCreatedTeamIds: [],
 
       submissionMode: 'individual',
       submissionForm: {
@@ -1389,6 +1780,7 @@ export default {
       showParticipantsIndividualModal: false,
 
       participantsTeamsLoading: false,
+      participantsTeamsExportLoading: false,
       participantsTeams: [],
       showParticipantsTeamsModal: false,
 
@@ -1455,19 +1847,134 @@ export default {
         { title: '成绩', dataIndex: 'score', key: 'score', width: 88 },
         { title: '提交人ID', dataIndex: 'submitter_id', key: 'submitter_id', width: 96 },
         { title: '提交时间', dataIndex: 'submitted_at', key: 'submitted_at', width: 168 }
+      ],
+      advisorTeamsTableColumns: [
+        { title: '队伍ID', dataIndex: 'id', key: 'id', width: 88 },
+        { title: '队名', dataIndex: 'name', key: 'name', ellipsis: true },
+        { title: '队长ID', dataIndex: 'captain_id', key: 'captain_id', width: 96 },
+        { title: '队员数', dataIndex: 'member_count', key: 'member_count', width: 80 },
+        { title: '状态', dataIndex: 'status_text', key: 'status_text', width: 96 },
+        { title: '可管理', dataIndex: 'can_operate_text', key: 'can_operate_text', width: 88 },
+        { title: '操作', key: 'actions', width: 88, scopedSlots: { customRender: 'teamActions' } }
       ]
     }
   },
   computed: {
+    isUsingAltIdentity () {
+      return !!getStoredAltToken()
+    },
     isStudent () {
-      if (getStoredAltToken()) return isAltCompetitionStudent()
+      if (this.isUsingAltIdentity) return isAltCompetitionStudent()
       const roles = this.$store.getters.roles || []
       return roles.includes('student')
     },
-    isAdminTeacher () {
-      if (getStoredAltToken()) return isAltCompetitionTeacherOrAdmin()
+    isSuperAdmin () {
+      if (this.isUsingAltIdentity) return isAltCompetitionSuperAdmin()
       const roles = this.$store.getters.roles || []
-      return roles.includes('teacher') || roles.includes('super_admin')
+      return roles.includes('super_admin')
+    },
+    isAdvisorOrTeacher () {
+      if (this.isUsingAltIdentity) return isAltCompetitionAdvisorOrTeacher()
+      const roles = this.$store.getters.roles || []
+      return roles.includes('advisor') || roles.includes('teacher')
+    },
+    altCurrentUserId () {
+      if (!this.isUsingAltIdentity) return null
+      const p = getAltProfileFromStorage()
+      const id = p.user_id != null ? p.user_id : p.id
+      return id != null && Number.isFinite(Number(id)) ? Number(id) : null
+    },
+    /** 竞赛列表顶栏：学生账号 ID（alt_auth_users.id） */
+    studentAccountIdLabel () {
+      if (!this.isStudent) return ''
+      if (this.isUsingAltIdentity) {
+        const id = this.altCurrentUserId
+        return id != null ? String(id) : ''
+      }
+      const user = this.$store.getters.userInfo || {}
+      const id = user.id != null ? user.id : user.user_id
+      return id != null && String(id).trim() !== '' ? String(id) : ''
+    },
+    canManageTeams () {
+      if (this.isUsingAltIdentity) return hasAltPermission('MANAGE_TEAMS')
+      const roles = this.$store.getters.roles || []
+      return roles.includes('student') || roles.includes('advisor') || roles.includes('teacher')
+    },
+    showAdvisorTeamPanel () {
+      return this.isAdvisorOrTeacher && this.canManageTeams
+    },
+    isCompetitionExpert () {
+      return this.isUsingAltIdentity && isAltCompetitionExpert()
+    },
+    isVerifiedExpert () {
+      if (this.isUsingAltIdentity) return isAltCompetitionExpertVerified()
+      return false
+    },
+    isExpertAssignedToActiveCompetition () {
+      if (!this.isVerifiedExpert) return false
+      const cid = this.activeCompetitionId
+      if (cid == null || cid === undefined || cid === '') return false
+      return isAltExpertAssignedToCompetition(cid)
+    },
+    showExpertNotAssignedHint () {
+      return (
+        this.isCompetitionExpert &&
+        this.isVerifiedExpert &&
+        this.showCompetitionDetailPanel &&
+        !this.isExpertAssignedToActiveCompetition &&
+        !this.isSuperAdmin
+      )
+    },
+    roleNoPermissionDescription () {
+      if (this.showExpertNotAssignedHint) {
+        return '您未被指派到本竞赛，无法查看作品、评分或排行榜。请在竞赛列表中打开已指派的竞赛详情。'
+      }
+      if (this.isCompetitionExpert && !this.isVerifiedExpert) {
+        return '专家账号待管理员核验，核验并指派竞赛后方可评阅。'
+      }
+      return '当前角色暂无竞赛报名/管理权限'
+    },
+    canManageCompetitions () {
+      if (this.isUsingAltIdentity) {
+        return this.isSuperAdmin || hasAltPermission('MANAGE_COMPETITIONS')
+      }
+      const roles = this.$store.getters.roles || []
+      return roles.includes('super_admin')
+    },
+    canViewCompetitionSubmissions () {
+      if (this.isUsingAltIdentity) {
+        if (this.isSuperAdmin) return true
+        return this.isExpertAssignedToActiveCompetition
+      }
+      const roles = this.$store.getters.roles || []
+      return roles.includes('super_admin')
+    },
+    canReviewSubmissions () {
+      if (this.isUsingAltIdentity) {
+        return (
+          this.isExpertAssignedToActiveCompetition &&
+          hasAltPermission('REVIEW_SUBMISSIONS')
+        )
+      }
+      return false
+    },
+    canViewParticipantsRoster () {
+      if (this.isUsingAltIdentity) {
+        return this.isSuperAdmin
+      }
+      const roles = this.$store.getters.roles || []
+      return roles.includes('super_admin')
+    },
+    canViewScoreAnalytics () {
+      if (this.isUsingAltIdentity) {
+        if (this.isSuperAdmin) return true
+        return this.isExpertAssignedToActiveCompetition
+      }
+      const roles = this.$store.getters.roles || []
+      return roles.includes('super_admin')
+    },
+    isCompetitionWorkbench () {
+      return this.canManageCompetitions || this.canViewCompetitionSubmissions || this.canViewParticipantsRoster || this.canViewScoreAnalytics
     },
     competitionListColumns () {
       return [
@@ -1498,7 +2005,7 @@ export default {
     },
     /** 教师/管理员：selectedRowKeys 由 selectedCompetitionId 推导，避免 Table 与本地 state 双写不同步导致下方详情不刷新 */
     competitionListRowSelection () {
-      if (!this.isAdminTeacher) return undefined
+      if (!this.canManageCompetitions) return undefined
       const rk = this.resolveCompetitionRowKey(this.selectedCompetitionId)
       const selectedRowKeys =
         rk !== null && rk !== undefined && rk !== '' ? [rk] : []
@@ -1536,14 +2043,74 @@ export default {
       return v !== null && v !== undefined && v !== ''
     },
     /** 当前报名周期内、计入「已提交」的作品（退赛前的旧作品不计入） */
-    mySubmissionsForCurrentEnrollment () {
-      if (!this.activeCompetitionMyEnrollKind) return []
-      return this.filterSubmissionsForCurrentEnrollment(this.mySubmissions)
+    hasAnyEnrollment () {
+      return this.myEnrolledIndividual || this.myEnrolledTeam
     },
-    /** 竞赛独立详情·报名弹窗内：当前报名周期已有作品则禁止再次提交 */
-    standaloneEnrollSubmissionLocked () {
-      if (!this.standaloneDetailMode) return false
-      if (!this.activeCompetitionMyEnrollKind) return false
+    currentTeamEnrollmentRow () {
+      return this.activeCompetitionEnrollmentRows && this.activeCompetitionEnrollmentRows.team
+        ? this.activeCompetitionEnrollmentRows.team
+        : null
+    },
+    isCurrentTeamCaptain () {
+      const row = this.currentTeamEnrollmentRow
+      if (!row) return false
+      if (row.is_captain != null) return !!row.is_captain
+      if (row.captain_id != null && this.altCurrentUserId != null) {
+        return Number(row.captain_id) === Number(this.altCurrentUserId)
+      }
+      return false
+    },
+    /** 队伍赛道已报名且当前账号为队员（非队长） */
+    studentTeamEnrolledAsMember () {
+      return this.enrollMode === 'team' && this.myEnrolledTeam && !this.isCurrentTeamCaptain
+    },
+    teamEnrollActionBlockedForMember () {
+      return this.studentTeamEnrolledAsMember
+    },
+    /** 队员已队伍报名后：不可再创建/加入队伍 */
+    showStudentTeamCreateJoinOps () {
+      return this.enrollMode === 'team' && !this.studentTeamEnrolledAsMember
+    },
+    /** 当前竞赛已存在队伍关联（已报名队伍或已有 team_id） */
+    studentHasTeamForCurrentCompetition () {
+      return !!this.currentTeamEnrollmentRow || !!this.myTeamId
+    },
+    /** 仅队长或未队伍报名时展示转让/退队 */
+    showStudentTeamCaptainOptionalOps () {
+      if (this.enrollMode !== 'team') return false
+      if (this.studentTeamEnrolledAsMember) return false
+      return this.studentCreatedTeamInCurrentCompetition || this.isCurrentTeamCaptain
+    },
+    showSubmissionPanelInEnrollView () {
+      const enrolledForCurrentMode = this.enrollMode === 'team'
+        ? this.myEnrolledTeam
+        : this.myEnrolledIndividual
+      if (!enrolledForCurrentMode) return false
+      if (this.enrollMode === 'team' && this.currentTeamEnrollmentRow && !this.isCurrentTeamCaptain) return false
+      return true
+    },
+    currentSubmissionTrackContext () {
+      const scope = this.submissionMode === 'team' ? 'team' : 'individual'
+      const individualRow = this.activeCompetitionEnrollmentRows.individual
+      const teamRow = this.activeCompetitionEnrollmentRows.team
+      const row = scope === 'team' ? teamRow : individualRow
+      if (scope === 'team' && !teamRow) return null
+      if (scope === 'individual' && !individualRow) return null
+      return {
+        scope,
+        enrollmentId: row && row.id != null ? row.id : null,
+        teamId: scope === 'team' && row && row.team_id != null ? row.team_id : null,
+        cutoffMs: this.ignoreSubmissionsBeforeReenrollAt
+      }
+    },
+    mySubmissionsForCurrentEnrollment () {
+      const ctx = this.currentSubmissionTrackContext
+      if (!ctx) return []
+      return filterSubmissionsForEnrollmentTrack(this.mySubmissions, ctx)
+    },
+    /** 报名弹窗：当前提交类型（个人/队伍）在本报名周期已有作品则禁止再次提交 */
+    enrollModalSubmissionLocked () {
+      if (!this.hasAnyEnrollment) return false
       return this.mySubmissionsForCurrentEnrollment.length > 0
     },
     adminSubmissionsEmptyDescription () {
@@ -1608,68 +2175,87 @@ export default {
       if (this.activeCompetition.allow_team === false) return false
       return true
     },
-    /** 已队伍报名 → 禁止个人赛道操作 */
-    enrollTeamBlocksIndividual () {
-      return this.activeCompetitionMyEnrollKind === 'team'
+    /** 本竞赛任一赛道报名成功后，报名信息不可再改 */
+    enrollProfileLockedAfterSuccess () {
+      return this.hasAnyEnrollment
     },
-    /** 已个人报名 → 禁止队伍赛道操作 */
-    enrollIndividualBlocksTeam () {
-      return this.activeCompetitionMyEnrollKind === 'individual'
-    },
-    /** 详情/列表展示用状态（published 且已过 end_at 时显示「报名已截止」，与锁定区分） */
-    competitionDisplayStatusKey () {
-      const c = this.activeCompetition
-      if (!c) return ''
-      const status = String(c.status || '').trim()
-      if (status === 'closed') return 'closed'
-      if (status === 'draft') return 'draft'
-      if (status === 'published' && this.competitionEnrollmentClosedByEnd) return 'enrollment_ended'
-      return status || 'draft'
-    },
-    /** 是否已过结束时间（UTC 语义，与后端 ensure_utc + utc_now 一致） */
-    competitionEnrollmentClosedByEnd () {
-      const c = this.activeCompetition
-      if (!c || !c.end_at) return false
-      const endMs = this.parseCompetitionInstant(c.end_at)
-      if (endMs == null) return false
-      return Date.now() >= endMs
-    },
-    /** 管理员手动锁定（closed） */
-    competitionEnrollmentClosedByLock () {
-      const c = this.activeCompetition
-      return !!(c && String(c.status || '').trim() === 'closed')
-    },
-    /** 当前竞赛是否允许新报名（须 published 且未截止/锁定） */
-    canEnrollCompetition () {
+    /** 竞赛为草稿或未发布时，报名区域不可用 */
+    competitionEnrollPublishBlocked () {
       const c = this.activeCompetition
       if (!c) return false
-      const status = String(c.status || '').trim()
-      if (status === 'draft') return false
-      if (this.competitionEnrollmentClosedByLock || this.competitionEnrollmentClosedByEnd) return false
-      return status === 'published'
+      const s = c.status != null ? String(c.status).toLowerCase() : ''
+      if (s === 'draft') return true
+      return s !== 'published' && s !== 'open'
     },
-    /** 不可报名时的说明（展示在报名区） */
-    enrollBlockedHint () {
+    competitionEnrollBlockedAlertTitle () {
       const c = this.activeCompetition
-      if (!c) return ''
-      const status = String(c.status || '').trim()
-      if (status === 'draft') {
-        return '该竞赛尚未发布（草稿），请等待教师/管理员在后台点击「发布竞赛」后再报名。'
+      if (!c) return '竞赛尚未发布或已停止报名'
+      const s = c.status != null ? String(c.status).toLowerCase() : ''
+      return s === 'draft' ? '当前竞赛为草稿，尚未发布' : '竞赛尚未发布或已停止报名'
+    },
+    competitionEnrollBlockedAlertDescription () {
+      return '暂无法报名；主办方发布竞赛或重新开放报名后即可重新报名。'
+    },
+    /** 停止报名：closed 或已过 end_at（与 §8.5 一致；退赛等仍可进行） */
+    competitionEnrollmentClosed () {
+      const c = this.activeCompetition
+      if (!c) return false
+      const s = c.status != null ? String(c.status).toLowerCase() : ''
+      if (s === 'closed') return true
+      if (c.end_at) {
+        const endMs = new Date(c.end_at).getTime()
+        if (Number.isFinite(endMs) && Date.now() >= endMs) return true
       }
-      if (this.competitionEnrollmentClosedByLock) {
-        return '该竞赛已由管理员「锁定竞赛」，停止报名。'
+      return false
+    },
+    /** 仅限制建队、邀请入队（含未发布、已停止报名） */
+    competitionTeamCreateInviteBlocked () {
+      return this.competitionEnrollPublishBlocked || this.competitionEnrollmentClosed
+    },
+    competitionTeamCreateInviteBlockedDescription () {
+      if (this.competitionEnrollPublishBlocked) {
+        return '竞赛尚未发布，暂无法建队或邀请队员；已发布且报名开放前可改队名。'
       }
-      if (this.competitionEnrollmentClosedByEnd) {
-        return `报名已截止：当前时间已超过竞赛结束时间（${this.formatDateTime(c.end_at)}）。如需继续报名，请联系管理员修改结束时间。`
-      }
-      if (status !== 'published') {
-        return `当前竞赛状态为「${this.getStatusText(status)}」，暂不可报名。`
+      if (this.competitionEnrollmentClosed) {
+        return ''
       }
       return ''
     },
-    /** 本竞赛已报名成功（个人或队伍）后，报名信息不可再改 */
-    enrollProfileLockedAfterSuccess () {
-      return this.activeCompetitionMyEnrollKind === 'individual' || this.activeCompetitionMyEnrollKind === 'team'
+    /** 已停止报名或未发布时不可移除队员 */
+    competitionTeamRemoveMemberBlocked () {
+      return this.competitionEnrollPublishBlocked || this.competitionEnrollmentClosed
+    },
+    competitionTeamRemoveMemberBlockedMessage () {
+      if (this.competitionEnrollPublishBlocked) {
+        return ''
+      }
+      if (this.competitionEnrollmentClosed) {
+        return ''
+      }
+      return ''
+    },
+    advisorTeamsTableData () {
+      return (this.advisorTeams || []).map(t => ({
+        id: t.id,
+        name: t.name != null && String(t.name).trim() !== '' ? String(t.name) : '—',
+        captain_id: t.captain_id != null ? t.captain_id : '-',
+        member_count: Array.isArray(t.members) ? t.members.length : 0,
+        status_text: this.participantTeamStatusText(t.status),
+        can_operate: this.canAdvisorOperateTeam(t),
+        can_operate_text: this.canAdvisorOperateTeam(t) ? '是' : '否'
+      }))
+    },
+    advisorSelectedTeam () {
+      if (this.advisorSelectedTeamId == null) return null
+      return (this.advisorTeams || []).find(t => Number(t.id) === Number(this.advisorSelectedTeamId)) || null
+    },
+    advisorSelectedTeamMembers () {
+      const t = this.advisorSelectedTeam
+      if (!t || !Array.isArray(t.members)) return []
+      return t.members
+    },
+    canOperateAdvisorSelectedTeam () {
+      return this.canAdvisorOperateTeam(this.advisorSelectedTeam)
     },
     /** 简介按行拆分，便于首行英文副标题 + 次行中文口号等排版 */
     competitionHeroDescLines () {
@@ -1760,12 +2346,19 @@ export default {
   },
   watch: {
     activeCompetitionId (newId) {
+      this.advisorCreatedTeamIds = []
+      this.studentCreatedTeamInCurrentCompetition = false
       this.teamEnrollmentEligible = false
       this.myTeamId = null
       this.joinTeamId = null
+      this.studentTeamInviteId = null
+      this.studentTeamRemoveMemberId = null
       this.submissionTeamId = null
       this.activeCompetitionMyEnrollKind = null
       this.activeCompetitionEnrollmentId = null
+      this.myEnrolledIndividual = false
+      this.myEnrolledTeam = false
+      this.activeCompetitionEnrollmentRows = { individual: null, team: null }
       this.ignoreSubmissionsBeforeReenrollAt = null
       if (this.enrollMode === 'individual') this.submissionMode = 'individual'
       if (this.enrollMode === 'team') this.submissionMode = 'team'
@@ -1781,7 +2374,7 @@ export default {
         })
       }
 
-      if (newId !== null && newId !== undefined && newId !== '' && this.isAdminTeacher) {
+      if (newId !== null && newId !== undefined && newId !== '' && this.canViewCompetitionSubmissions) {
         if (this.standaloneDetailMode) {
           this.refreshAdminSubmissions()
         } else {
@@ -1795,10 +2388,25 @@ export default {
       if (newId !== null && newId !== undefined && newId !== '' && this.isStudent && this.standaloneDetailMode) {
         void this.fetchStudentBriefingQr()
       }
+
+      if (newId !== null && newId !== undefined && newId !== '') {
+        this.advisorSelectedTeamId = null
+        this.advisorRenameName = ''
+        this.advisorInviteStudentId = null
+        if (this.showAdvisorTeamPanel) {
+          void this.refreshAdvisorTeams()
+        } else {
+          this.advisorTeams = []
+        }
+      } else {
+        this.advisorTeams = []
+        this.advisorSelectedTeamId = null
+      }
     },
     enrollMode (newMode) {
       this.submissionMode = newMode
       if (newMode === 'team' && this.myTeamId) this.submissionTeamId = this.myTeamId
+      this.applyEnrollmentContextFromRows()
     },
     myTeamId (newId) {
       if (this.submissionTeamId == null && newId) this.submissionTeamId = newId
@@ -1815,16 +2423,16 @@ export default {
     }
   },
   mounted () {
-    window.addEventListener('alt-identity-changed', this.syncEnrollProfileDefaults)
+    window.addEventListener('alt-identity-changed', this.onAltIdentityChanged)
     if (this.standaloneDetailMode && this.initialCompetitionId != null && String(this.initialCompetitionId).trim() !== '') {
-      this.bootstrapStandaloneDetail()
+      void this.bootstrapStandaloneDetail()
     } else {
-      this.fetchCompetitions()
+      void this.initCompetitionListPage()
     }
     this.syncEnrollProfileDefaults()
   },
   beforeDestroy () {
-    window.removeEventListener('alt-identity-changed', this.syncEnrollProfileDefaults)
+    window.removeEventListener('alt-identity-changed', this.onAltIdentityChanged)
     this.revokeStudentBriefingQrObjectUrl()
   },
   methods: {
@@ -1859,8 +2467,27 @@ export default {
       }
     },
 
+    onAltIdentityChanged () {
+      this.syncEnrollProfileDefaults()
+      this.$forceUpdate()
+    },
+    async refreshAltExpertProfile () {
+      if (!getStoredAltToken() || !isAltCompetitionExpert()) return
+      try {
+        const me = await fetchAltIdentityMe()
+        applyAltIdentityMeToStorage(me)
+      } catch (e) {
+        const msg = e && e.message ? e.message : ''
+        if (msg) console.warn('[CompetitionRegistrationSystem] sync expert profile failed:', msg)
+      }
+    },
+    async initCompetitionListPage () {
+      await this.refreshAltExpertProfile()
+      await this.fetchCompetitions()
+    },
     async bootstrapStandaloneDetail () {
       this.manualCompetitionId = null
+      await this.refreshAltExpertProfile()
       await this.fetchCompetitions()
       const raw = this.initialCompetitionId
       if (raw != null && String(raw).trim() !== '') {
@@ -1875,7 +2502,6 @@ export default {
         this.$message.warning('仅学生身份可使用报名功能')
         return
       }
-      void this.fetchCompetitions()
       void this.refreshActiveCompetitionMyEnrollKind()
         .then(() => {
           this.applyStoredWithdrawSubmissionCutoff()
@@ -1950,30 +2576,98 @@ export default {
       }
       const text = typeof raw === 'string' ? raw : JSON.stringify(raw || {})
 
-      // 报名唯一索引冲突：同一竞赛同一学生重复报名
+      if (/competition not published/i.test(text)) {
+        return '竞赛尚未发布（draft），需管理员发布后再报名'
+      }
+
+      if (/competition enrollment is closed|enrollment is closed/i.test(text)) {
+        return '竞赛已停止报名（状态为 closed 或已过结束时间）'
+      }
+
+      if (/individual enrollment not allowed/i.test(text)) {
+        return '该竞赛不允许个人赛道，请使用队伍参赛'
+      }
+
+      if (/team enrollment not allowed/i.test(text)) {
+        return '该竞赛不允许队伍赛道报名'
+      }
+
+      if (/already enrolled in the individual track/i.test(text)) {
+        return '个人赛道已报名，无需重复报名（可与队伍赛道并存）'
+      }
+
+      if (/already enrolled in the team track/i.test(text)) {
+        return '队伍赛道已报名，无需重复报名（可与个人赛道并存）'
+      }
+
+      if (/only students can enroll/i.test(text)) {
+        return '仅学生账号可报名，当前角色无法使用报名接口'
+      }
+
+      if (/enrollment failed:/i.test(text)) {
+        const tail = text.replace(/^Enrollment failed:\s*/i, '').trim()
+        return tail ? `报名失败：${tail}` : '报名提交失败，请稍后重试'
+      }
+
       if (
-        text.includes('competition_enrollments.competition_id, competition_enrollments.student_id') ||
+        text.includes('competition_enrollments') ||
         text.includes('UNIQUE constraint failed')
       ) {
-        return '你已报名该竞赛，请勿重复报名'
+        return '报名记录冲突，请刷新后重试或联系管理员'
       }
-      if (/competition not published/i.test(text)) {
-        return '竞赛尚未发布，暂不可报名（需管理员发布竞赛）'
+
+      if (/not published yet|尚未发布/i.test(text)) {
+        return '竞赛尚未发布，暂无法报名。请待主办方发布竞赛后再试。'
       }
-      if (/already enrolled/i.test(text)) {
-        return '你已报名该竞赛，请勿重复报名'
+
+      if (/user not found/i.test(text)) {
+        return '填写的队员 ID 不存在，请核对学生账号 ID（alt_auth_users.id）后重试'
       }
-      if (/enrollment is closed/i.test(text)) {
-        return '该竞赛已停止报名'
+
+      if (/target must be a student account/i.test(text)) {
+        return '填写的用户 ID 不是学生账号，请填写已注册为「学生」角色的账号 ID'
       }
-      if (/individual enrollment not allowed/i.test(text)) {
-        return '该竞赛不允许个人参赛'
+
+      if (/specify track=individual or track=team/i.test(text)) {
+        return '本竞赛同时存在个人与组队报名，请指定要退出的赛道（个人或队伍）'
       }
-      if (/team enrollment not allowed/i.test(text)) {
-        return '该竞赛不允许团队参赛'
+
+      if (/transfer.*captain|captain.*transfer|must transfer captain/i.test(text)) {
+        return '您是队长且队内仍有其他成员，请先转让队长后再退赛'
+      }
+
+      if (/enrollment is closed|competition enrollment is closed|enrollment closed|停止报名/i.test(text)) {
+        if (/remove|member|队员|踢/i.test(text)) {
+          return '竞赛已停止报名（已锁定或已过结束时间），无法移除队员'
+        }
+        return '竞赛已停止报名（已锁定或已过结束时间），无法新建队伍或邀请入队'
       }
 
       return text || fallback
+    },
+
+    /** §8.8 退赛 track：仅一条有效报名时省略；双赛道时按当前 UI 参赛方式 */
+    resolveWithdrawTrack () {
+      const hasIndividual = this.myEnrolledIndividual
+      const hasTeam = this.myEnrolledTeam
+      if (hasIndividual && hasTeam) {
+        return this.enrollMode === 'team' ? 'team' : 'individual'
+      }
+      if (hasIndividual) return 'individual'
+      if (hasTeam) return 'team'
+      return null
+    },
+
+    withdrawTrackLabel (track) {
+      return track === 'team' ? '组队' : '个人'
+    },
+
+    assertCompetitionPublishedForEnroll (showToast = true) {
+      if (!this.competitionEnrollPublishBlocked) return true
+      if (showToast) {
+        this.$message.warning('竞赛尚未发布，暂无法报名。请待主办方发布竞赛后再试。')
+      }
+      return false
     },
 
     async fetchCompetitions () {
@@ -2011,44 +2705,13 @@ export default {
       const m = this.manualCompetitionId
       this.selectedCompetitionId = m !== null && m !== undefined && m !== '' ? m : null
     },
-    /**
-     * 将 API 时间解析为 UTC 毫秒（与后端 naive→UTC 一致）。
-     * 带时区的 ISO 按标准解析；无时区后缀的 SQLite 字符串按 UTC 处理。
-     */
-    parseCompetitionInstant (value) {
-      if (value == null || value === '') return null
-      const s = String(value).trim()
-      if (!s) return null
-      if (/[zZ]$/.test(s) || /[+-]\d{2}:?\d{2}$/.test(s)) {
-        const t = Date.parse(s)
-        return Number.isFinite(t) ? t : null
-      }
-      const normalized = s.replace(/\.\d+$/, '').replace(' ', 'T') + 'Z'
-      const t = Date.parse(normalized)
-      return Number.isFinite(t) ? t : null
-    },
-
     getStatusColor (status) {
-      const map = {
-        draft: 'default',
-        published: 'green',
-        open: 'green',
-        closed: 'red',
-        enrollment_ended: 'orange',
-        upcoming: 'blue'
-      }
+      const map = { draft: 'default', published: 'green', open: 'green', closed: 'red', upcoming: 'blue' }
       return map[status] || 'default'
     },
     getStatusText (status) {
-      const map = {
-        draft: '草稿',
-        published: '已发布',
-        open: '报名中',
-        closed: '已锁定',
-        enrollment_ended: '报名已截止',
-        upcoming: '即将开始'
-      }
-      return map[status] || (status ? status : '未知')
+      const map = { draft: '草稿', published: '已发布', open: '报名中', closed: '已结束', upcoming: '即将开始' }
+      return map[status] || (status || '未知')
     },
     getSubmissionStatusColor (status) {
       const map = { submitted: 'blue', approved: 'green', rejected: 'red', draft: 'default' }
@@ -2056,7 +2719,7 @@ export default {
     },
     getSubmissionStatusText (status) {
       const map = { submitted: '已提交', approved: '已通过', rejected: '已拒绝', draft: '草稿' }
-      return map[status] || (status ? status : '-')
+      return map[status] || (status || '-')
     },
     formatDate (dateString) {
       if (!dateString) return '-'
@@ -2113,20 +2776,9 @@ export default {
     },
 
     filterSubmissionsForCurrentEnrollment (list) {
-      const arr = Array.isArray(list) ? list : []
-      const eid = this.activeCompetitionEnrollmentId
-      const cutoff = this.ignoreSubmissionsBeforeReenrollAt
-      return arr.filter(s => {
-        if (!s || isWithdrawnSubmissionRow(s)) return false
-        if (eid != null && s.enrollment_id != null) {
-          return Number(s.enrollment_id) === Number(eid)
-        }
-        if (!cutoff) return false
-        const raw = s.submitted_at || s.created_at
-        if (!raw) return false
-        const t = new Date(raw).getTime()
-        return Number.isFinite(t) && t >= cutoff
-      })
+      const ctx = this.currentSubmissionTrackContext
+      if (!ctx) return []
+      return filterSubmissionsForEnrollmentTrack(list, ctx)
     },
 
     applyStoredWithdrawSubmissionCutoff () {
@@ -2148,11 +2800,7 @@ export default {
       const cid = this.activeCompetitionId
       if (cid == null || cid === '') return
       const legacy = (this.mySubmissions || []).filter(s => s && !isWithdrawnSubmissionRow(s))
-      const eid = this.activeCompetitionEnrollmentId
-      const currentByEnrollment = legacy.filter(s => {
-        if (eid == null || s.enrollment_id == null) return false
-        return Number(s.enrollment_id) === Number(eid)
-      })
+      const currentByEnrollment = this.filterSubmissionsForCurrentEnrollment(legacy)
       if (currentByEnrollment.length > 0) {
         this.ignoreSubmissionsBeforeReenrollAt = null
         clearCompetitionWithdrawSubmissionCutoff(cid)
@@ -2168,12 +2816,21 @@ export default {
       }
     },
 
-    async handleWithdrawCompetition () {
+    async handleWithdrawCompetition (track) {
       if (!this.activeCompetitionId) return
+      const resolvedTrack = track === 'individual' || track === 'team' ? track : this.resolveWithdrawTrack()
+      if (!resolvedTrack) {
+        this.$message.warning('当前没有可退出的有效报名')
+        return
+      }
+      const trackLabel = this.withdrawTrackLabel(resolvedTrack)
+      const bothTracks = this.myEnrolledIndividual && this.myEnrolledTeam
       try {
         await this.$confirm({
-          title: '确认退赛',
-          content: '退赛后当前报名资格将取消；若再次报名，需重新提交作品。是否继续？',
+          title: `确认退出${trackLabel}赛道`,
+          content: bothTracks
+            ? `将取消本竞赛的${trackLabel}赛道报名；另一赛道不受影响。退赛后若再次报名，需重新提交该赛道作品。是否继续？`
+            : '退赛后当前报名资格将取消；若再次报名，需重新提交作品。是否继续？',
           okText: '退赛',
           cancelText: '取消',
           okType: 'danger'
@@ -2183,18 +2840,33 @@ export default {
       }
       this.withdrawLoading = true
       try {
-        await withdrawCompetition(this.activeCompetitionId)
-        this.$message.success('退赛成功，再次报名后请重新提交作品')
+        await withdrawCompetition(this.activeCompetitionId, { track: resolvedTrack })
+        this.$message.success(`${trackLabel}赛道退赛成功`)
         const withdrawTs = Date.now()
         this.ignoreSubmissionsBeforeReenrollAt = withdrawTs
         markCompetitionWithdrawnForResubmit(this.activeCompetitionId, withdrawTs)
-        this.activeCompetitionMyEnrollKind = null
-        this.activeCompetitionEnrollmentId = null
-        this.teamEnrollmentEligible = false
-        this.myTeamId = null
+        if (resolvedTrack === 'individual') {
+          this.activeCompetitionEnrollmentRows = {
+            ...this.activeCompetitionEnrollmentRows,
+            individual: null
+          }
+          this.myEnrolledIndividual = false
+        } else {
+          this.activeCompetitionEnrollmentRows = {
+            ...this.activeCompetitionEnrollmentRows,
+            team: null
+          }
+          this.myEnrolledTeam = false
+          this.studentCreatedTeamInCurrentCompetition = false
+          this.teamEnrollmentEligible = false
+          this.myTeamId = null
+          this.submissionTeamId = null
+        }
+        this.applyEnrollmentContextFromRows()
         this.resetSubmissionFormFields()
         await this.refreshActiveCompetitionMyEnrollKind()
         await this.refreshMySubmissions()
+        this.syncIgnoreSubmissionsAfterEnrollRefresh()
         await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
       } catch (e) {
         this.$message.error('退赛失败：' + this.getApiErrorMessage(e, '未知错误'))
@@ -2203,49 +2875,104 @@ export default {
       }
     },
 
+    applyEnrollmentContextFromRows () {
+      const individualRow = this.activeCompetitionEnrollmentRows.individual
+      const teamRow = this.activeCompetitionEnrollmentRows.team
+      this.myEnrolledIndividual = !!individualRow
+      this.myEnrolledTeam = !!teamRow
+
+      // 尊重用户当前选择的参赛方式，不因「已有个人报名」而强制切回个人
+      if (this.enrollMode === 'team') {
+        this.activeCompetitionMyEnrollKind = 'team'
+        this.submissionMode = 'team'
+        if (teamRow) {
+          this.activeCompetitionEnrollmentId = teamRow.id != null ? teamRow.id : null
+          this.myTeamId = teamRow.team_id
+          this.teamEnrollmentEligible = true
+          this.submissionTeamId = teamRow.team_id
+        } else {
+          this.activeCompetitionEnrollmentId = null
+        }
+        return
+      }
+
+      if (this.enrollMode === 'individual') {
+        this.activeCompetitionMyEnrollKind = 'individual'
+        this.submissionMode = 'individual'
+        this.activeCompetitionEnrollmentId =
+          individualRow && individualRow.id != null ? individualRow.id : null
+        return
+      }
+
+      // 兜底：仅在 enrollMode 异常时按已有报名记录推断默认方式
+      if (individualRow) {
+        this.enrollMode = 'individual'
+        this.activeCompetitionMyEnrollKind = 'individual'
+        this.activeCompetitionEnrollmentId = individualRow.id != null ? individualRow.id : null
+        this.submissionMode = 'individual'
+        return
+      }
+      if (teamRow) {
+        this.enrollMode = 'team'
+        this.activeCompetitionMyEnrollKind = 'team'
+        this.activeCompetitionEnrollmentId = teamRow.id != null ? teamRow.id : null
+        this.submissionMode = 'team'
+        this.myTeamId = teamRow.team_id
+        this.teamEnrollmentEligible = true
+        this.submissionTeamId = teamRow.team_id
+        return
+      }
+      this.activeCompetitionMyEnrollKind = null
+      this.activeCompetitionEnrollmentId = null
+    },
+
+    onSubmissionModeChange () {
+      const individualRow = this.activeCompetitionEnrollmentRows.individual
+      const teamRow = this.activeCompetitionEnrollmentRows.team
+      if (this.submissionMode === 'team' && teamRow) {
+        this.activeCompetitionMyEnrollKind = 'team'
+        this.activeCompetitionEnrollmentId = teamRow.id != null ? teamRow.id : null
+        if (teamRow.team_id != null) {
+          this.myTeamId = teamRow.team_id
+          this.submissionTeamId = teamRow.team_id
+        }
+      } else if (this.submissionMode === 'individual' && individualRow) {
+        this.activeCompetitionMyEnrollKind = 'individual'
+        this.activeCompetitionEnrollmentId = individualRow.id != null ? individualRow.id : null
+      }
+    },
+
     async refreshActiveCompetitionMyEnrollKind () {
       if (!this.activeCompetitionId || !this.isStudent) {
         this.activeCompetitionMyEnrollKind = null
         this.activeCompetitionEnrollmentId = null
+        this.myEnrolledIndividual = false
+        this.myEnrolledTeam = false
+        this.activeCompetitionEnrollmentRows = { individual: null, team: null }
         return
       }
       try {
         const res = await getMyCompetitionEnrollments()
         const list = Array.isArray(res) ? res : (res && Array.isArray(res.items) ? res.items : (res && Array.isArray(res.data) ? res.data : []))
         const cid = Number(this.activeCompetitionId)
-        const row = list.find(r => Number(r.competition_id) === cid && r.status === 'enrolled')
-        if (!row) {
-          this.activeCompetitionMyEnrollKind = null
-          this.activeCompetitionEnrollmentId = null
-          return
-        }
-        this.activeCompetitionEnrollmentId = row.id != null ? row.id : null
-        const isTeam = row.team_id !== null && row.team_id !== undefined
-        this.activeCompetitionMyEnrollKind = isTeam ? 'team' : 'individual'
-        if (isTeam) {
-          this.enrollMode = 'team'
-          this.submissionMode = 'team'
-          this.myTeamId = row.team_id
-          this.teamEnrollmentEligible = true
-          this.submissionTeamId = row.team_id
-        } else {
-          this.enrollMode = 'individual'
-          this.submissionMode = 'individual'
-        }
+        const enrolledRows = list.filter(r => Number(r.competition_id) === cid && r.status === 'enrolled')
+        const { individual: individualRow, team: teamRow } = splitEnrollmentsByTrack(enrolledRows)
+        this.activeCompetitionEnrollmentRows = { individual: individualRow, team: teamRow }
+        this.applyEnrollmentContextFromRows()
       } catch {
         this.activeCompetitionMyEnrollKind = null
         this.activeCompetitionEnrollmentId = null
+        this.myEnrolledIndividual = false
+        this.myEnrolledTeam = false
+        this.activeCompetitionEnrollmentRows = { individual: null, team: null }
       }
     },
 
     async handleEnrollIndividual () {
       if (!this.activeCompetitionId) return
-      if (!this.canEnrollCompetition) {
-        this.$message.warning(this.enrollBlockedHint || '当前竞赛不可报名')
-        return
-      }
-      if (this.enrollTeamBlocksIndividual) {
-        this.$message.warning('您已以队伍身份报名本竞赛，无法再使用个人报名')
+      if (!this.assertCompetitionPublishedForEnroll()) return
+      if (this.myEnrolledIndividual) {
+        this.$message.info('您已完成个人报名，无需重复操作')
         return
       }
       if (!this.allowIndividual) {
@@ -2259,38 +2986,68 @@ export default {
           team_id: null,
           ...this.buildEnrollExtraFields()
         })
-        this.$message.success('报名成功')
-        this.activeCompetitionMyEnrollKind = 'individual'
+        this.$message.success('个人报名成功')
         this.enrollMode = 'individual'
-        this.submissionMode = 'individual'
         await this.refreshActiveCompetitionMyEnrollKind()
         await this.refreshMySubmissions()
         this.syncIgnoreSubmissionsAfterEnrollRefresh()
         await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
       } catch (e) {
-        this.$message.error('报名失败：' + this.getApiErrorMessage(e, '未知错误'))
+        await this.handleEnrollApiError(e, 'individual')
       } finally {
         this.enrollLoading = false
       }
     },
 
+    getEnrollDetailRaw (error) {
+      const respData = error && error.response ? error.response.data : null
+      const raw =
+        (respData && (respData.detail || respData.message || respData.error)) ||
+        (error && error.message) ||
+        ''
+      if (typeof raw === 'string') return raw
+      if (Array.isArray(raw) && raw.length && raw[0] && raw[0].msg) return String(raw[0].msg)
+      return typeof raw === 'object' ? JSON.stringify(raw) : String(raw || '')
+    },
+
+    isAlreadyEnrolledInTrack (error, track) {
+      const text = this.getEnrollDetailRaw(error).toLowerCase()
+      if (track === 'individual') {
+        return text.includes('already enrolled in the individual track')
+      }
+      if (track === 'team') {
+        return text.includes('already enrolled in the team track')
+      }
+      return false
+    },
+
     isAlreadyEnrolledError (error) {
+      if (this.isAlreadyEnrolledInTrack(error, 'individual') || this.isAlreadyEnrolledInTrack(error, 'team')) {
+        return true
+      }
       const msg = (this.getApiErrorMessage(error, '') || '').toLowerCase()
-      return /already enrolled|已报名|重复报名/i.test(msg)
+      return /already enrolled|已报名|重复报名|赛道已报名/i.test(msg)
+    },
+
+    async handleEnrollApiError (error, track) {
+      if (this.isAlreadyEnrolledInTrack(error, track)) {
+        const label = track === 'team' ? '队伍' : '个人'
+        this.$message.info(`${label}赛道已报名，无需重复操作`)
+        await this.refreshActiveCompetitionMyEnrollKind()
+        await this.refreshMySubmissions()
+        this.syncIgnoreSubmissionsAfterEnrollRefresh()
+        await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
+        return true
+      }
+      this.$message.error('报名失败：' + this.getApiErrorMessage(error, '未知错误'))
+      return false
     },
 
     async handleEnrollWithTeam () {
       if (!this.activeCompetitionId) return
-      if (!this.canEnrollCompetition) {
-        this.$message.warning(this.enrollBlockedHint || '当前竞赛不可报名')
-        return
-      }
-      if (this.activeCompetitionMyEnrollKind === 'team') {
-        this.$message.info('您已在该竞赛以队伍身份完成报名，无需重复点击「报名（队伍）」')
-        return
-      }
-      if (this.enrollIndividualBlocksTeam) {
-        this.$message.warning('您已以个人身份报名本竞赛，无法再使用队伍参赛报名')
+      if (!this.assertCompetitionPublishedForEnroll()) return
+      if (this.myEnrolledTeam) {
+        this.$message.info('您已完成队伍报名，无需重复操作')
         return
       }
       if (!this.teamEnrollmentEligible || !this.myTeamId) {
@@ -2309,22 +3066,19 @@ export default {
           ...this.buildEnrollExtraFields()
         })
         this.submissionTeamId = this.myTeamId
-        this.$message.success('报名成功')
-        this.activeCompetitionMyEnrollKind = 'team'
+        this.$message.success('队伍报名成功')
         await this.refreshActiveCompetitionMyEnrollKind()
         await this.refreshMySubmissions()
         this.syncIgnoreSubmissionsAfterEnrollRefresh()
         await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
       } catch (e) {
-        if (this.isAlreadyEnrolledError(e)) {
-          this.$message.success('您已在该竞赛报名（创建队伍时可能已自动完成报名），无需重复操作')
-          this.activeCompetitionMyEnrollKind = 'team'
+        const handled = await this.handleEnrollApiError(e, 'team')
+        if (!handled && this.isAlreadyEnrolledError(e)) {
+          this.$message.success('队伍赛道已报名（可能由创建/加入队伍时自动完成），无需重复操作')
           await this.refreshActiveCompetitionMyEnrollKind()
           await this.refreshMySubmissions()
           this.syncIgnoreSubmissionsAfterEnrollRefresh()
           await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
-        } else {
-          this.$message.error('报名失败：' + this.getApiErrorMessage(e, '未知错误'))
         }
       } finally {
         this.enrollLoading = false
@@ -2333,10 +3087,15 @@ export default {
 
     async handleCreateTeamOnly () {
       if (!this.activeCompetitionId) return
-      if (this.enrollIndividualBlocksTeam) {
-        this.$message.warning('您已以个人身份报名本竞赛，无法再使用队伍参赛报名')
+      if (this.studentTeamEnrolledAsMember) {
+        this.$message.info('您已是队伍报名队员，无法创建新队伍')
         return
       }
+      if (this.studentHasTeamForCurrentCompetition) {
+        this.$message.info('当前竞赛已存在您的队伍，无法重复创建')
+        return
+      }
+      if (!this.assertCompetitionPublishedForEnroll()) return
       if (!this.allowTeam) {
         this.$message.error('该竞赛不允许团队参赛')
         return
@@ -2348,11 +3107,12 @@ export default {
         if (!teamId) throw new Error('创建队伍返回缺少 id')
         this.myTeamId = teamId
         this.submissionTeamId = teamId
+        this.studentCreatedTeamInCurrentCompetition = true
         this.teamEnrollmentEligible = true
         await this.refreshMySubmissions()
         await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
         await this.refreshActiveCompetitionMyEnrollKind()
-        if (this.activeCompetitionMyEnrollKind === 'team') {
+        if (this.myEnrolledTeam) {
           this.syncIgnoreSubmissionsAfterEnrollRefresh()
           this.$message.success('队伍创建成功，系统已为您完成本竞赛的队伍报名，可直接提交作品')
         } else {
@@ -2394,14 +3154,19 @@ export default {
     },
 
     async handleJoinTeam () {
+      if (this.studentTeamEnrolledAsMember) {
+        this.$message.info('您已完成队伍报名且为队员，无法再加入其他队伍')
+        return
+      }
+      if (this.studentHasTeamForCurrentCompetition) {
+        this.$message.info('当前竞赛已存在您的队伍，无法加入其他队伍')
+        return
+      }
       if (!this.joinTeamId) {
         this.$message.warning('请先输入要加入的队伍ID')
         return
       }
-      if (this.enrollIndividualBlocksTeam) {
-        this.$message.warning('您已以个人身份报名本竞赛，无法再使用队伍参赛报名')
-        return
-      }
+      if (!this.assertCompetitionPublishedForEnroll()) return
       if (!this.activeCompetitionId) {
         this.$message.warning('请先选择竞赛')
         return
@@ -2413,11 +3178,12 @@ export default {
         await addTeamMember(this.joinTeamId)
         this.myTeamId = this.joinTeamId
         this.submissionTeamId = this.joinTeamId
+        this.studentCreatedTeamInCurrentCompetition = false
         this.teamEnrollmentEligible = true
         await this.refreshMySubmissions()
         await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
         await this.refreshActiveCompetitionMyEnrollKind()
-        if (this.activeCompetitionMyEnrollKind === 'team') {
+        if (this.myEnrolledTeam) {
           this.syncIgnoreSubmissionsAfterEnrollRefresh()
           this.$message.success('加入队伍成功，您已在该竞赛以队伍身份报名')
         } else {
@@ -2460,6 +3226,274 @@ export default {
       }
     },
 
+    async handleStudentTeamInviteMember () {
+      if (!this.isCurrentTeamCaptain) {
+        this.$message.warning('仅队长可邀请队员')
+        return
+      }
+      if (!this.myTeamId) {
+        this.$message.warning('请先确认队伍ID')
+        return
+      }
+      if (!this.assertCompetitionOpenForTeamCreateOrInvite()) return
+      const studentId = Number(this.studentTeamInviteId)
+      if (!Number.isFinite(studentId) || studentId <= 0) {
+        this.$message.warning('请填写有效的学生用户ID')
+        return
+      }
+      this.teamLoading = true
+      try {
+        await inviteCompetitionTeamMember(this.myTeamId, studentId)
+        this.$message.success('邀请成功，学生已入队')
+        this.studentTeamInviteId = null
+        await this.refreshActiveCompetitionMyEnrollKind()
+      } catch (e) {
+        this.$message.error('邀请失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.teamLoading = false
+      }
+    },
+
+    async handleStudentTeamRemoveMember () {
+      if (!this.isCurrentTeamCaptain) {
+        this.$message.warning('仅队长可移除队员')
+        return
+      }
+      if (this.competitionTeamRemoveMemberBlocked) {
+        this.$message.warning(this.competitionTeamRemoveMemberBlockedMessage || '当前不可移除队员')
+        return
+      }
+      if (!this.myTeamId) {
+        this.$message.warning('请先确认队伍ID')
+        return
+      }
+      const userId = Number(this.studentTeamRemoveMemberId)
+      if (!Number.isFinite(userId) || userId <= 0) {
+        this.$message.warning('请填写待移除队员的用户ID')
+        return
+      }
+      this.teamLoading = true
+      try {
+        await removeCompetitionTeamMember(this.myTeamId, userId)
+        this.$message.success('已移除队员')
+        this.studentTeamRemoveMemberId = null
+        await this.refreshActiveCompetitionMyEnrollKind()
+      } catch (e) {
+        this.$message.error('移除失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.teamLoading = false
+      }
+    },
+
+    parseAltUserIds (text) {
+      const raw = String(text || '').trim()
+      if (!raw) return []
+      return raw
+        .split(/[,，\s]+/)
+        .map(s => Number(String(s).trim()))
+        .filter(n => Number.isFinite(n) && n > 0)
+    },
+
+    getTeamCreatorAdvisorId (team) {
+      if (!team || typeof team !== 'object') return null
+      const raw =
+        team.created_by_advisor_id != null
+          ? team.created_by_advisor_id
+          : (team.created_by_advisor != null
+            ? team.created_by_advisor
+            : (team.advisor_id != null ? team.advisor_id : team.creator_advisor_id))
+      const n = Number(raw)
+      return Number.isFinite(n) && n > 0 ? n : null
+    },
+
+    isAdvisorCreatedTeamInSession (teamId) {
+      if (teamId == null) return false
+      return (this.advisorCreatedTeamIds || []).some(id => Number(id) === Number(teamId))
+    },
+
+    canAdvisorOperateTeam (team) {
+      if (!team || typeof team !== 'object') return false
+      if (this.isSuperAdmin) return true
+      const teamId = team.id != null ? team.id : team.team_id
+      if (this.isAdvisorCreatedTeamInSession(teamId)) return true
+      if (!this.isUsingAltIdentity || !this.isAdvisorOrTeacher) return false
+      if (!hasAltPermission('MANAGE_TEAMS')) return false
+      const myId = this.altCurrentUserId
+      if (myId == null) return true
+      const creatorId = this.getTeamCreatorAdvisorId(team)
+      if (creatorId == null) return true
+      return Number(creatorId) === Number(myId)
+    },
+
+    assertCompetitionOpenForTeamCreateOrInvite (showToast = true) {
+      if (!this.competitionTeamCreateInviteBlocked) return true
+      if (showToast) {
+        this.$message.warning(this.competitionTeamCreateInviteBlockedDescription || '当前不可进行该操作')
+      }
+      return false
+    },
+
+    normalizeCompetitionTeamsList (res) {
+      return normalizeCompetitionApiList(res)
+    },
+
+    async refreshAdvisorTeams () {
+      if (!this.showAdvisorTeamPanel || !this.activeCompetitionId) return
+      this.advisorTeamsLoading = true
+      try {
+        const res = await getCompetitionTeams(this.activeCompetitionId)
+        this.advisorTeams = this.normalizeCompetitionTeamsList(res)
+        if (
+          this.advisorSelectedTeamId != null &&
+          !this.advisorTeams.some(t => Number(t.id) === Number(this.advisorSelectedTeamId))
+        ) {
+          this.advisorSelectedTeamId = null
+          this.advisorRenameName = ''
+        }
+      } catch (e) {
+        this.advisorTeams = []
+        this.$message.error('获取队伍列表失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.advisorTeamsLoading = false
+      }
+    },
+
+    selectAdvisorTeam (teamId) {
+      this.advisorSelectedTeamId = teamId
+      const t = this.advisorSelectedTeam
+      this.advisorRenameName = t && t.name != null ? String(t.name) : ''
+      this.advisorInviteStudentId = null
+    },
+
+    async handleAdvisorCreateTeam () {
+      if (!this.activeCompetitionId) return
+      if (!this.assertCompetitionOpenForTeamCreateOrInvite()) return
+      if (!this.allowTeam) {
+        this.$message.error('该竞赛不允许团队参赛')
+        return
+      }
+      const memberIds = this.parseAltUserIds(this.advisorCreateForm.initial_member_ids_text)
+      if (!memberIds.length) {
+        this.$message.warning('请填写至少一名队员的学生 ID（alt_auth_users.id）')
+        return
+      }
+      const uniqueIds = [...new Set(memberIds)]
+      let captainId = this.advisorCreateForm.captain_student_id
+      if (captainId == null || captainId === '') {
+        captainId = uniqueIds[0]
+      } else {
+        captainId = Number(captainId)
+      }
+      if (!uniqueIds.includes(captainId)) {
+        this.$message.warning('队长 ID 必须在队员 ID 列表中')
+        return
+      }
+      const payload = {
+        competition_id: Number(this.activeCompetitionId),
+        initial_member_ids: uniqueIds,
+        captain_student_id: captainId
+      }
+      const teamName = (this.advisorCreateForm.name || '').trim()
+      if (teamName) payload.name = teamName
+
+      this.advisorCreateLoading = true
+      try {
+        const team = await createCompetitionTeam(payload)
+        const teamId = team && (team.id != null ? team.id : team.team_id)
+        if (teamId != null) {
+          const tid = Number(teamId)
+          if (Number.isFinite(tid) && !this.advisorCreatedTeamIds.includes(tid)) {
+            this.advisorCreatedTeamIds.push(tid)
+          }
+        }
+        this.$message.success('队伍创建成功' + (teamId ? `，队伍 ID：${teamId}` : ''))
+        this.advisorCreateForm = { name: '', captain_student_id: null, initial_member_ids_text: '' }
+        await this.refreshAdvisorTeams()
+        if (teamId) this.selectAdvisorTeam(teamId)
+      } catch (e) {
+        this.$message.error('创建队伍失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.advisorCreateLoading = false
+      }
+    },
+
+    async handleAdvisorRenameTeam () {
+      const team = this.advisorSelectedTeam
+      if (!team || !this.canOperateAdvisorSelectedTeam) return
+      this.advisorTeamOpLoading = true
+      try {
+        const name = this.advisorRenameName != null ? String(this.advisorRenameName) : ''
+        await patchCompetitionTeam(team.id, { name })
+        this.$message.success('队名已更新')
+        await this.refreshAdvisorTeams()
+        this.selectAdvisorTeam(team.id)
+      } catch (e) {
+        this.$message.error('修改队名失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.advisorTeamOpLoading = false
+      }
+    },
+
+    async handleAdvisorInviteMember () {
+      const team = this.advisorSelectedTeam
+      if (!team || !this.canOperateAdvisorSelectedTeam) return
+      if (!this.assertCompetitionOpenForTeamCreateOrInvite()) return
+      const studentId = Number(this.advisorInviteStudentId)
+      if (!Number.isFinite(studentId) || studentId <= 0) {
+        this.$message.warning('请填写有效的学生 ID')
+        return
+      }
+      this.advisorTeamOpLoading = true
+      try {
+        await inviteCompetitionTeamMember(team.id, studentId)
+        this.$message.success('邀请成功，学生已入队并完成报名')
+        this.advisorInviteStudentId = null
+        await this.refreshAdvisorTeams()
+        this.selectAdvisorTeam(team.id)
+      } catch (e) {
+        this.$message.error('邀请失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.advisorTeamOpLoading = false
+      }
+    },
+
+    async handleAdvisorRemoveMember (teamId, userId) {
+      if (!teamId || userId == null) return
+      if (this.competitionTeamRemoveMemberBlocked) {
+        this.$message.warning(this.competitionTeamRemoveMemberBlockedMessage || '当前不可移除队员')
+        return
+      }
+      const team = (this.advisorTeams || []).find(t => Number(t.id) === Number(teamId))
+      if (!this.canAdvisorOperateTeam(team)) {
+        this.$message.warning('无权管理该队伍')
+        return
+      }
+      try {
+        await this.$confirm({
+          title: '确认移除队员',
+          content: `确定将用户 ID ${userId} 从队伍 ${teamId} 中移除吗？其本竞赛报名将变为退赛状态。`,
+          okText: '移除',
+          okType: 'danger',
+          cancelText: '取消'
+        })
+      } catch {
+        return
+      }
+      this.advisorTeamOpLoading = true
+      this.advisorRemovingUserId = userId
+      try {
+        await removeCompetitionTeamMember(teamId, userId)
+        this.$message.success('已移除队员')
+        await this.refreshAdvisorTeams()
+        this.selectAdvisorTeam(teamId)
+      } catch (e) {
+        this.$message.error('移除失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.advisorTeamOpLoading = false
+        this.advisorRemovingUserId = null
+      }
+    },
+
     handleFileChange (e) {
       const file = e && e.target && e.target.files ? e.target.files[0] : null
       this.submissionForm.file = file || null
@@ -2474,12 +3508,21 @@ export default {
 
     async handleSubmitSubmission () {
       if (!this.activeCompetitionId) return
-      if (this.standaloneEnrollSubmissionLocked) {
-        this.$message.warning('本报名周期已提交作品，无法再次提交；退赛后重新报名可提交新作品')
+      if (this.enrollModalSubmissionLocked) {
+        const trackLabel = this.submissionMode === 'team' ? '队伍' : '个人'
+        this.$message.warning(`本报名周期${trackLabel}赛道已提交作品，无法再次提交；退赛后重新报名可提交新作品`)
         return
       }
-      if (!this.activeCompetitionMyEnrollKind) {
-        this.$message.warning('请先完成报名后再提交作品')
+      if (this.submissionMode === 'individual' && !this.myEnrolledIndividual) {
+        this.$message.warning('请先完成个人报名后再提交个人作品')
+        return
+      }
+      if (this.submissionMode === 'team' && !this.myEnrolledTeam) {
+        this.$message.warning('请先完成队伍报名后再提交队伍作品')
+        return
+      }
+      if (this.submissionMode === 'team' && !this.isCurrentTeamCaptain) {
+        this.$message.warning('当前账号为队员，只有队长可以提交队伍作品')
         return
       }
       const title = (this.submissionForm.title || '').trim()
@@ -2536,6 +3579,7 @@ export default {
         clearCompetitionWithdrawSubmissionCutoff(this.activeCompetitionId)
         this.ignoreSubmissionsBeforeReenrollAt = null
         await this.refreshMySubmissions()
+        this.syncIgnoreSubmissionsAfterEnrollRefresh()
         await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
       } catch (e) {
         this.$message.error('提交失败：' + (e && e.message ? e.message : '未知错误'))
@@ -2577,71 +3621,147 @@ export default {
       }
     },
 
+    /** 从对象中取出分数字段（兼容多套后端命名） */
+    pickScoreFromObject (obj) {
+      if (!obj || typeof obj !== 'object') return null
+      const keys = ['score', 'numeric_score', 'value', 'points']
+      for (const k of keys) {
+        if (!(k in obj)) continue
+        const v = obj[k]
+        if (v !== null && v !== undefined && v !== '') return v
+      }
+      return null
+    },
+
+    /** 作品详情接口可能包一层 data / payload */
+    unwrapSubmissionApiPayload (payload) {
+      if (!payload || typeof payload !== 'object') return payload
+      let p = payload
+      const innerData = p.data
+      if (innerData != null && typeof innerData === 'object' && !Array.isArray(innerData)) {
+        p = { ...p, ...innerData }
+      }
+      const innerPayload = p.payload
+      if (innerPayload != null && typeof innerPayload === 'object' && !Array.isArray(innerPayload)) {
+        p = { ...p, ...innerPayload }
+      }
+      return p
+    },
+
     /** 8.20 / 8.16.2：优先顶层 score；为 null 时再读 review / reviews[]（列表常带 score:null + review.score） */
     resolveSubmissionScoreRaw (row) {
       if (!row || typeof row !== 'object') return null
       const top = row.score
       if (top !== null && top !== undefined && top !== '') return top
-      const r = row.review
-      if (r && typeof r === 'object' && r.score != null && r.score !== '') return r.score
+      const fromReview = this.pickScoreFromObject(row.review)
+      if (fromReview != null) return fromReview
+      for (const key of ['review_grade', 'grade', 'grading', 'review_detail']) {
+        const nested = this.pickScoreFromObject(row[key])
+        if (nested != null) return nested
+      }
       const revs = row.reviews
       if (Array.isArray(revs)) {
         for (let i = revs.length - 1; i >= 0; i--) {
           const x = revs[i]
-          if (x && typeof x === 'object' && x.score != null && x.score !== '') return x.score
+          const xs = this.pickScoreFromObject(x)
+          if (xs != null) return xs
         }
       }
       return null
     },
 
-    /** 归一化 §8.16.2 列表项（兼容 { submission, review } 包裹） */
+    /** 归一化 §8.16.2 列表项（兼容 { submission, review }、data/payload 包裹） */
     normalizeAdminSubmissionRow (raw) {
       if (!raw || typeof raw !== 'object') return raw
-      if (raw.submission && typeof raw.submission === 'object') {
-        const row = { ...raw.submission }
-        if (raw.review) row.review = raw.review
-        if (raw.score != null && row.score == null) row.score = raw.score
-        if (raw.feedback != null && row.feedback == null) row.feedback = raw.feedback
-        if (raw.reviewed_at && !row.reviewed_at) row.reviewed_at = raw.reviewed_at
+      const top = this.unwrapSubmissionApiPayload(raw)
+      if (!top || typeof top !== 'object') return top
+      const sub = top.submission && typeof top.submission === 'object' ? top.submission : null
+      if (sub) {
+        const row = { ...sub }
+        if (top.review) row.review = top.review
+        if (top.score != null && row.score == null) row.score = top.score
+        if (top.feedback != null && row.feedback == null) row.feedback = top.feedback
+        if (top.reviewed_at && !row.reviewed_at) row.reviewed_at = top.reviewed_at
         return row
       }
-      return raw
+      return top
     },
 
-    /** 列表已标为已评分但无分数时，拉详情补全（首屏即可显示分数） */
+    /** 解析 §8.17 / §8.17.1 ReviewResponse（PUT/PATCH/GET review-grade） */
+    normalizeReviewGradeResponse (raw) {
+      const p = this.unwrapSubmissionApiPayload(raw)
+      if (!p || typeof p !== 'object') return null
+      const score = this.pickScoreFromObject(p)
+      if (score == null) return null
+      return {
+        score,
+        feedback: p.feedback != null && p.feedback !== '' ? String(p.feedback) : '',
+        reviewed_at: p.reviewed_at != null ? p.reviewed_at : null
+      }
+    },
+
+    /** 将 ReviewResponse 合并到作品列表行并写入本地缓存 */
+    applyReviewGradeToAdminSubmission (submissionId, reviewRes) {
+      const review = this.normalizeReviewGradeResponse(reviewRes)
+      if (!review) return
+      saveSubmissionReviewGradeCache(submissionId, review)
+      const idx = this.adminSubmissions.findIndex(s => Number(s.id) === Number(submissionId))
+      if (idx < 0) return
+      const row = this.adminSubmissions[idx]
+      const next = {
+        ...row,
+        score: review.score,
+        feedback: review.feedback,
+        reviewed_at: review.reviewed_at || row.reviewed_at,
+        review: {
+          ...(row.review && typeof row.review === 'object' ? row.review : {}),
+          score: review.score,
+          feedback: review.feedback,
+          reviewed_at: review.reviewed_at
+        }
+      }
+      this.$set(this.adminSubmissions, idx, next)
+    },
+
+    applyCachedReviewGradeToAdminSubmission (submissionId) {
+      const cached = getSubmissionReviewGradeCache(submissionId)
+      if (!cached) return false
+      this.applyReviewGradeToAdminSubmission(submissionId, cached)
+      return true
+    },
+
+    /** 已评分但列表无 score：GET review-grade（§8.17.2）或本地缓存；作品 GET 不含成绩 */
     async enrichAdminSubmissionsScores () {
       const list = this.adminSubmissions || []
       const needIds = list
         .filter(s => s && s.id != null && this.isSubmissionGraded(s) && this.resolveSubmissionScoreRaw(s) == null)
         .map(s => s.id)
       if (!needIds.length) return
-      const results = await Promise.all(needIds.map(async (id) => {
+      needIds.forEach((id) => {
+        this.applyCachedReviewGradeToAdminSubmission(id)
+      })
+      const stillNeed = needIds.filter(id => {
+        const row = this.adminSubmissions.find(s => Number(s.id) === Number(id))
+        return row && this.resolveSubmissionScoreRaw(row) == null
+      })
+      if (!stillNeed.length) return
+      await Promise.all(stillNeed.map(async (id) => {
         try {
-          const detail = await getCompetitionSubmission(id)
-          return { id, detail: this.normalizeAdminSubmissionRow(detail) }
+          const res = await getCompetitionSubmissionReviewGrade(id)
+          this.applyReviewGradeToAdminSubmission(id, res)
         } catch (_) {
-          return { id, detail: null }
+          /* 无 GET 或 404 时依赖缓存 */
         }
       }))
-      results.forEach(({ id, detail }) => {
-        if (!detail) return
-        const score = this.resolveSubmissionScoreRaw(detail)
-        if (score == null) return
-        this.patchAdminSubmissionScore(id, score, this.resolveSubmissionFeedback(detail))
-      })
     },
 
-    /** 评分成功后写入列表项（列表接口未带 score 时仍能显示） */
+    /** @deprecated 使用 applyReviewGradeToAdminSubmission */
     patchAdminSubmissionScore (submissionId, score, feedback) {
-      const idx = this.adminSubmissions.findIndex(s => Number(s.id) === Number(submissionId))
-      if (idx < 0) return
-      const row = this.adminSubmissions[idx]
-      const next = { ...row, score }
-      if (feedback != null && feedback !== '') next.feedback = feedback
-      if (row.review && typeof row.review === 'object') {
-        next.review = { ...row.review, score, feedback: feedback != null ? feedback : row.review.feedback }
-      }
-      this.$set(this.adminSubmissions, idx, next)
+      this.applyReviewGradeToAdminSubmission(submissionId, {
+        score,
+        feedback: feedback != null ? feedback : '',
+        reviewed_at: null
+      })
     },
 
     /** 将 8.20 的 score 格式化为表格「成绩」列展示文案 */
@@ -2793,6 +3913,7 @@ export default {
     },
 
     async handleCreateCompetition () {
+      if (!this.canManageCompetitions) return
       const toISO = (value) => {
         if (!value) return null
         const d = new Date(value)
@@ -2846,6 +3967,7 @@ export default {
     },
 
     async handlePublish () {
+      if (!this.canManageCompetitions) return
       if (!this.publishCompetitionId) return
       this.publishLoading = true
       try {
@@ -3008,6 +4130,7 @@ export default {
     },
 
     openEditCompetitionModal () {
+      if (!this.canManageCompetitions) return
       const id = this.selectedCompetitionId || this.activeCompetitionId || this.publishCompetitionId
       if (!id) {
         this.$message.warning('请先在竞赛列表中选择要修改的竞赛')
@@ -3049,6 +4172,7 @@ export default {
     },
 
     async handleEditCompetition () {
+      if (!this.canManageCompetitions) return
       if (!this.editCompetitionId) return
 
       const changes = this.buildEditCompetitionChanges()
@@ -3086,6 +4210,7 @@ export default {
     },
 
     async handleDeleteCompetition () {
+      if (!this.canManageCompetitions) return
       const id = this.activeCompetitionId || this.publishCompetitionId
       if (!id) return
       this.adminDeleteLoading = true
@@ -3109,6 +4234,7 @@ export default {
     },
 
     async handleLockCompetition () {
+      if (!this.canManageCompetitions) return
       const id = this.activeCompetitionId || this.publishCompetitionId
       if (!id) return
       this.adminLockLoading = true
@@ -3126,8 +4252,14 @@ export default {
     isSubmissionGraded (row) {
       if (!row || typeof row !== 'object') return false
       if (row.status === 'approved' || row.status === 'rejected') return true
+      const st = row.status != null ? String(row.status).toLowerCase() : ''
+      if (st === 'reviewed' || st === 'graded') return true
       if (row.reviewed_at) return true
-      return this.resolveSubmissionScoreRaw(row) != null
+      if (this.resolveSubmissionScoreRaw(row) != null) return true
+      const r = row.review
+      if (r && typeof r === 'object' && (r.reviewed_at || this.pickScoreFromObject(r) != null)) return true
+      if (row.review_completed === true || row.is_reviewed === true || row.has_review === true) return true
+      return false
     },
 
     resolveSubmissionFeedback (row) {
@@ -3146,16 +4278,31 @@ export default {
     },
 
     async fillGradeForm (submissionId, isEdit = false) {
-      let sub = this.adminSubmissions.find(s => Number(s.id) === Number(submissionId))
+      if (!this.canReviewSubmissions) return
+      const sub = this.adminSubmissions.find(s => Number(s.id) === Number(submissionId))
       this.gradeForm.submission_id = submissionId
       this.gradeFormIsEdit = !!isEdit
 
       let detail = sub
       if (this.gradeFormIsEdit && sub && this.resolveSubmissionScoreRaw(sub) == null) {
-        try {
-          detail = await getCompetitionSubmission(submissionId)
-        } catch (_) {
-          detail = sub
+        const cached = getSubmissionReviewGradeCache(submissionId)
+        if (cached) {
+          detail = { ...sub, score: cached.score, feedback: cached.feedback, reviewed_at: cached.reviewed_at }
+        } else {
+          try {
+            const reviewRes = await getCompetitionSubmissionReviewGrade(submissionId)
+            const review = this.normalizeReviewGradeResponse(reviewRes)
+            if (review) {
+              detail = {
+                ...sub,
+                score: review.score,
+                feedback: review.feedback,
+                reviewed_at: review.reviewed_at
+              }
+            }
+          } catch (_) {
+            detail = sub
+          }
         }
       }
 
@@ -3180,6 +4327,7 @@ export default {
     },
 
     async handleReviewGrade () {
+      if (!this.canReviewSubmissions) return
       if (!this.gradeForm.submission_id) return
       const scoreValue = parseFloat(this.gradeForm.score)
       if (Number.isNaN(scoreValue)) {
@@ -3208,16 +4356,23 @@ export default {
           score: scoreValue,
           feedback: this.gradeForm.feedback || ''
         }
+        let reviewRes
         if (isEdit) {
-          await patchCompetitionSubmissionReviewGrade(gradedSubmissionId, payload)
+          reviewRes = await patchCompetitionSubmissionReviewGrade(gradedSubmissionId, payload)
           this.$message.success('评分已更新')
         } else {
-          await reviewCompetitionSubmissionGrade(gradedSubmissionId, payload)
+          reviewRes = await reviewCompetitionSubmissionGrade(gradedSubmissionId, payload)
           this.$message.success('评分提交成功')
         }
+        const mergedReview = this.normalizeReviewGradeResponse(reviewRes) || {
+          score: scoreValue,
+          feedback: payload.feedback || '',
+          reviewed_at: null
+        }
+        saveSubmissionReviewGradeCache(gradedSubmissionId, mergedReview)
         this.cancelGradeAudit()
         await this.refreshAdminSubmissions()
-        this.patchAdminSubmissionScore(gradedSubmissionId, scoreValue, payload.feedback)
+        this.applyReviewGradeToAdminSubmission(gradedSubmissionId, mergedReview)
       } catch (e) {
         const status = e && e.response && e.response.status
         const msg = (e && e.message) ? e.message : '未知错误'
@@ -3238,6 +4393,7 @@ export default {
     },
 
     async refreshAdminSubmissions () {
+      if (!this.canViewCompetitionSubmissions) return
       if (!this.activeCompetitionId) return
       this.adminSubmissionsLoading = true
       try {
@@ -3267,6 +4423,7 @@ export default {
 
     /** @param {boolean} openModal 为 true 时打开汇总弹窗（仅用户点击「查看评分汇总」时使用） */
     async refreshScoresSummary (openModal = true) {
+      if (!this.canViewScoreAnalytics) return
       if (!this.activeCompetitionId) return
       this.summaryLoading = true
       try {
@@ -3283,12 +4440,14 @@ export default {
     },
 
     openRankingsModal () {
+      if (!this.canViewScoreAnalytics) return
       if (!this.activeCompetitionId) return
       this.showScoresRankingsModal = true
       this.refreshRankings()
     },
 
     async refreshRankings () {
+      if (!this.canViewScoreAnalytics) return
       if (!this.activeCompetitionId) return
       this.rankingsLoading = true
       try {
@@ -3305,15 +4464,16 @@ export default {
 
     participantEnrollmentStatusText (status) {
       const map = { enrolled: '已报名', cancelled: '已取消', withdrawn: '已退赛' }
-      return map[status] || (status ? status : '-')
+      return map[status] || (status || '-')
     },
 
     participantTeamStatusText (status) {
       const map = { active: '活跃', cancelled: '已取消', withdrawn: '已退赛', left: '已退队' }
-      return map[status] || (status ? status : '-')
+      return map[status] || (status || '-')
     },
 
     async refreshParticipantsIndividual () {
+      if (!this.canViewParticipantsRoster) return
       if (!this.activeCompetitionId) return
       this.participantsIndividualLoading = true
       try {
@@ -3341,6 +4501,7 @@ export default {
     },
 
     async refreshParticipantsTeams () {
+      if (!this.canViewParticipantsRoster) return
       if (!this.activeCompetitionId) return
       this.participantsTeamsLoading = true
       try {
@@ -3370,6 +4531,35 @@ export default {
         this.$message.error('获取组队参赛者失败：' + (e && e.message ? e.message : '未知错误'))
       } finally {
         this.participantsTeamsLoading = false
+      }
+    },
+
+    async exportTeamsExcel () {
+      if (!this.canManageCompetitions) return
+      if (!this.activeCompetitionId) {
+        this.$message.warning('请先选择竞赛')
+        return
+      }
+      this.participantsTeamsExportLoading = true
+      try {
+        const blob = await exportCompetitionTeamsExcel(this.activeCompetitionId)
+        if (!blob || (typeof blob.size === 'number' && blob.size <= 0)) {
+          throw new Error('导出结果为空')
+        }
+        const filename = `competition_${this.activeCompetitionId}_teams.xlsx`
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+        this.$message.success('导出队伍信息成功')
+      } catch (e) {
+        this.$message.error('导出队伍信息失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.participantsTeamsExportLoading = false
       }
     }
   }
@@ -3537,6 +4727,125 @@ export default {
 
   ::v-deep .ant-empty-description {
     color: rgba(255, 255, 255, 0.65);
+  }
+
+  /* 指导老师：队伍列表表格、管理队伍区 — 文字白色；队员列表背景透明 */
+  ::v-deep .advisor-teams-table {
+    .ant-table,
+    .ant-table-thead > tr > th,
+    .ant-table-tbody > tr > td,
+    .ant-table-placeholder {
+      background: transparent !important;
+      color: rgba(255, 255, 255, 0.92) !important;
+      border-color: rgba(255, 255, 255, 0.18) !important;
+    }
+
+    .ant-table-thead > tr > th {
+      font-weight: 600;
+      color: #fff !important;
+    }
+
+    .ant-table-tbody > tr:hover > td {
+      background: rgba(255, 255, 255, 0.06) !important;
+    }
+
+    .ant-pagination-item a,
+    .ant-pagination-item-ellipsis,
+    .ant-pagination-total-text,
+    .ant-select-selection-selected-value {
+      color: rgba(255, 255, 255, 0.88) !important;
+    }
+
+    .advisor-team-manage-btn.ant-btn-link {
+      color: #69c0ff !important;
+      pointer-events: auto;
+    }
+
+    .advisor-team-manage-btn.ant-btn-link:hover {
+      color: #91d5ff !important;
+    }
+  }
+
+  ::v-deep .advisor-manage-team-card.ant-card,
+  ::v-deep .advisor-manage-team-card > .ant-card-head,
+  ::v-deep .advisor-manage-team-card > .ant-card-body {
+    background: transparent !important;
+  }
+
+  ::v-deep .advisor-manage-team-card > .ant-card-head {
+    border-bottom-color: rgba(255, 255, 255, 0.18) !important;
+  }
+
+  ::v-deep .advisor-manage-team-card > .ant-card-head .ant-card-head-title {
+    color: #fff !important;
+  }
+
+  ::v-deep .advisor-manage-team-card {
+    .ant-descriptions,
+    .ant-descriptions-item-label,
+    .ant-descriptions-item-content {
+      color: rgba(255, 255, 255, 0.92) !important;
+    }
+
+    .ant-descriptions-bordered .ant-descriptions-item-label,
+    .ant-descriptions-bordered .ant-descriptions-item-content,
+    .ant-descriptions-bordered table th,
+    .ant-descriptions-bordered table td {
+      background: transparent !important;
+      color: rgba(255, 255, 255, 0.92) !important;
+      border-color: rgba(255, 255, 255, 0.18) !important;
+    }
+
+    .muted,
+    code {
+      color: rgba(255, 255, 255, 0.72) !important;
+    }
+
+    .ant-btn-link {
+      color: #69c0ff !important;
+    }
+  }
+
+  /* 管理队伍：新队名、邀请学生 ID 表单项 — 标签与输入内容为黑色 */
+  ::v-deep .advisor-manage-team-ops {
+    .ant-form-item-label > label {
+      color: #fdfcfc !important;
+    }
+
+    .ant-input,
+    .ant-input-number,
+    .ant-input-number-input {
+      color: #000 !important;
+      background: #fff !important;
+      border-color: #d9d9d9 !important;
+    }
+
+    .ant-input::placeholder,
+    .ant-input-number-input::placeholder {
+      color: rgba(0, 0, 0, 0.45) !important;
+    }
+
+    .ant-input[disabled],
+    .ant-input-number-disabled,
+    .ant-input-number-disabled .ant-input-number-input {
+      color: rgba(0, 0, 0, 0.45) !important;
+      background: #f5f5f5 !important;
+    }
+  }
+
+  ::v-deep .advisor-team-members-list {
+    background: transparent;
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  ::v-deep .advisor-team-members-label,
+  ::v-deep .advisor-team-member-row {
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  ::v-deep .advisor-team-member-row {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+    background: transparent;
   }
 }
 
@@ -3937,6 +5246,17 @@ export default {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.student-account-id-hint {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.65);
+  white-space: nowrap;
+
+  strong {
+    color: rgba(0, 0, 0, 0.85);
+    font-weight: 600;
+  }
 }
 
 .manual-competition {

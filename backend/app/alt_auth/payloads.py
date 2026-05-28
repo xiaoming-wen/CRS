@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -63,6 +63,15 @@ class AltAuthRegisterPayload(BaseModel):
             raise ValueError("学校名称不能为空")
         return s
 
+    @field_validator("role")
+    @classmethod
+    def registerable_role_only(cls, v: UserRole) -> UserRole:
+        if v == UserRole.SUPER_ADMIN:
+            raise ValueError("该角色不可自助注册，请联系管理员")
+        if v not in (UserRole.STUDENT, UserRole.ADVISOR, UserRole.TEACHER, UserRole.EXPERT):
+            raise ValueError("无效角色")
+        return v
+
 
 class AltAuthLoginPayload(BaseModel):
     """对齐 ``UserLogin``：用户名 + 密码。"""
@@ -91,6 +100,7 @@ class AltAuthRegisterResult(BaseModel):
     student_id: Optional[str] = None
     teacher_id: Optional[str] = None
     school: Optional[str] = None
+    expert_verified: bool = False
     created_at: datetime
 
     class Config:
@@ -123,4 +133,9 @@ class AltAuthProfileResponse(BaseModel):
     teacher_id: Optional[str] = None
     school: Optional[str] = None
     created_at: Optional[datetime] = None
+    expert_verified: bool = False
+    assigned_competition_ids: List[int] = Field(
+        default_factory=list,
+        description="专家已被指派的竞赛 id；非 expert 或尚未指派时为 []",
+    )
     effective_permissions: list[str]

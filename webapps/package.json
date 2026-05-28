@@ -1,42 +1,90 @@
 {
-  "name": "competition-registration-system",
-  "version": "1.0.0",
+  "name": "vue-antd-pro",
+  "version": "2.1.0",
   "private": true,
-  "description": "竞赛报名系统独立前端（从 gpt-free 分离）",
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
-    "lint": "vue-cli-service lint"
+    "test:unit": "vue-cli-service test:unit",
+    "lint": "vue-cli-service lint",
+    "build:preview": "vue-cli-service build --mode preview",
+    "lint:nofix": "vue-cli-service lint --no-fix",
+    "postinstall": "opencollective-postinstall"
   },
   "dependencies": {
+    "@antv/data-set": "^0.10.2",
     "ant-design-vue": "^1.6.4",
     "axios": "^0.19.0",
+    "codemirror": "5.59.3",
     "core-js": "^3.1.2",
+    "cronstrue": "^2.43.0",
+    "echarts": "^4.8.0",
     "enquire.js": "^2.1.6",
+    "gojs": "^2.1.18",
+    "jquery": "^3.5.1",
+    "lodash.clonedeep": "^4.5.0",
+    "lodash.get": "^4.4.2",
+    "lodash.pick": "^4.4.0",
+    "md5": "^2.2.1",
+    "mockjs2": "1.0.8",
+    "moment": "^2.24.0",
     "nprogress": "^0.2.0",
-    "regenerator-runtime": "^0.13.11",
+    "perfect-scrollbar": "^1.5.0",
+    "v-contextmenu": "^2.9.0",
+    "viser-vue": "^2.4.6",
     "vue": "2.6.12",
+    "vue-antd-pro": "file:",
+    "vue-clipboard2": "^0.2.1",
+    "vue-code-diff": "^1.2.0",
+    "vue-cropper": "0.4.9",
+    "vue-echarts": "^5.0.0-beta.0",
+    "vue-json-viewer": "^2.2.19",
     "vue-ls": "^3.2.1",
+    "vue-quill-editor": "^3.0.6",
     "vue-router": "^3.1.2",
-    "vuex": "^3.1.1"
+    "vue-runtime-helpers": "^1.1.2",
+    "vue-svg-component-runtime": "^1.0.1",
+    "vuex": "^3.1.1",
+    "wangeditor": "^3.1.1",
+    "webhdfs": "^1.2.0"
   },
   "devDependencies": {
+    "@ant-design/colors": "^3.2.1",
     "@vue/cli-plugin-babel": "^4.0.4",
     "@vue/cli-plugin-eslint": "^4.0.4",
+    "@vue/cli-plugin-router": "^4.0.4",
+    "@vue/cli-plugin-unit-jest": "^4.0.4",
+    "@vue/cli-plugin-vuex": "^4.0.4",
     "@vue/cli-service": "^4.0.4",
     "@vue/eslint-config-standard": "^4.0.0",
+    "@vue/test-utils": "^1.0.0-beta.29",
     "babel-eslint": "^10.0.1",
     "babel-plugin-import": "^1.12.2",
+    "babel-plugin-transform-remove-console": "^6.9.4",
     "eslint": "^5.16.0",
+    "eslint-plugin-html": "^5.0.0",
     "eslint-plugin-vue": "^5.2.3",
     "less": "^3.0.4",
     "less-loader": "^5.0.0",
-    "vue-template-compiler": "2.6.12"
+    "opencollective": "^1.0.3",
+    "opencollective-postinstall": "^2.0.2",
+    "sass": "^1.90.0",
+    "sass-loader": "^10.5.2",
+    "vue-svg-icon-loader": "^2.1.1",
+    "vue-template-compiler": "2.6.12",
+    "webpack-theme-color-replacer": "^1.2.17"
   },
-  "overrides": {
-    "@achrinza/node-ipc": "9.2.9"
+  "collective": {
+    "type": "opencollective",
+    "url": "https://opencollective.com/ant-design-pro-vue"
   },
-  "resolutions": {
-    "@achrinza/node-ipc": "9.2.9"
-  }
+  "description": "English | [简体中文](./README.zh-CN.md)",
+  "main": ".eslintrc.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }

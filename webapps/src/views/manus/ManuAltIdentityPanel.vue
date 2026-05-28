@@ -84,6 +84,8 @@ import {
   altIdentitySession,
   saveAltSession,
   clearAltIdentityStorage,
+  fetchAltIdentityMe,
+  applyAltIdentityMeToStorage,
   ALT_ACCESS_TOKEN_KEY,
   ALT_PROFILE_KEY
 } from '@/api/altIdentity'
@@ -152,6 +154,17 @@ export default {
       this.$emit('session-changed')
     },
 
+    formatAltLoginError (e) {
+      const msg = (e && e.message) ? String(e.message) : '登录失败'
+      if (/pending verification|待.*核验|expert_verified/i.test(msg)) {
+        return '专家账号待管理员核验，核验并指派竞赛后方可登录。注册后请将用户 ID 告知管理员。'
+      }
+      if (/inactive|停用|禁用/i.test(msg)) {
+        return '账号已停用，请联系管理员。'
+      }
+      return msg
+    },
+
     handleLoginSubmit () {
       this.handleAltLogin()
     },
@@ -180,6 +193,12 @@ export default {
         })
         if (res && res.access_token) {
           saveAltSession(res, { username: u.value })
+          try {
+            const me = await fetchAltIdentityMe()
+            applyAltIdentityMeToStorage(me)
+          } catch (syncErr) {
+            console.warn('[ManuAltIdentityPanel] sync /me after login failed:', syncErr)
+          }
           this.refreshProfile()
           this.$message.success('登录成功')
           this.$emit('session-changed', res)
@@ -187,7 +206,7 @@ export default {
           this.$message.error('登录失败：未返回令牌')
         }
       } catch (e) {
-        const msg = (e && e.message) ? e.message : '登录失败'
+        const msg = this.formatAltLoginError(e)
         this.$message.warning(msg)
       } finally {
         this.loginLoading = false

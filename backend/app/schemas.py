@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, EmailStr, PlainSerializer, computed_field
+from pydantic import BaseModel, Field, EmailStr, PlainSerializer, computed_field, field_validator
 from typing import Optional, List, Dict, Any, Annotated
 from datetime import datetime
 from enum import Enum
@@ -12,8 +12,12 @@ OptionalUtcDatetime = Annotated[Optional[datetime], PlainSerializer(serialize_da
 
 
 class UserRole(str, Enum):
+    """第二套竞赛主体角色：教师端已拆为「管理员 / 指导老师 / 专家」，学生不变。"""
+
     SUPER_ADMIN = "super_admin"
-    TEACHER = "teacher"
+    ADVISOR = "advisor"  # 指导老师
+    TEACHER = "teacher"  # 教师（与 advisor 并存）
+    EXPERT = "expert"
     STUDENT = "student"
 
 
@@ -43,6 +47,14 @@ class UserCreate(UserBase):
     role: UserRole
     student_id: Optional[str] = None
     teacher_id: Optional[str] = None
+
+    @field_validator("role")
+    @classmethod
+    def _main_gateway_role_only(cls, v: UserRole) -> UserRole:
+        """主网关用户库仅存 super_admin / teacher / student。"""
+        if v not in (UserRole.SUPER_ADMIN, UserRole.TEACHER, UserRole.STUDENT):
+            raise ValueError("主站注册用户角色仅可为 super_admin、teacher、student")
+        return v
 
 
 class UserUpdate(BaseModel):
@@ -410,6 +422,11 @@ class CompetitionEnrollmentStatus(str, Enum):
     WITHDRAWN = "withdrawn"
 
 
+class CompetitionEnrollmentScope(str, Enum):
+    INDIVIDUAL = "individual"
+    TEAM = "team"
+
+
 class SubmissionStatus(str, Enum):
     SUBMITTED = "submitted"
     UNDER_REVIEW = "under_review"
@@ -483,6 +500,10 @@ class CompetitionEnrollmentResponse(BaseModel):
         description="竞赛主体 id，即 alt_auth_users.id（非主库 users.id）",
     )
     team_id: Optional[int] = None
+    enrollment_scope: CompetitionEnrollmentScope = Field(
+        ...,
+        description="报名赛道：individual=个人；team=组队（可与个人赛道同时存在）",
+    )
     is_captain: bool
 
     student_no: Optional[str] = None
@@ -511,6 +532,7 @@ class MyEnrollmentResponse(BaseModel):
         description="竞赛主体 id，即 alt_auth_users.id",
     )
     team_id: Optional[int] = None
+    enrollment_scope: CompetitionEnrollmentScope
     is_captain: bool
 
     student_no: Optional[str] = None
@@ -530,19 +552,35 @@ class MyEnrollmentResponse(BaseModel):
 
 class TeamCreate(BaseModel):
     competition_id: int
-    # 若不传/传空则由服务端逻辑创建成员并设为队长
+    # 若不传/传空则由服务端逻辑创建成员并设为队长（学生自建队通常为本人）
     initial_member_ids: Optional[List[int]] = None
+    name: Optional[str] = Field(None, max_length=200, description="队名（展示用），可由队长后续修改")
+    captain_student_id: Optional[int] = Field(
+        None,
+        description="指导老师建队时必须指定队长 user_id（且须出现在 initial_member_ids 中）；学生自建忽略",
+    )
 
 
 class TeamResponse(BaseModel):
     id: int
     competition_id: int
+    name: Optional[str] = None
     captain_id: int
     status: TeamStatus
     created_at: UtcDatetime
 
     class Config:
         from_attributes = True
+
+
+class TeamPatch(BaseModel):
+    """修改队名等（队长或指导老师建队者可操作）"""
+
+    name: Optional[str] = Field(None, max_length=200)
+
+
+class TeamInviteMember(BaseModel):
+    student_id: int = Field(..., description="加入队伍的 alt_auth 学生主体 id")
 
 
 class TeamMemberResponse(BaseModel):
@@ -560,6 +598,7 @@ class TeamDetailResponse(BaseModel):
     """队伍详情（含成员列表），用于查看竞赛下所有队伍"""
     id: int
     competition_id: int
+    name: Optional[str] = None
     captain_id: int
     status: TeamStatus
     created_at: UtcDatetime
@@ -601,10 +640,46 @@ class TeamParticipantDetailResponse(BaseModel):
     sequence_no: int = Field(..., description="本竞赛组队赛道内队伍序号，从 1 起，按队伍创建时间升序")
     id: int
     competition_id: int
+    name: Optional[str] = None
     captain_id: int
     status: TeamStatus
     created_at: UtcDatetime
     members: List[TeamMemberWithUserResponse] = Field(default_factory=list)
+
+
+class CompetitionExpertListItem(BaseModel):
+    """第二套帐号中 role=expert 的专家条目。"""
+
+    expert_user_id: int
+    username: str = ""
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    school: Optional[str] = None
+    expert_verified: bool = False
+    assigned_competition_ids: List[int] = Field(
+        default_factory=list,
+        description="该专家已被指派的竞赛 id 列表（可多场；空列表表示尚未指派任何竞赛）",
+    )
+
+
+class CompetitionExpertsListResponse(BaseModel):
+    """全部专家帐号（管理员专家管理列表）。"""
+
+    total: int
+    items: List[CompetitionExpertListItem] = Field(default_factory=list)
+
+
+class AltUserAdminPatch(BaseModel):
+    """竞赛管理员变更第二套用户角色或专家资质（仅限 super_admin 调用）。"""
+
+    role: Optional[UserRole] = None
+    expert_verified: Optional[bool] = None
+
+
+class AltUserAdminUpdateResult(BaseModel):
+    id: int
+    role: str
+    expert_verified: bool
 
 
 class TeamMemberCreate(BaseModel):

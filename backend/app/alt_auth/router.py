@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 
-from typing import Optional
+from typing import List, Optional
 
 
 
@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 
 from app.alt_auth.database import get_alt_auth_db
+from app.database import get_db
 
 from app.alt_auth.models import AltAuthUserRecord
 
@@ -60,33 +61,26 @@ logger = logging.getLogger(__name__)
 
 
 
-_ALLOWED_ROLE_VALUES = frozenset(
-
-    {
-
-        UserRole.SUPER_ADMIN.value,
-
-        UserRole.TEACHER.value,
-
-        UserRole.STUDENT.value,
-
-    }
-
-)
-
-
-
+def _persist_alt_register_role(role) -> str:
+    """注册角色落库（不做 teacher/advisor 互转）。"""
+    v = role.value if hasattr(role, "value") else str(role)
+    return v.strip()
 
 
 def _normalize_stored_role(value: Optional[str]) -> str:
+    """JWT / `/me` 对外角色展示（不做 teacher/advisor 互转）。"""
+    return (value or UserRole.STUDENT.value).strip()
 
-    r = (value or UserRole.STUDENT.value).strip()
 
-    if r not in _ALLOWED_ROLE_VALUES:
+def _assigned_competition_ids_for_expert(main_db: Session, expert_user_id: int) -> List[int]:
+    from app.models.competition import CompetitionExpertAssignment
 
-        return UserRole.STUDENT.value
-
-    return r
+    rows = (
+        main_db.query(CompetitionExpertAssignment.competition_id)
+        .filter(CompetitionExpertAssignment.expert_id == expert_user_id)
+        .all()
+    )
+    return sorted({int(r[0]) for r in rows})
 
 
 
@@ -188,9 +182,7 @@ async def alt_identity_register(
 
 
 
-        role_str = body.role.value if hasattr(body.role, "value") else str(body.role)
-
-        role_str = _normalize_stored_role(role_str)
+        role_str = _persist_alt_register_role(body.role)
 
         hashed = hash_password_plain(body.password)
 
@@ -211,6 +203,8 @@ async def alt_identity_register(
             hashed_password=hashed,
 
             role=role_str,
+
+            expert_verified=False,
 
             is_active=True,
 
@@ -376,9 +370,12 @@ async def alt_identity_login(
 
             )
 
-
-
         role_out = _normalize_stored_role(row.role)
+        if role_out == UserRole.EXPERT.value and not bool(getattr(row, "expert_verified", False)):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Expert account pending verification; please wait for administrator approval",
+            )
 
         login_name = (row.username or "").strip() or (row.account or "").strip()
 
@@ -439,9 +436,8 @@ async def alt_identity_login(
 )
 
 async def alt_identity_me(
-
     principal: AltAuthUserRecord = Depends(get_current_alt_identity),
-
+    main_db: Session = Depends(get_db),
 ):
 
     """
@@ -452,34 +448,29 @@ async def alt_identity_me(
 
     返回 ``effective_permissions``：与主站 ``ROLE_PERMISSIONS[role]`` 一致。
 
+    专家帐号另返回 ``assigned_competition_ids``（与 ``GET /api/v1/competitions/experts`` 中该专家条目一致）。
+
     """
 
     role_out = _normalize_stored_role(principal.role)
+    assigned_ids: List[int] = []
+    if role_out == UserRole.EXPERT.value:
+        assigned_ids = _assigned_competition_ids_for_expert(main_db, principal.id)
 
     return AltAuthProfileResponse(
-
         id=principal.id,
-
         username=principal.username,
-
         email=principal.email,
-
         full_name=principal.full_name,
-
         role=role_out,
-
         is_active=bool(principal.is_active),
-
         student_id=principal.student_id,
-
         teacher_id=principal.teacher_id,
-
         school=principal.school,
-
         created_at=principal.created_at,
-
+        expert_verified=bool(getattr(principal, "expert_verified", False)),
+        assigned_competition_ids=assigned_ids,
         effective_permissions=list_effective_permissions_for_role(role_out),
-
     )
 
 

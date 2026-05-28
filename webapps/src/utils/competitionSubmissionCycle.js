@@ -84,6 +84,35 @@ function isActiveEnrollmentStatus (status) {
 }
 
 /**
+ * §8.7 报名记录赛道：优先 enrollment_scope，否则按 team_id 推断。
+ * @returns {'individual'|'team'}
+ */
+export function getEnrollmentScope (row) {
+  if (!row || typeof row !== 'object') return 'individual'
+  const scope = row.enrollment_scope != null ? String(row.enrollment_scope).trim().toLowerCase() : ''
+  if (scope === 'team' || scope === 'individual') return scope
+  const hasTeam = row.team_id !== null && row.team_id !== undefined && row.team_id !== ''
+  return hasTeam ? 'team' : 'individual'
+}
+
+/** 将同一竞赛下 enrolled 记录拆分为个人 / 队伍赛道（各保留一条） */
+export function splitEnrollmentsByTrack (rows) {
+  let individual = null
+  let team = null
+  const list = Array.isArray(rows) ? rows : []
+  for (const row of list) {
+    if (!row || !isActiveEnrollmentStatus(row.status)) continue
+    const scope = getEnrollmentScope(row)
+    if (scope === 'team') {
+      if (!team) team = row
+    } else if (!individual) {
+      individual = row
+    }
+  }
+  return { individual, team }
+}
+
+/**
  * 教师端作品列表：当前有效报名（个人 + 队伍）索引，用于隐藏退赛前的旧作品。
  */
 export function buildEnrollmentVisibilityIndex (individualRows, teamRows) {
@@ -183,4 +212,95 @@ export function isSubmissionVisibleInAdminList (sub, index) {
 export function filterAdminSubmissionsByActiveEnrollments (submissions, index) {
   const arr = Array.isArray(submissions) ? submissions : []
   return arr.filter(s => isSubmissionVisibleInAdminList(s, index))
+}
+
+function hasTeamIdOnSubmission (sub) {
+  return sub.team_id !== null && sub.team_id !== undefined && sub.team_id !== ''
+}
+
+/** 作品是否属于指定赛道（个人：无 team_id；队伍：有 team_id，可选匹配队伍 ID） */
+export function submissionMatchesEnrollmentTrack (sub, ctx) {
+  if (!sub || typeof sub !== 'object' || isWithdrawnOrSupersededSubmission(sub)) return false
+  const scope = ctx && ctx.scope === 'team' ? 'team' : 'individual'
+  const enrollmentId = ctx && ctx.enrollmentId != null ? Number(ctx.enrollmentId) : null
+  const teamId = ctx && ctx.teamId != null ? Number(ctx.teamId) : null
+  const cutoffMs =
+    ctx && typeof ctx.cutoffMs === 'number' && ctx.cutoffMs > 0 ? ctx.cutoffMs : null
+
+  if (enrollmentId != null && sub.enrollment_id != null) {
+    if (Number(sub.enrollment_id) !== enrollmentId) return false
+    return true
+  }
+
+  const isTeamSub = hasTeamIdOnSubmission(sub)
+  if (scope === 'individual') {
+    if (isTeamSub) return false
+  } else {
+    if (!isTeamSub) return false
+    if (teamId != null && Number.isFinite(teamId) && Number(sub.team_id) !== teamId) return false
+  }
+
+  if (cutoffMs != null) {
+    const submittedAtMs = parseTimeMs(sub.submitted_at || sub.created_at)
+    if (submittedAtMs == null) return false
+    return submittedAtMs >= cutoffMs
+  }
+
+  return true
+}
+
+/** 当前报名赛道（个人/队伍）下、计入「本周期已提交」的作品 */
+export function filterSubmissionsForEnrollmentTrack (list, ctx) {
+  const arr = Array.isArray(list) ? list : []
+  return arr.filter(s => submissionMatchesEnrollmentTrack(s, ctx))
+}
+
+/** §8.17 / §8.17.1 ReviewResponse 本地缓存（作品 GET 不含 score 时供教师列表展示） */
+const REVIEW_SCORE_STORAGE_KEY = 'competition_submission_review_scores_v1'
+
+function readReviewScoreMap () {
+  try {
+    const raw = localStorage.getItem(REVIEW_SCORE_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch (_) {
+    return {}
+  }
+}
+
+function writeReviewScoreMap (map) {
+  try {
+    localStorage.setItem(REVIEW_SCORE_STORAGE_KEY, JSON.stringify(map || {}))
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function normalizeSubmissionIdKey (submissionId) {
+  if (submissionId == null || submissionId === '') return null
+  const n = Number(submissionId)
+  return Number.isFinite(n) ? String(n) : String(submissionId)
+}
+
+/** 保存 PUT/PATCH review-grade 返回的 score / feedback / reviewed_at */
+export function saveSubmissionReviewGradeCache (submissionId, review) {
+  const key = normalizeSubmissionIdKey(submissionId)
+  if (!key || !review || typeof review !== 'object') return
+  if (review.score == null || review.score === '') return
+  const map = readReviewScoreMap()
+  map[key] = {
+    score: review.score,
+    feedback: review.feedback != null ? review.feedback : '',
+    reviewed_at: review.reviewed_at != null ? review.reviewed_at : null
+  }
+  writeReviewScoreMap(map)
+}
+
+export function getSubmissionReviewGradeCache (submissionId) {
+  const key = normalizeSubmissionIdKey(submissionId)
+  if (!key) return null
+  const map = readReviewScoreMap()
+  const v = map[key]
+  return v && typeof v === 'object' ? v : null
 }

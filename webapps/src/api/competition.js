@@ -9,7 +9,7 @@ import { axios } from '@/utils/request'
  * URL 以 `/v1/competitions/...` 书写；开发环境经 devServer 代理到 `/api`。
  */
 
-// 8.1 创建竞赛（管理员、教师）JSON
+// 8.1 创建竞赛（仅 super_admin）JSON
 export function createCompetition (payload) {
   return axios({
     url: '/v1/competitions/',
@@ -30,7 +30,7 @@ export function createCompetitionMultipart (formData) {
   })
 }
 
-// 8.2 发布竞赛（管理员、教师）
+// 8.2 发布竞赛（仅 super_admin）
 export function publishCompetition (competitionId) {
   return axios({
     url: `/v1/competitions/${competitionId}/publish`,
@@ -41,7 +41,7 @@ export function publishCompetition (competitionId) {
   })
 }
 
-// 8.3 修改竞赛（管理员、教师）JSON
+// 8.3 修改竞赛（仅 super_admin）JSON
 export function updateCompetition (competitionId, payload) {
   // payload: 只传需要修改的字段（name/description/rules_text/start_at/end_at/allow_individual/allow_team）
   return axios({
@@ -63,7 +63,7 @@ export function updateCompetitionMultipart (competitionId, formData) {
   })
 }
 
-// 8.4 删除竞赛（管理员、教师）
+// 8.4 删除竞赛（仅 super_admin）
 export function deleteCompetition (competitionId) {
   return axios({
     url: `/v1/competitions/${competitionId}`,
@@ -71,7 +71,7 @@ export function deleteCompetition (competitionId) {
   })
 }
 
-// 8.5 锁定竞赛（停止报名；管理员、教师）
+// 8.5 锁定竞赛（停止报名；仅 super_admin）
 export function lockCompetition (competitionId) {
   return axios({
     url: `/v1/competitions/${competitionId}/lock`,
@@ -123,13 +123,21 @@ export function getCompetitionParticipantsTeams (competitionId) {
   })
 }
 
+// 8.11.1 导出队伍信息 Excel（管理员；MANAGE_COMPETITIONS）
+export function exportCompetitionTeamsExcel (competitionId) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/teams/export`,
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
 function trimStr (v) {
   if (v == null) return ''
   return String(v).trim()
 }
 
-// 8.7 报名参赛（学生：个人/队伍）
-// 个人报名时省略 team_id 键（避免部分后端对 null 校验不通过）；选填字段仅在有值时写入。
+// 8.7 报名参赛（学生：个人/队伍；team_id=null 为个人赛道，非空为队伍赛道，双赛道可并存）
 export function enrollCompetition (payload) {
   const raw = payload || {}
   const competitionId = Number(raw.competition_id)
@@ -138,11 +146,14 @@ export function enrollCompetition (payload) {
   }
   const body = { competition_id: competitionId }
   const teamRaw = raw.team_id
+  const hasTeamIdKey = Object.prototype.hasOwnProperty.call(raw, 'team_id')
   if (teamRaw != null && teamRaw !== '') {
     const teamId = Number(teamRaw)
     if (Number.isFinite(teamId) && teamId > 0) {
       body.team_id = teamId
     }
+  } else if (hasTeamIdKey && (teamRaw == null || teamRaw === '')) {
+    body.team_id = null
   }
   const optionalKeys = ['student_no', 'real_name', 'college', 'grade', 'contact']
   for (const k of optionalKeys) {
@@ -160,16 +171,32 @@ export function enrollCompetition (payload) {
 }
 
 // 8.8 退赛（学生；停止报名后仍可退赛，权限 ENROLL_COMPETITIONS）
-export function withdrawCompetition (competitionId) {
+// options.track: 'individual' | 'team' — 个人与组队两条报名均有效时必填
+export function withdrawCompetition (competitionId, options = {}) {
+  const params = {}
+  const track = options && options.track
+  if (track === 'individual' || track === 'team') {
+    params.track = track
+  }
   return axios({
     url: `/v1/competitions/${competitionId}/withdraw`,
-    method: 'post'
+    method: 'post',
+    params
   })
 }
 
-// 8.12 创建队伍（学生：自动队长；权限 MANAGE_TEAMS）
+// 8.9 查看竞赛队伍列表（学生选队 / 指导老师查看队况；权限 VIEW_COMPETITIONS）
+export function getCompetitionTeams (competitionId) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/teams`,
+    method: 'get'
+  })
+}
+
+// 8.12 创建队伍（学生自建队长 / 指导老师组班；权限 MANAGE_TEAMS）
+// 学生：{ competition_id, initial_member_ids?: null }
+// 指导老师：{ competition_id, name?, captain_student_id?, initial_member_ids: number[] }（至少一名队员）
 export function createCompetitionTeam (payload) {
-  // payload: { competition_id: int, initial_member_ids: array|null }
   return axios({
     url: '/v1/competitions/teams',
     method: 'post',
@@ -177,6 +204,38 @@ export function createCompetitionTeam (payload) {
     headers: {
       'Content-Type': 'application/json'
     }
+  })
+}
+
+// 8.12.1 修改队名（队长或建队指导老师）
+export function patchCompetitionTeam (teamId, payload) {
+  return axios({
+    url: `/v1/competitions/teams/${teamId}`,
+    method: 'patch',
+    data: payload || {},
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+// 8.12.2 邀请队员（队长或建队指导老师）
+export function inviteCompetitionTeamMember (teamId, studentId) {
+  return axios({
+    url: `/v1/competitions/teams/${teamId}/invite`,
+    method: 'post',
+    data: { student_id: studentId },
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+// 8.12.3 移除队员（队长或建队指导老师；不可踢队长）
+export function removeCompetitionTeamMember (teamId, userId) {
+  return axios({
+    url: `/v1/competitions/teams/${teamId}/members/${userId}`,
+    method: 'delete'
   })
 }
 
@@ -263,7 +322,7 @@ export function downloadCompetitionSubmissionFile (submissionId) {
   })
 }
 
-// 8.17 评分/审核（教师/评委；权限 REVIEW_SUBMISSIONS）首次评分
+// 8.17 评分/审核（仅已核验且已指派 expert；权限 REVIEW_SUBMISSIONS）首次评分
 export function reviewCompetitionSubmissionGrade (submissionId, payload) {
   // payload: { score: number, feedback?: string }
   return axios({
@@ -288,7 +347,7 @@ export function patchCompetitionSubmissionReviewGrade (submissionId, payload) {
   })
 }
 
-// 8.17.2 查询作品评分（ReviewResponse；与 PUT/PATCH 响应体一致）
+// 8.17.2 查询作品评分（ReviewResponse；与 PUT/PATCH 响应体一致，供教师端列表展示分数）
 export function getCompetitionSubmissionReviewGrade (submissionId) {
   return axios({
     url: `/v1/competitions/submissions/${submissionId}/review-grade`,
@@ -320,5 +379,49 @@ export function getMyCompetitionScores (competitionId) {
   return axios({
     url: `/v1/competitions/${competitionId}/scores/me`,
     method: 'get'
+  })
+}
+
+// 8.0.6 管理员：调整第二套帐号（role / expert_verified；仅 super_admin）
+export function patchCompetitionAltUser (targetUserId, payload) {
+  return axios({
+    url: `/v1/competitions/admin/alt-users/${encodeURIComponent(targetUserId)}`,
+    method: 'patch',
+    data: payload || {},
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+// 8.0.7 管理员：全局专家列表（role=expert；含 assigned_competition_ids；super_admin）
+export function getAllCompetitionExperts () {
+  return axios({
+    url: '/v1/competitions/experts',
+    method: 'get'
+  })
+}
+
+// 8.0.7 管理员：列出本赛专家（单赛；已指派 + 待审核 items）
+export function getCompetitionExperts (competitionId) {
+  return axios({
+    url: `/v1/competitions/${encodeURIComponent(competitionId)}/experts`,
+    method: 'get'
+  })
+}
+
+// 8.0.7 管理员：指派专家（目标须 expert 且 expert_verified=true）
+export function assignCompetitionExpert (competitionId, expertUserId) {
+  return axios({
+    url: `/v1/competitions/${encodeURIComponent(competitionId)}/experts/${encodeURIComponent(expertUserId)}`,
+    method: 'post'
+  })
+}
+
+// 8.0.7 管理员：取消指派
+export function revokeCompetitionExpert (competitionId, expertUserId) {
+  return axios({
+    url: `/v1/competitions/${encodeURIComponent(competitionId)}/experts/${encodeURIComponent(expertUserId)}`,
+    method: 'delete'
   })
 }

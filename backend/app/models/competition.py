@@ -40,15 +40,27 @@ class CompetitionEnrollmentStatus(str):
     WITHDRAWN = "withdrawn"
 
 
+class CompetitionEnrollmentScope(str):
+    """同一学生可在同一竞赛同时持有个人与组队两条有效报名（各一条）。"""
+    INDIVIDUAL = "individual"
+    TEAM = "team"
+
+
 class CompetitionEnrollment(Base):
     """
     学生在某竞赛的报名记录。
     ``student_id`` 存 **第二套主体** ``alt_auth_users.id``（无外键、不引用主库 ``users``）。
+    每人每赛每种赛道（``enrollment_scope``）至多一条记录。
     """
 
     __tablename__ = "competition_enrollments"
     __table_args__ = (
-        UniqueConstraint("competition_id", "student_id", name="uq_competition_student"),
+        UniqueConstraint(
+            "competition_id",
+            "student_id",
+            "enrollment_scope",
+            name="uq_competition_student_scope",
+        ),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -57,6 +69,11 @@ class CompetitionEnrollment(Base):
     student_id = Column(Integer, nullable=False, index=True)
 
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
+    enrollment_scope = Column(
+        String(20),
+        default=CompetitionEnrollmentScope.INDIVIDUAL,
+        nullable=False,
+    )
 
     is_captain = Column(Boolean, default=False, nullable=False)
 
@@ -84,8 +101,14 @@ class Team(Base):
     id = Column(Integer, primary_key=True, index=True)
     competition_id = Column(Integer, ForeignKey("competitions.id"), nullable=False)
 
-    # alt_auth_users.id（队长）
+    # 展示用队名（队长或指导老师创建者可修改）
+    name = Column(String(200), nullable=True)
+
+    # alt_auth_users.id（队长，须为学生）
     captain_id = Column(Integer, nullable=False, index=True)
+
+    # 指导老师代为建队时记录其 alt_auth_users.id（普通学生自建队则为空）
+    created_by_advisor_id = Column(Integer, nullable=True, index=True)
 
     status = Column(String(30), default=TeamStatus.ACTIVE, nullable=False)
     created_at = Column(DateTime, default=utc_now)
@@ -162,3 +185,17 @@ class Review(Base):
     reviewed_at = Column(DateTime, nullable=True)
 
     submission = relationship("Submission", back_populates="review")
+
+
+class CompetitionExpertAssignment(Base):
+    """
+    管理员为某竞赛指派的评委专家（仅被指派的 expert_verified 专家可批改该赛作品）。
+    """
+
+    __tablename__ = "competition_expert_assignments"
+    __table_args__ = (UniqueConstraint("competition_id", "expert_id", name="uq_competition_expert"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    competition_id = Column(Integer, ForeignKey("competitions.id"), nullable=False, index=True)
+    expert_id = Column(Integer, nullable=False, index=True)
+    created_at = Column(DateTime, default=utc_now)

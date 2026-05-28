@@ -81,6 +81,7 @@ def setup_alt_auth_database(log: Optional[logging.Logger] = None) -> None:
         "ALTER TABLE alt_auth_users ADD COLUMN full_name VARCHAR(100)",
         "ALTER TABLE alt_auth_users ADD COLUMN student_id VARCHAR(50)",
         "ALTER TABLE alt_auth_users ADD COLUMN teacher_id VARCHAR(50)",
+        "ALTER TABLE alt_auth_users ADD COLUMN expert_verified BOOLEAN DEFAULT 0",
     ):
         try:
             with alt_auth_engine.connect() as conn:
@@ -117,6 +118,7 @@ def setup_alt_auth_database(log: Optional[logging.Logger] = None) -> None:
                     "AND (email IS NULL OR TRIM(COALESCE(email,'')) = '')"
                 )
             )
+            # 角色保持原样：teacher 与 advisor 并存，不做自动互转
             conn.commit()
     except Exception:
         pass

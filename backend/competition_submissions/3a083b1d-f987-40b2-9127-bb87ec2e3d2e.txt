@@ -1,0 +1,5633 @@
+<template>
+  <div class="class-eval-dashboard" style="height: 1000px;">
+    <!-- 顶部导航栏 -->
+    <a-row
+      class="dashboard-header"
+      type="flex"
+      align="middle"
+      justify="space-between">
+      <a-col :span="4">
+        <div class="header-info">
+          <div class="course-info">
+            <a-tooltip
+              placement="bottom"
+              :title="json.video_basic_info.courseName"
+              :mouseEnterDelay="0.5"
+            >
+              <h2 class="course-name">{{ json.video_basic_info.courseName }}</h2>
+            </a-tooltip>
+          </div>
+        </div>
+      </a-col>
+      <a-col
+        :span="4"
+      >
+        <div class="header-info">
+          <a-avatar slot="avatar" style="margin: auto 12px;" :src="require('@/assets/icons/teacher.png')" />
+          <div style="margin: auto 0px;font-size: 12px;color:#cccccc;">
+            <div>授课教师：{{ json.video_basic_info?.teacherName }}  <br/>教师职称：{{ json.video_basic_info?.title }}</div>
+          </div>
+        </div>
+      </a-col>
+      <a-col
+        :span="8"
+        class="header-center">
+        <div class="logo-title">
+          <span class="system-title">AIME数学课堂教学评价系统</span>
+        </div>
+      </a-col>
+      <a-col
+        :span="2">
+        <div style="margin: auto 0px;font-size: 12px;color:#cccccc;">
+          <div>授课年级：{{ json.video_basic_info?.grade }}  <br/>授课班级：{{ json.video_basic_info?.className }} </div>
+        </div>
+      </a-col>
+      <a-col
+        style="display: flex;"
+        :span="6">
+        <div style="margin: auto 0px;font-size: 12px;width: 90%;color:#cccccc;">
+          <div>授课学校：{{ json.video_basic_info?.school }} <br/>授课开始时间：{{ json.video_basic_info?.teachingTime }}</div>
+        </div>
+        <a class="view-report" @click="handleRouter" style="color: #fff;"><a-icon type="bar-chart"></a-icon>查看报告</a>
+      </a-col>
+    </a-row>
+
+    <!-- 内容区， 上半部分-->
+    <div class="content-row" style="border: 1px solid #1390AB;border-radius: 10px;padding-top: 5px;">
+      <a-row>
+        <!-- 左侧区域-->
+        <a-col :span="6" class="left-col">
+          <div class="leftTitle">综合课堂评价</div>
+          <div style="height: 100%;width: 100%;position: relative;" class="score-row">
+            <a-button
+              class="score-toggle-btn score-corner-btn"
+              size="small"
+              @click="toggleScoreDisplay"
+            >
+              {{ showScores ? '隐藏得分' : '显示得分' }}
+            </a-button>
+            <div id="comprehensiveEvaluationChart" style="height: 100%;width: 100%;"></div>
+          </div>
+        </a-col>
+        <!-- 中间区域-->
+        <a-col :span="12" class="middle-col">
+          <div class="video-flex">
+            <local-video-player
+              :baseInfo="json.video_basic_info"
+              :timeSegments="timeSegments"
+              @timeupdate="onVideoTimeUpdate"
+              ref="videoPlayer"
+              @expand="handleExpandVideo"
+              class="macos-video-player"
+            />
+          </div>
+        </a-col>
+        <!-- 右侧区域-->
+        <a-col :span="6" class="right-col">
+          <div class="leftTitle">师生话语</div>
+          <TeacherStudentChat
+            :teachStuSpeakContent="json.teach_stu_speak_content"
+            :currentTime="currentVideoTime"
+            @jumpToTime="handleChatJumpToTime"
+          />
+        </a-col>
+      </a-row>
+    </div>
+    <!-- 内容区， 下半部分-->
+    <div class="bottom-content-row" style="height: 45%;position: relative;">
+      <div class="titleOnly" style="display: flex;">
+        <div :class="currentTab === 0 ? 'activeTab' : ''" style="width: 25%;line-height:30px;color:#cccccc;text-align: center;cursor: pointer;" @click="handleTabChange1(0)">
+          <span>关键行为</span>
+        </div>
+        <div :class="currentTab === 2 ? 'activeTab' : ''" style="width: 25%;line-height:30px;color:#cccccc;text-align: center;cursor: pointer;" @click="handleTabChange(2)">
+          <span>关键能力</span>
+        </div>
+        <div :class="currentTab === 1 ? 'activeTab' : ''" style="width: 25%;line-height:30px;color:#cccccc;text-align: center;cursor: pointer;" @click="handleTabChange1(1)">
+          <span>情感体验</span>
+        </div>
+        <div :class="currentTab === 3 ? 'activeTab' : ''" style="width: 25%;line-height:30px;color:#cccccc;text-align: center;cursor: pointer;" @click="handleTabChange(3)">
+          <span>综合评价</span>
+        </div>
+      </div>
+      <a-row v-show="currentTab === 0" style="height: 100%;">
+        <a-col :span="24" class="item-align">
+          <div style="display: flex;height: 100%;">
+            <div style="width: 30%; height: 100%">
+              <bar
+                :data="barData3"
+                :title="'关键行为一级指标对比'"
+                :show-expand="true"
+                :isFullScreen="isBehaviorChartExpanded"
+                @expand="handleExpandBehaviorChart"
+                style="height: 100%;"
+              ></bar>
+            </div>
+            <div style="width: 40%; height: 100%">
+              <bar
+                :data="barData5"
+                :title="'关键行为二级指标对比'"
+                :show-expand="true"
+                :isFullScreen="isSecondaryBehaviorChartExpanded"
+                @expand="handleExpandSecondaryBehaviorChart"
+                style="height: 100%;"
+              ></bar>
+            </div>
+            <div style="width: 30%; height: 100%;padding: 10px">
+              <div class="timeline-header">
+                <div class="timeline-controls">
+                  <a-button
+                    class="timeline-toggle-btn"
+                    size="small"
+                    @click="toggleTimelineLevel"
+                  >
+                    {{ showSecondaryTimeline ? '二级指标' : '一级指标' }}
+                    <a-icon
+                      type="swap"
+                      style="margin-left: 4px; transform: rotate(0deg);"
+                    />
+                  </a-button>
+                  <a-dropdown
+                    :trigger="['click']"
+                    placement="topRight"
+                    class="indicator-selector"
+                  >
+                    <a-button
+                      size="small"
+                      class="timeline-toggle-btn"
+                    >
+                      选择展示指标 <a-icon type="down" />
+                    </a-button>
+                    <a-menu
+                      slot="overlay"
+                      multiple
+                      :selectedKeys="selectedIndicators"
+                    >
+                      <!-- 全选选项 -->
+                      <a-menu-item key="select-all">
+                        <a-checkbox
+                          :checked="isAllIndicatorsSelected"
+                          @change="handleSelectAllChange"
+                          @click.native.stop=""
+                        >
+                          全选
+                        </a-checkbox>
+                      </a-menu-item>
+                      <a-menu-divider />
+                      <!-- 动态渲染指标选项 -->
+                      <a-menu-item v-for="indicator in currentAvailableIndicators" :key="indicator.key">
+                        <a-checkbox
+                          :checked="selectedIndicators.includes(indicator.key)"
+                          @change="(e) => onCheckboxChange(e, indicator.key)"
+                          @click.native.stop=""
+                        >
+                          {{ indicator.label }}
+                        </a-checkbox>
+                      </a-menu-item>
+                    </a-menu>
+                  </a-dropdown>
+                </div>
+                <div class="leftTitle">关键行为时间序列</div>
+                <div class="timeline-right-controls">
+                  <a-button
+                    class="expand-timeline-btn"
+                    size="small"
+                    @click="handleExpandTimeline"
+                    icon="fullscreen"
+                  >
+                  </a-button>
+                </div>
+              </div>
+              <div
+                v-show="!showSecondaryTimeline"
+                id="BehaviorTimeline"
+                style="width: 100%;height: 110%;"
+              ></div>
+              <div
+                v-show="showSecondaryTimeline"
+                id="SecondaryIndicatorTimeline"
+                style="width: 100%;height: 100%;"
+              ></div>
+            </div>
+          </div>
+        </a-col>
+      </a-row>
+      <!-- 放大状态下的全屏显示 -->
+      <div v-show="isBehaviorChartExpanded" class="fullscreen-behavior-chart" @click="handleFullscreenClick">
+        <div class="fullscreen-content">
+          <a-button
+            class="close-expand-btn"
+            type="link"
+            @click="handleCloseExpandBehaviorChart"
+            icon="fullscreen-exit"
+          ></a-button>
+          <bar
+            :data="barData3"
+            :size="35"
+            :title="'关键行为一级指标对比'"
+            :height="'200%'"
+            :show-expand="false"
+            :isFullScreen="true"
+            style="width: 100%;height: 200%;"
+          ></bar>
+        </div>
+      </div>
+      <!-- 二级指标放大状态下的全屏显示 -->
+      <div v-show="isSecondaryBehaviorChartExpanded" class="fullscreen-behavior-chart" @click="handleFullscreenClick">
+        <div class="fullscreen-content">
+          <a-button
+            class="close-expand-btn"
+            type="link"
+            @click="handleCloseExpandSecondaryBehaviorChart"
+            icon="fullscreen-exit"
+          ></a-button>
+          <bar
+            :data="barData5"
+            :size="35"
+            :title="'关键行为二级指标对比'"
+            :height="'200%'"
+            :show-expand="false"
+            :isFullScreen="true"
+            style="width: 100%;height: 200%;"
+          ></bar>
+        </div>
+      </div>
+      <!-- 时间序列全屏显示 -->
+      <div v-show="isTimelineExpanded" class="fullscreen-timeline" @click="handleFullscreenClick">
+        <div class="fullscreen-timeline-content">
+          <a-button
+            class="close-timeline-expand-btn"
+            type="link"
+            @click="handleCloseExpandTimeline"
+            icon="fullscreen-exit"
+          ></a-button>
+          <div class="timeline-header" style="margin-bottom: 20px;">
+            <div class="timeline-left-controls">
+              <a-button
+                class="timeline-toggle-btn"
+                size="small"
+                @click="toggleTimelineLevelWithResize"
+              >
+                {{ showSecondaryTimeline ? '二级指标' : '一级指标' }}
+                <a-icon
+                  type="swap"
+                  style="margin-left: 4px; transform: rotate(0deg);"
+                />
+              </a-button>
+              <a-dropdown
+                :trigger="['click']"
+                placement="topRight"
+                class="indicator-selector"
+              >
+                <a-button
+                  size="small"
+                  class="timeline-toggle-btn"
+                >
+                  选择展示指标 <a-icon type="down" />
+                </a-button>
+                <a-menu
+                  slot="overlay"
+                  multiple
+                  :selectedKeys="selectedIndicators"
+                >
+                  <!-- 全选选项 -->
+                  <a-menu-item key="select-all">
+                    <a-checkbox
+                      :checked="isAllIndicatorsSelected"
+                      @change="handleSelectAllChange"
+                      @click.native.stop=""
+                    >
+                      全选
+                    </a-checkbox>
+                  </a-menu-item>
+                  <a-menu-divider />
+                  <!-- 动态渲染指标选项 -->
+                  <a-menu-item v-for="indicator in currentAvailableIndicators" :key="indicator.key">
+                    <a-checkbox
+                      :checked="selectedIndicators.includes(indicator.key)"
+                      @change="(e) => onCheckboxChange(e, indicator.key)"
+                      @click.native.stop=""
+                    >
+                      {{ indicator.label }}
+                    </a-checkbox>
+                  </a-menu-item>
+                </a-menu>
+              </a-dropdown>
+            </div>
+          </div>
+          <div
+            v-show="!showSecondaryTimeline"
+            id="FullscreenBehaviorTimeline"
+            style="width: 100%;height: calc(100% - 60px);"
+          ></div>
+          <div
+            v-show="showSecondaryTimeline"
+            id="FullscreenSecondaryIndicatorTimeline"
+            style="width: 100%;height: calc(100% - 60px);"
+          ></div>
+        </div>
+      </div>
+      <a-row v-show="currentTab === 2" style="height: 100%;">
+        <a-col :span="24" class="item-align">
+          <div style="display: flex; height: 100%;">
+            <div style="width: 30%;height: 100%">
+              <bar
+                :data="barData4"
+                :title="'关键能力一级指标对比'"
+                :show-expand="true"
+                :isFullScreen="isSecondaryBehaviorChartExpanded"
+                @expand="handleExpandSpeechFormChart"
+                style="height: 100%;"
+              ></bar>
+            </div>
+            <div style="width: 40%;height: 100%">
+              <bar
+                :data="barData6"
+                :title="'关键能力二级指标对比'"
+                :show-expand="true"
+                :isFullScreen="isSecondaryAbilityChartExpanded"
+                @expand="handleExpandSecondaryAbilityChart"
+                style="height: 100%;"
+              ></bar>
+            </div>
+            <div style="width: 30%;height: 80%;padding: 10px">
+              <div class="timeline-header">
+                <div class="timeline-controls">
+                  <a-button
+                    class="timeline-toggle-btn"
+                    size="small"
+                    @click="toggleAbilityTimelineLevel"
+                  >
+                    {{ showSecondaryAbilityTimeline ? '二级指标' : '一级指标' }}
+                    <a-icon
+                      type="swap"
+                      style="margin-left: 4px; transform: rotate(0deg);"
+                    />
+                  </a-button>
+                  <a-dropdown
+                    :trigger="['click']"
+                    placement="topRight"
+                    class="indicator-selector"
+                  >
+                    <a-button
+                      size="small"
+                      class="timeline-toggle-btn"
+                    >
+                      选择展示指标 <a-icon type="down" />
+                    </a-button>
+                    <a-menu
+                      slot="overlay"
+                      multiple
+                      :selectedKeys="selectedAbilityIndicators"
+                    >
+                      <!-- 全选选项 -->
+                      <a-menu-item key="ability-select-all">
+                        <a-checkbox
+                          :checked="isAllAbilityIndicatorsSelected"
+                          @change="handleAbilitySelectAllChange"
+                          @click.native.stop=""
+                        >
+                          全选
+                        </a-checkbox>
+                      </a-menu-item>
+                      <a-menu-divider />
+                      <!-- 动态渲染能力指标选项 -->
+                      <a-menu-item v-for="indicator in currentAvailableAbilityIndicators" :key="indicator.key">
+                        <a-checkbox
+                          :checked="selectedAbilityIndicators.includes(indicator.key)"
+                          @change="(e) => onAbilityCheckboxChange(e, indicator.key)"
+                          @click.native.stop=""
+                        >
+                          {{ indicator.label }}
+                        </a-checkbox>
+                      </a-menu-item>
+                    </a-menu>
+                  </a-dropdown>
+                </div>
+                <div class="leftTitle">关键能力时间序列</div>
+                <div class="timeline-right-controls">
+                  <a-button
+                    class="expand-timeline-btn"
+                    size="small"
+                    @click="handleExpandAbilityTimeline"
+                    icon="fullscreen"
+                  >
+                  </a-button>
+                </div>
+              </div>
+              <div
+                v-show="!showSecondaryAbilityTimeline"
+                id="AbilityTimeline"
+                style="width: 100%;height: 140%;"
+              ></div>
+              <div
+                v-show="showSecondaryAbilityTimeline"
+                id="SecondaryAbilityTimeline"
+                style="width: 100%;height: 125%;"
+              ></div>
+            </div>
+          </div>
+        </a-col>
+      </a-row>
+      <!-- 关键能力一级指标对比放大状态下的全屏显示 -->
+      <div v-show="isSpeechFormChartExpanded" class="fullscreen-behavior-chart" @click="handleFullscreenClick">
+        <div class="fullscreen-content">
+          <a-button
+            class="close-expand-btn"
+            type="link"
+            @click="handleCloseExpandSpeechFormChart"
+            icon="fullscreen-exit"
+          ></a-button>
+          <bar
+            :data="barData4"
+            :size="35"
+            :title="'关键能力一级指标对比'"
+            :height="'200%'"
+            :show-expand="false"
+            :isFullScreen="true"
+            style="width: 100%;height: 200%;"
+          ></bar>
+        </div>
+      </div>
+      <div v-show="isSecondaryAbilityChartExpanded" class="fullscreen-behavior-chart" @click="handleFullscreenClick">
+        <div class="fullscreen-content">
+          <a-button
+            class="close-expand-btn"
+            type="link"
+            @click="handleCloseExpandSecondaryAbilityChart"
+            icon="fullscreen-exit"
+          ></a-button>
+          <bar
+            :data="barData6"
+            :size="35"
+            :title="'关键能力二级指标对比'"
+            :height="'200%'"
+            :show-expand="false"
+            :isFullScreen="true"
+            style="width: 100%;height: 200%;"
+          ></bar>
+        </div>
+      </div>
+      <!-- 添加全屏显示 -->
+      <div v-show="isAbilityTimelineExpanded" class="fullscreen-timeline" @click="handleFullscreenClick">
+        <div class="fullscreen-timeline-content">
+          <a-button
+            class="close-timeline-expand-btn"
+            type="link"
+            @click="handleCloseExpandAbilityTimeline"
+            icon="fullscreen-exit"
+          ></a-button>
+          <div class="timeline-header" style="margin-bottom: 20px;">
+            <div class="timeline-left-controls">
+              <a-button
+                class="timeline-toggle-btn"
+                size="small"
+                @click="toggleAbilityTimelineLevel"
+              >
+                {{ showSecondaryAbilityTimeline ? '二级指标' : '一级指标' }}
+                <a-icon
+                  type="swap"
+                  style="margin-left: 4px; transform: rotate(0deg);"
+                />
+              </a-button>
+              <a-dropdown
+                :trigger="['click']"
+                placement="topRight"
+                class="indicator-selector"
+              >
+                <a-button
+                  size="small"
+                  class="timeline-toggle-btn"
+                >
+                  选择展示指标 <a-icon type="down" />
+                </a-button>
+                <a-menu
+                  slot="overlay"
+                  multiple
+                  :selectedKeys="selectedAbilityIndicators"
+                >
+                  <!-- 全选选项 -->
+                  <a-menu-item key="ability-select-all">
+                    <a-checkbox
+                      :checked="isAllAbilityIndicatorsSelected"
+                      @change="handleAbilitySelectAllChange"
+                      @click.native.stop=""
+                    >
+                      全选
+                    </a-checkbox>
+                  </a-menu-item>
+                  <a-menu-divider />
+                  <!-- 动态渲染能力指标选项 -->
+                  <a-menu-item v-for="indicator in currentAvailableAbilityIndicators" :key="indicator.key">
+                    <a-checkbox
+                      :checked="selectedAbilityIndicators.includes(indicator.key)"
+                      @change="(e) => onAbilityCheckboxChange(e, indicator.key)"
+                      @click.native.stop=""
+                    >
+                      {{ indicator.label }}
+                    </a-checkbox>
+                  </a-menu-item>
+                </a-menu>
+              </a-dropdown>
+            </div>
+          </div>
+          <div
+            v-show="!showSecondaryAbilityTimeline"
+            id="FullscreenAbilityTimeline"
+            style="width: 100%;height: calc(100% - 60px);"
+          ></div>
+          <div
+            v-show="showSecondaryAbilityTimeline"
+            id="FullscreenSecondaryAbilityTimeline"
+            style="width: 100%;height: calc(100% - 60px);"
+          ></div>
+        </div>
+      </div>
+      <a-row v-show="currentTab === 1" style="height: 100%;">
+        <a-col :span="6" class="item-align">
+          <div class="leftTitle">课堂语速分析</div>
+          <div style="display: flex; height: 100%;width: 100%;">
+            <div id="speechRatio" style="height: 100%;width: 100%;"></div>
+          </div>
+        </a-col>
+        <a-col :span="6" class="item-align">
+          <div class="leftTitle">师生情绪统计</div>
+          <div style="display: flex; height: 100%;width: 100%;flex-direction: column;">
+            <!-- 教师情绪部分 -->
+            <div :style="ifnostu === 1 ? 'height: 100%;width: 100%;display: flex;align-items: center;justify-content: center;flex-direction: column;' : 'height: 50%;width: 100%;display: flex;align-items: center;justify-content: space-around;flex-direction: column;'">
+              <div style="color: #cccccc;font-size: 16px;margin-bottom: 10px;">
+                教师情绪占比
+              </div>
+              <div :style="ifnostu === 1 ? 'display: flex; width: 100%; justify-content: center; align-items: center; gap: 20px;' : 'display: flex; width: 100%; justify-content: space-around;'">
+                <!-- 教师情绪饼图 -->
+                <div id="teacherEmotionPie" style="width: 150px;height: 150px;"></div>
+                <!-- 教师情绪横向柱状图（消极中性积极） -->
+                <div id="teacherEmotionBar" style="width: 250px;height: 150px;"></div>
+              </div>
+            </div>
+            <!-- 学生情绪部分 -->
+            <div v-if="ifnostu !== 1" style="height: 50%;width: 100%;display: flex;align-items: center;justify-content: space-around;flex-direction: column;">
+              <div style="color: #cccccc;font-size: 16px;">
+                学生情绪占比
+              </div>
+              <div style="display: flex; width: 100%; justify-content: space-around;">
+                <!-- 学生情绪饼图 -->
+                <div id="studentEmotionPie" style="width: 150px;height: 150px;"></div>
+                <!-- 学生情绪横向柱状图（消极中性积极） -->
+                <div id="studentEmotionBar" style="width: 250px;height: 150px;"></div>
+              </div>
+            </div>
+          </div>
+        </a-col>
+        <!-- 教学注意力分布 - 当 ifnostu !== 1 时显示 -->
+        <a-col v-if="ifnostu !== 1" :span="6" class="item-align">
+          <div class="leftTitle">教学注意力分布</div>
+          <div style="display: flex; height: 100%;width: 100%;">
+            <div id="focusDistribution" style="width: 100%;height: 100%;"></div>
+          </div>
+        </a-col>
+        <!-- 关键字 - 当 ifnostu === 1 时显示 -->
+        <a-col v-if="ifnostu === 1" :span="6" class="item-align">
+          <div class="leftTitle">关键字</div>
+          <div style="display: flex; height: 100%;width: 100%;">
+            <div id="classKeyword" style="width: 100%;height: 100%;"></div>
+          </div>
+        </a-col>
+        <!--        <a-col :span="6" class="item-align">-->
+        <!--          <div class="leftTitle">教师轨迹</div>-->
+        <!--          <div style="display: flex; height: 100%;width: 100%;">-->
+        <!--            <div style="height: 100%;width: 100%;">-->
+        <!--              <div id="teacherTrajectory" style="width: 100%;height: 100%;"></div>-->
+        <!--            </div>-->
+        <!--          </div>-->
+        <!--        </a-col>-->
+        <!-- 课堂专注度 - 当 ifnostu !== 1 时显示 -->
+        <a-col v-if="ifnostu !== 1" :span="6" class="item-align">
+          <div class="leftTitle">课堂专注度</div>
+          <div style="display: flex; height: 100%;width: 100%;">
+            <div style="height: 100%;width: 100%;">
+              <div id="classFocusChart" style="width: 100%;height: 100%;"></div>
+            </div>
+          </div>
+        </a-col>
+        <!-- 口头语 - 当 ifnostu === 1 时显示 -->
+        <a-col v-if="ifnostu === 1" :span="6" class="item-align">
+          <div class="leftTitle">口头语</div>
+          <div style="display: flex; height: 100%;width: 100%;">
+            <div id="teacherOrals" style="width: 100%;height: 100%;"></div>
+          </div>
+        </a-col>
+      </a-row>
+      <a-row v-show="currentTab === 3" style="height: 100%;">
+        <a-col :span="24" class="item-align">
+          <div style="padding: 20px; height: 100%; overflow-y: auto;">
+            <div class="comprehensive-review-content">
+              <div
+                v-if="comprehensiveReview"
+                class="review-text"
+                style="color: #e8f4ff; line-height: 1.8; font-size: 15px; white-space: pre-line; text-align: justify; font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;"
+              >
+                {{ formatReviewText(comprehensiveReview) }}
+              </div>
+              <div v-else class="no-data" style="text-align: center; color: #8a9ba8; padding: 40px; font-size: 16px;">
+                <a-icon type="file-text" style="font-size: 48px; margin-bottom: 16px; display: block; color: #1390AB;" />
+                暂无综合评价数据
+              </div>
+            </div>
+          </div>
+        </a-col>
+      </a-row>
+    </div>
+    <a-modal
+      v-model="videoModalVisible"
+      :width="modalWidth"
+      title=" "
+      :footer="null"
+      @cancel="handleModalClose"
+      :destroyOnClose="false"
+      :maskClosable="false"
+    >
+      <div class="fullscreen-video-container">
+        <div class="video-wrapper" :style="{ width: videoWidth }">
+          <local-video-player
+            :baseInfo="json.video_basic_info"
+            :timeSegments="timeSegments"
+            @timeupdate="onModalVideoTimeUpdate"
+            ref="modalVideoPlayer"
+            @expand="handleModalClose"
+          />
+        </div>
+        <button
+          class="toggle-chat-btn triangle-btn"
+          @click="toggleChatInModal"
+          :class="{ 'collapsed': !showChatInModal }"
+        >
+          <span class="triangle-icon"></span>
+        </button>
+        <div v-if="showChatInModal" class="modal-chat-container">
+          <div class="chat-header">
+            <h3 class="chat-title">师生话语</h3>
+          </div>
+          <TeacherStudentChat
+            class="modal-teacher-student-chat"
+            :teachStuSpeakContent="json.teach_stu_speak_content"
+            :currentTime="modalCurrentTime"
+            @jumpToTime="handleModalChatJump"
+          />
+        </div>
+      </div>
+    </a-modal>
+    <div
+      class="coze-toggle-btn"
+      :style="{ left: btnLeft + 'px', top: btnTop + 'px' }"
+      @click="toggleCozeWindow"
+      v-if="!cozeVisible"
+    >
+      <img src="@/assets/icons/AI.png" alt="AI教学助手" style="width: 48px; height: 48px;">
+    </div>
+
+    <!-- Coze智能体小窗 -->
+    <div
+      class="coze-float-window"
+      :style="{
+        left: windowLeft + 'px',
+        top: windowTop + 'px',
+        width: windowWidth + 'px',
+        height: windowHeight + 'px'
+      }"
+      v-if="cozeVisible"
+    >
+      <!-- 小窗头部（拖动抓手区域） -->
+      <div class="coze-window-header">
+        <h3>AI教学助手</h3>
+        <button class="coze-close-btn" @click="toggleCozeWindow">×</button>
+      </div>
+
+      <!-- 小窗内容区（自适应窗口大小） -->
+      <div class="coze-window-content">
+        <div id="cozeContainer" ref="cozeContainer" class="coze-inner-content"></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+import { getAnalysisResult } from '@/api/video'
+import Radar from '@/components/Charts/Radar.vue'
+import Bar from '@/components/Charts/Bar.vue'
+// 移除未使用的组件导入，保持页面轻量
+import LocalVideoPlayer from './modules/LocalVideoPlayer.vue'
+import TeacherStudentChat from './modules/TeacherStudentChat'
+import 'echarts-wordcloud'
+import {
+  buildClassification,
+  normalizeToNumber,
+  formatTimeToMinutes,
+  cleanStudentBehaviorData,
+  cleanWordData,
+  dataInitVideoSegments
+} from '@/utils/data'
+import { logSize } from '@/utils/util'
+
+// 已移除未使用的模块导入以精简包体积
+export default {
+  name: 'Eval',
+  components: {
+    Radar,
+    Bar,
+    LocalVideoPlayer,
+    TeacherStudentChat
+  },
+  computed: {
+    videoId () {
+      return this.$route.params.videoId
+    },
+    // 计算当前可用的指标（根据一级/二级状态）
+    currentAvailableIndicators() {
+      if (this.showSecondaryTimeline) {
+        // 二级指标：从 barData5（关键行为二级指标对比）中提取
+        const availableLabels = this.barData5.map(item => item.category).filter(Boolean)
+        return this.availableIndicators.filter(item =>
+          availableLabels.includes(item.key)
+        )
+      } else {
+        // 一级指标：从 barData3（关键行为一级指标对比）中提取
+        const availableLabels = this.barData3.map(item => item.category).filter(Boolean)
+        return this.availableIndicators.filter(item =>
+          availableLabels.includes(item.key)
+        )
+      }
+    },
+    // 计算是否所有当前指标都被选中
+    isAllIndicatorsSelected() {
+      const currentKeys = this.currentAvailableIndicators.map(item => item.key)
+      return currentKeys.length > 0 && currentKeys.every(key =>
+        this.selectedIndicators.includes(key)
+      )
+    },
+    // 计算当前可用的能力指标（根据一级/二级状态）
+    currentAvailableAbilityIndicators() {
+      if (this.showSecondaryAbilityTimeline) {
+        // 二级指标
+        return this.availableAbilityIndicators.filter(item =>
+          ['观察记忆', '概括理解', '说明论证', '经历经验', '主观看法',
+            '情感态度', '分析计算', '推理解释', '简单问题解决', '综合问题解决',
+            '猜想探究', '发现创新'].includes(item.key)
+        )
+      } else {
+        // 一级指标
+        return this.availableAbilityIndicators.filter(item =>
+          ['知识理解', '表达交流', '实践应用', '创造迁移'].includes(item.key)
+        )
+      }
+    },
+    // 计算是否所有当前能力指标都被选中
+    isAllAbilityIndicatorsSelected() {
+      const currentKeys = this.currentAvailableAbilityIndicators.map(item => item.key)
+      return currentKeys.length > 0 && currentKeys.every(key =>
+        this.selectedAbilityIndicators.includes(key)
+      )
+    }
+  },
+  data () {
+    return {
+      isSecondaryAbilityChartExpanded: false,
+      // Coze智能体相关配置
+      cozeSDK: null,
+      sdkLoaded: false,
+      isInited: false,
+      cozeVisible: false,
+
+      // 悬浮按钮配置
+      btnLeft: window.innerWidth - 250,
+      btnTop: window.innerHeight - 985,
+
+      // 小窗配置
+      windowLeft: window.innerWidth - 1200,
+      windowTop: window.innerHeight - 900,
+      windowWidth: 1200,
+      windowHeight: 800,
+
+      // 大小调整相关
+      isResizing: false,
+      resizeStartX: 0,
+      resizeStartY: 0,
+      resizeStartWidth: 0,
+      resizeStartHeight: 0,
+      showCozeChat: false,
+      showScores: false,
+      comprehensiveReview: '',
+      ifnostu: 0, // 是否隐藏学生情绪：1-隐藏，0-显示
+      stuEmotionsV2: [], // 学生情绪分布 消极中性积极
+      teacherEmotionsV2: [], // 教师情绪分布 消极中性积极
+      showSecondaryAbilityTimeline: false, // 是否显示二级指标时间序列
+      isAbilityTimelineExpanded: false, // 是否全屏显示
+      selectedAbilityIndicators: [], // 选中的能力指标
+      availableAbilityIndicators: [], // 可用能力指标列表
+      abilitySecondaryTimeData: [], // 二级指标时间数据
+      isTimelineExpanded: false,
+      showSecondaryTimeline: false, // 是否显示二级指标时间序列
+      selectedIndicators: [], // 选中的指标
+      availableIndicators: [], // 可用指标列表
+      isBehaviorChartExpanded: false,
+      isSecondaryBehaviorChartExpanded: false,
+      isSpeechFormChartExpanded: false,
+      barData5: [],
+      barData6: [],
+      videoModalVisible: false,
+      modalCurrentTime: 0,
+      showChatInModal: true,
+      modalWidth: '90%',
+      videoWidth: '60%',
+      currentTab: 2,
+      currentVideoTime: 0,
+      // 图形数据占位变量
+      radarData: [], // 雷达图
+      chatList: [], // 师生聊天记录
+      barData1: [], // 指标对比的第一个柱状图
+      barData2: [], // 指标对比的第二个柱状图
+      barData3: [], // 指标对比的第三个柱状图
+      barData4: [], // 指标对比的第四个柱状图
+      behaviorTimeData: [],
+      secondaryIndicatorTimeData: [],
+      wordTimeData: [],
+      speechSpeedData: [],
+      keywordsData: [],
+      orals: [], // 口头语数据
+      teacherAttentionData: {},
+      timeSegments: [],
+      stuConcentration: {}, // 学生专注度数据
+      teacherTrajectoryData: [],
+      json: {},
+      secondaryIndicatorTypeMap: {
+        6: '面向群体',
+        7: '面向个体',
+        8: '群体回答',
+        9: '个体回答',
+        10: '复述',
+        11: '深化',
+        12: '拓展',
+        13: '评价',
+        14: '发布指令',
+        15: '学习指引'
+      },
+      abilitySecondaryTypeMap: {
+        20: '观察记忆',
+        21: '概括理解',
+        22: '说明论证',
+        23: '经历经验',
+        24: '主观看法',
+        25: '情感态度',
+        26: '分析计算',
+        27: '推测解释',
+        28: '简单问题解决',
+        29: '综合问题解决',
+        30: '猜想探究',
+        31: '发现创新',
+        16: '知识理解',
+        17: '表达交流',
+        18: '实践应用',
+        19: '创造迁移'
+      },
+      wordTypeMap: {
+        4: '反馈',
+        3: '回答',
+        2: '提问',
+        5: '管理',
+        1: '陈述',
+        9: '创造迁移',
+        8: '实践应用',
+        6: '知识理解',
+        7: '表达交流'
+      },
+      // 话语图例与配色
+      speechLabels: [
+        '陈述', '提问', '回答', '反馈', '管理',
+        '知识理解', '个人表达', '分析论证', '比较归纳', '迁移创新'
+      ],
+      secondaryIndicatorColorMap: {
+        '面向群体': '#5B9BD5',
+        '面向全体': '#5B9BD5', // 兼容旧数据
+        '面向个体': '#ED7D31',
+        '群体回答': '#A4A4A4',
+        '个体回答': '#4472C4',
+        '复述': '#FFC000',
+        '深化': '#EC808D',
+        '拓展': '#70AD47',
+        '评价': '#7030A0',
+        '发布指令': '#FF6B6B',
+        '学习指引': '#4ECDC4'
+      },
+      abilitySecondaryColorMap: {
+        '观察记忆': '#5B9BD5',
+        '概括理解': '#ED7D31',
+        '说明论证': '#A4A4A4',
+        '经历经验': '#4472C4',
+        '主观看法': '#FFC000',
+        '情感态度': '#EC808D',
+        '分析计算': '#70AD47',
+        '推测解释': '#7030A0',
+        '推理解释': '#7030A0',
+        '简单问题解决': '#FF6B6B',
+        '综合问题解决': '#4ECDC4',
+        '猜想探究': '#FFA07A',
+        '发现创新': '#20B2AA',
+        '知识理解': '#9370DB',
+        '表达交流': '#32CD32',
+        '实践应用': '#FF4500',
+        '创造迁移': '#1E90FF'
+      },
+      speechColorMap: {
+        '陈述': '#f06d6d',
+        '提问': '#ffb347',
+        '回答': '#8ecae6',
+        '反馈': '#bdb2ff',
+        '管理': '#ffd166',
+        '知识理解': '#7bd389',
+        '个人表达': '#73c0de',
+        '分析论证': '#f6bd60',
+        '比较归纳': '#80ed99',
+        '迁移创新': '#4dd4ac'
+      }
+    }
+  },
+  methods: {
+    logSize,
+    normalizeToNumber,
+    formatTimeToMinutes,
+    cleanWordData,
+    cleanStudentBehaviorData,
+    // 初始化课堂专注度图表
+    initFocusChart() {
+      const that = this
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+
+        const dom = document.getElementById('classFocusChart')
+        if(!dom) return
+        const existingChart = this.$echarts.getInstanceByDom(dom)
+        if (existingChart) {
+          existingChart.dispose()
+        }
+
+        const chart = this.$echarts.init(dom)
+
+        // 处理专注度数据
+        const xArray = []
+        const yArray = []
+
+        if (this.stuConcentration && typeof this.stuConcentration === 'object') {
+          const keys = Object.keys(this.stuConcentration)
+          keys.forEach(item => {
+            xArray.push(parseInt(item))
+            // 确保数据是数字类型
+            const value = parseFloat(this.stuConcentration[item])
+            yArray.push(!isNaN(value) ? value * 100 : 0)
+          })
+        }
+
+        // 如果没有数据，创建示例数据
+        if (xArray.length === 0) {
+          for (let i = 1; i <= 10; i++) {
+            xArray.push(i)
+            yArray.push(Math.random() * 40 + 60) // 60-100% 的随机专注度
+          }
+        }
+
+        const option = {
+          tooltip: {
+            trigger: 'axis',
+            formatter: function(params) {
+              const data = params[0]
+              return `${data.name}分钟<br/>专注度: ${data.value.toFixed(0)}%`
+            },
+            backgroundColor: 'rgba(10, 31, 59, 0.9)',
+            borderColor: '#1390AB',
+            borderWidth: 1,
+            textStyle: {
+              color: '#fff'
+            }
+          },
+          grid: {
+            left: '10%',
+            right: '10%',
+            bottom: '15%',
+            top: '15%',
+            containLabel: true
+          },
+          xAxis: {
+            type: 'category',
+            boundaryGap: false,
+            data: xArray,
+            axisLine: {
+              show: false
+            },
+            axisTick: {
+              show: false
+            }
+          },
+          yAxis: {
+            type: 'value',
+            min: 0,
+            max: 100,
+            interval: 25,
+            axisLabel: {
+              formatter: '{value}%'
+            },
+            splitLine: {
+              lineStyle: {
+                type: 'dashed',
+                color: '#d9d9d9'
+              }
+            },
+            axisLine: {
+              show: false
+            },
+            axisTick: {
+              show: false
+            }
+          },
+          series: [{
+            name: '专注度',
+            type: 'line',
+            smooth: true,
+            symbol: 'circle',
+            symbolSize: 6,
+            lineStyle: {
+              color: '#7ACAEE',
+              width: 2
+            },
+            areaStyle: {
+              color: {
+                type: 'linear',
+                x: 0, y: 0, x2: 0, y2: 1,
+                colorStops: [
+                  { offset: 0, color: 'rgba(122, 202, 238, 0.3)' },
+                  { offset: 1, color: 'rgba(122, 202, 238, 0)' }
+                ]
+              }
+            },
+            data: yArray
+          }]
+        }
+
+        chart.setOption(option)
+      })
+    },
+    // 更新智能体位置（核心修改）
+    updateCozePosition() {
+      // 定义相对窗口右上角的偏移量（可根据需求调整）
+      const offsetRight = 180 // 右偏移20px
+      const offsetTop = 5   // 上偏移20px
+      const btnSize = 48     // 按钮尺寸
+
+      // 计算按钮位置（右上角）
+      this.btnLeft = window.innerWidth - btnSize - offsetRight
+      this.btnTop = offsetTop
+
+      // 计算智能体窗口位置（右上角，与按钮对齐）
+      this.windowLeft = Math.max(
+        offsetRight,
+        window.innerWidth - this.windowWidth - offsetRight
+      )
+      this.windowTop = offsetTop
+    },
+    // 处理全选变化 - 关键行为
+    handleSelectAllChange(e) {
+      const checked = e.target.checked
+      const currentKeys = this.currentAvailableIndicators.map(item => item.key)
+
+      if (checked) {
+        // 添加当前所有指标
+        currentKeys.forEach(key => {
+          if (!this.selectedIndicators.includes(key)) {
+            this.selectedIndicators.push(key)
+          }
+        })
+      } else {
+        // 移除当前所有指标
+        this.selectedIndicators = this.selectedIndicators.filter(
+          key => !currentKeys.includes(key)
+        )
+      }
+
+      // 重新渲染时间序列图表
+      this.$nextTick(() => {
+        if (this.showSecondaryTimeline) {
+          this.initSecondaryIndicatorSerial()
+          if (this.isTimelineExpanded) {
+            setTimeout(() => {
+              this.initFullscreenSecondaryIndicatorSerial()
+            }, 100)
+          }
+        } else {
+          this.initMoveSerial()
+          if (this.isTimelineExpanded) {
+            setTimeout(() => {
+              this.initFullscreenMoveSerial()
+            }, 100)
+          }
+        }
+      })
+    },
+
+    // 处理全选变化 - 关键能力
+    handleAbilitySelectAllChange(e) {
+      const checked = e.target.checked
+      const currentKeys = this.currentAvailableAbilityIndicators.map(item => item.key)
+
+      if (checked) {
+        // 添加当前所有指标
+        currentKeys.forEach(key => {
+          if (!this.selectedAbilityIndicators.includes(key)) {
+            this.selectedAbilityIndicators.push(key)
+          }
+        })
+      } else {
+        // 移除当前所有指标
+        this.selectedAbilityIndicators = this.selectedAbilityIndicators.filter(
+          key => !currentKeys.includes(key)
+        )
+      }
+
+      // 重新渲染时间序列图表
+      this.$nextTick(() => {
+        if (this.isAbilityTimelineExpanded) {
+          // 全屏状态下的更新
+          setTimeout(() => {
+            if (this.showSecondaryAbilityTimeline) {
+              this.initFullscreenAbilitySecondarySerial()
+            } else {
+              this.initFullscreenAbilitySerial()
+            }
+          }, 100)
+        } else {
+          // 普通状态下的更新
+          if (this.showSecondaryAbilityTimeline) {
+            this.initAbilitySecondarySerial()
+          } else {
+            this.initWordSerial()
+          }
+        }
+      })
+    },
+    formatMinuteToTime(minute) {
+      const totalSeconds = Math.round(minute * 60)
+      const minutes = Math.floor(totalSeconds / 60)
+      const seconds = totalSeconds % 60
+      return `${minutes}:${seconds.toString().padStart(2, '0')}`
+    },
+    // 打开关键能力二级指标放大视图
+    handleExpandSecondaryAbilityChart() {
+      this.isSecondaryAbilityChartExpanded = true
+      // 强制图表重绘以适应新尺寸
+      setTimeout(() => {
+        // 触发窗口resize事件，让ECharts自动重绘
+        window.dispatchEvent(new Event('resize'))
+      }, 100)
+    },
+
+    // 关闭关键能力二级指标放大视图
+    handleCloseExpandSecondaryAbilityChart() {
+      this.isSecondaryAbilityChartExpanded = false
+      // 强制图表重绘以适应新尺寸
+      setTimeout(() => {
+        // 触发窗口resize事件，让ECharts自动重绘
+        window.dispatchEvent(new Event('resize'))
+      }, 100)
+    },
+    // 悬浮按钮拖动逻辑
+    startBtnDrag(e) {
+      e.stopPropagation()
+      this.isBtnDragging = true
+      this.btnStartX = e.clientX
+      this.btnStartY = e.clientY
+      this.btnOffsetX = this.btnStartX - this.btnLeft
+      this.btnOffsetY = this.btnStartY - this.btnTop
+      this.isBtnClick = true
+    },
+
+    // 小窗拖动逻辑
+    startWindowDrag(e) {
+      e.stopPropagation()
+      this.isWindowDragging = true
+      this.windowStartX = e.clientX
+      this.windowStartY = e.clientY
+      this.windowOffsetX = this.windowStartX - this.windowLeft
+      this.windowOffsetY = this.windowStartY - this.windowTop
+    },
+
+    // 开始调整窗口大小
+    startResize(e) {
+      e.stopPropagation()
+      this.isResizing = true
+      this.resizeStartX = e.clientX
+      this.resizeStartY = e.clientY
+      this.resizeStartWidth = this.windowWidth
+      this.resizeStartHeight = this.windowHeight
+      document.body.style.cursor = 'se-resize'
+    },
+
+    // 统一处理拖动和大小调整
+    handleDragOrResize(e) {
+      // 处理按钮拖动
+      if (this.isBtnDragging) {
+        const moveX = Math.abs(e.clientX - this.btnStartX)
+        const moveY = Math.abs(e.clientY - this.btnStartY)
+        if (moveX > this.btnDragThreshold || moveY > this.btnDragThreshold) {
+          this.isBtnClick = false
+        }
+
+        const maxLeft = window.innerWidth - 80
+        const maxTop = window.innerHeight - 80
+        this.btnLeft = Math.max(0, Math.min(e.clientX - this.btnOffsetX, maxLeft))
+        this.btnTop = Math.max(0, Math.min(e.clientY - this.btnOffsetY, maxTop))
+      }
+
+      // 处理小窗拖动
+      if (this.isWindowDragging) {
+        const maxLeft = window.innerWidth - this.windowWidth
+        const maxTop = window.innerHeight - this.windowHeight
+        this.windowLeft = Math.max(0, Math.min(e.clientX - this.windowOffsetX, maxLeft))
+        this.windowTop = Math.max(0, Math.min(e.clientY - this.windowOffsetY, maxTop))
+      }
+
+      // 处理窗口大小调整
+      if (this.isResizing) {
+        const newWidth = this.resizeStartWidth + (e.clientX - this.resizeStartX)
+        const newHeight = this.resizeStartHeight + (e.clientY - this.resizeStartY)
+        this.windowWidth = Math.max(this.minWidth, Math.min(newWidth, window.innerWidth - 50))
+        this.windowHeight = Math.max(this.minHeight, Math.min(newHeight, window.innerHeight - 50))
+      }
+    },
+
+    // 停止所有操作
+    stopAllActions() {
+      this.isBtnDragging = false
+      this.isWindowDragging = false
+
+      if (this.isResizing) {
+        this.isResizing = false
+        document.body.style.cursor = ''
+      }
+    },
+
+    // 检测是否为 Safari 浏览器
+    isSafari() {
+      const ua = navigator.userAgent.toLowerCase()
+      return /safari/.test(ua) && !/chrome/.test(ua) && !/chromium/.test(ua)
+    },
+
+    // 窗口大小变化时调整位置 & 统一自适应所有图表/可视化组件
+    handleWindowResize() {
+      if (this.resizeTimer) clearTimeout(this.resizeTimer)
+
+      // Safari 需要更长的延迟和多次重绘
+      const delay = this.isSafari() ? 200 : 100
+
+      this.resizeTimer = setTimeout(() => {
+        // 更新 Coze 悬浮按钮与窗口位置
+        this.updateCozePosition()
+
+        // Safari 特殊处理：使用 requestAnimationFrame 确保正确渲染
+        const resizeCharts = () => {
+          this.$nextTick(() => {
+            if (!this.$echarts) return
+
+            const chartIds = [
+              'comprehensiveEvaluationChart',
+              'BehaviorTimeline',
+              'SecondaryIndicatorTimeline',
+              'FullscreenBehaviorTimeline',
+              'FullscreenSecondaryIndicatorTimeline',
+              'AbilityTimeline',
+              'SecondaryAbilityTimeline',
+              'FullscreenAbilityTimeline',
+              'FullscreenSecondaryAbilityTimeline',
+              'speechRatio',
+              'teacherEmotionPie',
+              'teacherEmotionBar',
+              // 只有当 ifnostu !== 1 时才包含学生情绪图表
+              ...(this.ifnostu !== 1 ? ['studentEmotionPie', 'studentEmotionBar'] : []),
+              // 根据 ifnostu 的值决定包含哪些图表
+              ...(this.ifnostu === 1 ? ['classKeyword', 'teacherOrals'] : ['focusDistribution', 'classFocusChart'])
+            ]
+
+            chartIds.forEach(id => {
+              const dom = document.getElementById(id)
+              if (!dom) return
+              const chart = this.$echarts.getInstanceByDom(dom)
+              if (chart) {
+                chart.resize()
+                // Safari 可能需要多次调用 resize 才能正确渲染
+                if (this.isSafari()) {
+                  requestAnimationFrame(() => {
+                    chart.resize()
+                  })
+                }
+              }
+            })
+
+            // Safari 特殊处理：强制触发页面重绘
+            if (this.isSafari()) {
+              const dashboard = document.querySelector('.class-eval-dashboard')
+              if (dashboard) {
+                // 临时触发重排以强制 Safari 重新计算布局
+                dashboard.style.display = 'none'
+                dashboard.offsetHeight // 触发重排
+                dashboard.style.display = 'flex'
+              }
+            }
+          })
+        }
+
+        if (this.isSafari()) {
+          // Safari 使用 requestAnimationFrame 确保在下一帧渲染
+          requestAnimationFrame(() => {
+            requestAnimationFrame(resizeCharts)
+          })
+        } else {
+          resizeCharts()
+        }
+      }, delay)
+    },
+
+    // 销毁Coze实例的方法
+    destroyCozeApp() {
+      if (this.cozeSDK && typeof this.cozeSDK.destroy === 'function') {
+        try {
+          this.cozeSDK.destroy()
+        } catch (error) {
+          console.error('销毁Coze SDK失败:', error)
+        }
+      }
+      this.cozeSDK = null
+      this.isInited = false
+      if (this.$refs.cozeContainer) {
+        this.$refs.cozeContainer.innerHTML = ''
+      }
+    },
+
+    // 切换小窗显示状态
+    toggleCozeWindow() {
+      this.cozeVisible = !this.cozeVisible
+      if (this.cozeVisible) {
+        this.$nextTick(() => {
+          this.sdkLoaded = false
+          this.loadCozeWebSDK()
+        })
+      } else {
+        this.destroyCozeApp()
+      }
+    },
+
+    // Coze SDK加载和初始化
+    loadCozeWebSDK() {
+      if (window.CozeWebSDK) {
+        this.sdkLoaded = true
+        this.initCozeApp()
+        return
+      }
+
+      const script = document.createElement('script')
+      script.src = 'https://lf-cdn.coze.cn/obj/unpkg/flow-platform/builder-web-sdk/0.1.1-beta.1/dist/umd/index.js'
+      script.onload = () => {
+        console.log('Coze builder-web-sdk 加载成功')
+        this.sdkLoaded = true
+        this.$nextTick(() => this.initCozeApp())
+      }
+      script.onerror = (error) => {
+        console.error('Coze builder-web-sdk 加载失败:', error)
+      }
+      document.head.appendChild(script)
+    },
+
+    initCozeApp() {
+      if (this.isInited || !window.CozeWebSDK) return
+
+      const container = this.$refs.cozeContainer
+      if (!container) {
+        console.error('Coze应用容器不存在')
+        return
+      }
+
+      try {
+        container.innerHTML = ''
+
+        this.cozeSDK = new window.CozeWebSDK.AppWebSDK({
+          token: 'pat_vVgDgvX9ExfnSi0d95NxXQB8DbluEtNnIDXTYuWaWWR3AeV6uQxiYiQ9F7x77rRb',
+          appId: '7566292660798062646',
+          container: container,
+          userInfo: {
+            id: '',
+            url: '',
+            nickname: 'User'
+          }
+        })
+
+        console.log('Coze AppWebSDK 初始化成功', this.cozeSDK)
+        this.isInited = true
+      } catch (error) {
+        console.error('Coze AppWebSDK 初始化失败:', error)
+        this.isInited = false
+      }
+    },
+    toggleTimelineLevelWithResize() {
+      this.showSecondaryTimeline = !this.showSecondaryTimeline
+      this.$nextTick(() => {
+        if (this.showSecondaryTimeline) {
+          this.initFullscreenSecondaryIndicatorSerial()
+        } else {
+          this.initFullscreenMoveSerial()
+        }
+        // 强制重绘
+        setTimeout(() => {
+          window.dispatchEvent(new Event('resize'))
+        }, 300)
+      })
+    },
+    handleTabChange1(tabIndex) {
+      // 如果当前在全屏状态，先退出全屏
+      if (this.isBehaviorChartExpanded ||
+        this.isSecondaryBehaviorChartExpanded ||
+        this.isTimelineExpanded ||
+        this.isSpeechFormChartExpanded ||
+        this.isAbilityTimelineExpanded ||
+        this.isSecondaryAbilityChartExpanded) {
+
+        this.isBehaviorChartExpanded = false
+        this.isSecondaryBehaviorChartExpanded = false
+        this.isTimelineExpanded = false
+        this.isSpeechFormChartExpanded = false
+        this.isAbilityTimelineExpanded = false
+        this.isSecondaryAbilityChartExpanded = false
+
+        // 短暂延迟后切换选项卡
+        this.$nextTick(() => {
+          setTimeout(() => {
+            this.currentTab = tabIndex
+            this.initTabCharts(tabIndex)
+
+            // 当切换到关键行为标签时，额外触发resize
+            if (tabIndex === 0) {
+              setTimeout(() => {
+                window.dispatchEvent(new Event('resize'))
+                const behaviorTimeline = this.$echarts.getInstanceByDom(document.getElementById('BehaviorTimeline'))
+                if (behaviorTimeline) {
+                  behaviorTimeline.resize()
+                }
+              }, 300)
+            } else if (tabIndex === 1) {
+              setTimeout(() => {
+                window.dispatchEvent(new Event('resize'))
+                // 1. 确保获取图表实例时，this.$echarts存在（避免echarts未加载完成）
+                const echarts = this.$echarts
+                if (!echarts) return
+
+                // 2. 定义图表变量，默认赋值为null，避免undefined
+                // const speechRatioChart = echarts.getInstanceByDom(document.getElementById('speechRatio')) || null
+                const teacherEmotionPieDom = document.getElementById('teacherEmotionPie')
+                const teacherEmotionPieChart = teacherEmotionPieDom ? echarts.getInstanceByDom(teacherEmotionPieDom) : null
+                const studentEmotionPieDom = document.getElementById('studentEmotionPie')
+                const studentEmotionPieChart = studentEmotionPieDom ? echarts.getInstanceByDom(studentEmotionPieDom) : null
+                const focusDistributionDom = document.getElementById('focusDistribution')
+                const focusDistributionChart = focusDistributionDom ? echarts.getInstanceByDom(focusDistributionDom) : null
+                // const teacherTrajectoryChart = echarts.getInstanceByDom(document.getElementById('teacherTrajectory')) || null
+
+                // 3. 组装数组，并增加数组存在性校验，再调用forEach
+                const chartList = [teacherEmotionPieChart, studentEmotionPieChart, focusDistributionChart, null]
+                if (Array.isArray(chartList)) {
+                  chartList.forEach(chart => { if (chart) chart.resize() })
+                }
+              }, 300)
+            }
+          }, 100)
+        })
+      } else {
+        this.currentTab = tabIndex
+        this.initTabCharts(tabIndex)
+
+        // 当切换到关键行为标签时
+        if (tabIndex === 0) {
+          this.$nextTick(() => {
+            setTimeout(() => {
+              window.dispatchEvent(new Event('resize'))
+              const behaviorTimeline = this.$echarts.getInstanceByDom(document.getElementById('BehaviorTimeline'))
+              if (behaviorTimeline) {
+                behaviorTimeline.resize()
+              }
+            }, 300)
+          })
+        } else if (tabIndex === 1) {
+          this.$nextTick(() => {
+            setTimeout(() => {
+              window.dispatchEvent(new Event('resize'))
+              // 1. 确保echarts已加载
+              const echarts = this.$echarts
+              if (!echarts) return
+
+              // 2. 定义图表变量，默认赋值为null
+              // const speechRatioChart = echarts.getInstanceByDom(document.getElementById('speechRatio')) || null
+              const teacherEmotionPieDom = document.getElementById('teacherEmotionPie')
+              const teacherEmotionPieChart = teacherEmotionPieDom ? echarts.getInstanceByDom(teacherEmotionPieDom) : null
+              const studentEmotionPieDom = document.getElementById('studentEmotionPie')
+              const studentEmotionPieChart = studentEmotionPieDom ? echarts.getInstanceByDom(studentEmotionPieDom) : null
+              const focusDistributionDom = document.getElementById('focusDistribution')
+              const focusDistributionChart = focusDistributionDom ? echarts.getInstanceByDom(focusDistributionDom) : null
+              // const teacherTrajectoryChart = echarts.getInstanceByDom(document.getElementById('teacherTrajectory')) || null
+
+              // 3. 数组存在性校验，安全调用forEach
+              const chartList = [teacherEmotionPieChart, studentEmotionPieChart, focusDistributionChart, null]
+              if (Array.isArray(chartList)) {
+                chartList.forEach(chart => { if (chart) chart.resize() })
+              }
+            }, 300)
+          })
+        }
+      }
+    },
+
+    // 处理全屏状态下的点击事件
+    handleFullscreenClick(event) {
+      // 如果点击的是关闭按钮或图表内容本身，不处理切换
+      if (event.target.closest('.close-expand-btn') ||
+        event.target.closest('.close-timeline-expand-btn') ||
+        event.target.closest('.fullscreen-content') ||
+        event.target.closest('.fullscreen-timeline-content')) {
+        return
+      }
+
+      // 退出全屏状态
+      this.isBehaviorChartExpanded = false
+      this.isSecondaryBehaviorChartExpanded = false
+      this.isTimelineExpanded = false
+      this.isSpeechFormChartExpanded = false
+      this.isAbilityTimelineExpanded = false
+
+      // 强制重绘
+      this.$nextTick(() => {
+        window.dispatchEvent(new Event('resize'))
+      })
+    },
+    handleAbilityIndicatorSelection(key) {
+      // 这个方法用于处理菜单项的点击，但我们使用复选框来控制
+      // 实际选择逻辑通过复选框处理，这里可以留空或添加其他逻辑
+    },
+    // 切换得分显示状态
+    toggleScoreDisplay() {
+      this.showScores = !this.showScores
+      this.$nextTick(() => {
+        this.initComprehensiveEvaluationChart()
+      })
+    },
+
+    generateGraphicElements(dom, data) {
+      const chartWidth = dom.clientWidth
+      const chartHeight = dom.clientHeight
+      const centerX = chartWidth / 2
+      const centerY = chartHeight / 2
+      const minDim = Math.min(chartWidth, chartHeight)
+      const innerRadius = minDim * 0.17 / 2  // 最低分对应半径
+      const outerRadius = minDim * 0.4 / 2   // 最高分对应半径
+      const arrowStartRadius = innerRadius + 2
+
+      // 计算总分
+      const total = this.showScores
+        ? data.reduce((sum, item) => sum + item.value, 0)
+        : data.reduce((sum, item) => sum + item.value, 0)
+
+      if (total === 0) return []
+
+      let startAngle = -Math.PI / 2 - Math.PI / 3
+      const graphics = []
+      const targetColors = {
+        '关键能力': '#5B9BD5',
+        '关键行为': '#ED7D31',
+        '情感体验': '#A4A4A4'
+      }
+
+      // 获取各项满分值
+      const maxScores = {
+        '关键能力': 100,
+        '关键行为': 100,
+        '情感体验': 100
+      }
+      data.forEach((item, index) => {
+        let midAngle
+        if (this.showScores) {
+          // 显示得分时使用固定角度
+          const angles = [
+            -Math.PI / 2,                    // 顶部顶点角度
+            -Math.PI / 2 + 2 * Math.PI / 3,  // 右下顶点角度
+            -Math.PI / 2 + 4 * Math.PI / 3   // 左下顶点角度
+          ]
+          midAngle = angles[index % angles.length]
+        } else {
+          // 不显示得分时计算中间角度
+          const ratio = 1 / 3
+          const endAngle = startAngle + ratio * Math.PI * 2
+          midAngle = (startAngle + endAngle) / 2
+          startAngle = endAngle
+        }
+
+        // 计算标签位置（控制在圆圈范围内）
+        let labelRadius
+        if (item.name === '情感体验') {
+          labelRadius = outerRadius * 1.25 // 增大半径，远离内圈
+        } else {
+          labelRadius = outerRadius * 1.4 // 保持原有距离
+        }
+        const labelX = centerX + Math.cos(midAngle) * labelRadius
+        const labelY = centerY + Math.sin(midAngle) * labelRadius
+
+        let rotationDeg = (midAngle * 180 / Math.PI) + 90
+
+        if (rotationDeg > 90 && rotationDeg < 270) {
+          rotationDeg += 180 // 翻转180度避免文字倒置
+        }
+        if (item.name === '关键行为') {
+          rotationDeg = 120 // 左下标签微调
+        } else if (item.name === '情感体验') {
+          rotationDeg = 60 // 右下标签微调
+        } else if (item.name === '关键能力') {
+          rotationDeg = 0 // 顶部标签保持水平
+        }
+
+        // 添加旋转的文字标签
+        graphics.push({
+          type: 'text',
+          style: {
+            text: item.name,
+            fill: '#FFFFFF',
+            fontSize: 16,
+            fontWeight: 'bold',
+            align: 'center',
+            baseline: 'middle'
+          },
+          position: [labelX, labelY],
+          rotation: rotationDeg * Math.PI / 180, // 转为弧度
+          z: 13 // 确保在最上层显示
+        })
+      })
+
+      // 显示得分时 - 动态计算顶点位置和连接线
+      if (this.showScores) {
+        const points = []
+        const angles = [
+          -Math.PI / 2,                    // 顶部顶点角度
+          -Math.PI / 2 + 2 * Math.PI / 3,  // 右下顶点角度
+          -Math.PI / 2 + 4 * Math.PI / 3   // 左下顶点角度
+        ]
+
+        data.forEach((item, index) => {
+          const maxScore = maxScores[item.name] || 100
+          const scoreRatio = Math.min(Math.max(item.value / maxScore, 0), 1)
+          const currentRadius = innerRadius + (outerRadius - innerRadius) * scoreRatio
+          const midAngle = angles[index % angles.length]
+
+          const endX = centerX + Math.cos(midAngle) * currentRadius
+          const endY = centerY + Math.sin(midAngle) * currentRadius
+          const lineColor = targetColors[item.name] || '#ffffff'
+
+          // 绘制从内圆到顶点的连接线
+          graphics.push({
+            type: 'line',
+            shape: {
+              x1: centerX + Math.cos(midAngle) * arrowStartRadius,
+              y1: centerY + Math.sin(midAngle) * arrowStartRadius,
+              x2: endX,
+              y2: endY
+            },
+            style: {
+              stroke: '#FFFFFF',
+              lineWidth: 2,
+              lineDash: [4, 4]
+            },
+            z: 10
+          })
+
+          // 绘制折线延伸（用于显示得分）
+          const extensionLength = outerRadius * 1.2
+          const extendedX = centerX + Math.cos(midAngle) * (currentRadius + extensionLength)
+          const extendedY = centerY + Math.sin(midAngle) * (currentRadius + extensionLength)
+
+          graphics.push({
+            type: 'polyline',
+            shape: {
+              points: [
+                [endX, endY],
+                [extendedX, extendedY]
+              ]
+            },
+            style: {
+              stroke: '#ffffff',
+              lineWidth: 0.5,
+              lineDash: [2, 2]
+            },
+            z: 11
+          })
+
+          // 显示得分文本
+          graphics.push({
+            type: 'text',
+            style: {
+              text: Math.round(item.value),
+              fill: lineColor,
+              fontSize: 14,
+              fontWeight: 'bold',
+              align: 'center',
+              verticalAlign: 'middle'
+            },
+            position: [extendedX, extendedY],
+            z: 12
+          })
+
+          points.push({ x: endX, y: endY })
+        })
+
+        // 绘制三角形的三条边
+        if (data.length === 3) {
+          for (let i = 0; i < points.length; i++) {
+            const currentPoint = points[i]
+            const nextPoint = points[(i + 1) % points.length]
+
+            graphics.push({
+              type: 'line',
+              shape: {
+                x1: currentPoint.x,
+                y1: currentPoint.y,
+                x2: nextPoint.x,
+                y2: nextPoint.y
+              },
+              style: {
+                stroke: 'rgba(122, 202, 238, 0.6)',
+                lineWidth: 2,
+              },
+              z: 9
+            })
+          }
+        }
+      } else {
+        // 不显示得分时 - 固定比例逻辑
+        data.forEach(item => {
+          const ratio = 1 / 3
+          const endAngle = startAngle + ratio * Math.PI * 2
+          const midAngle = (startAngle + endAngle) / 2
+
+          const startX = centerX + Math.cos(midAngle) * arrowStartRadius
+          const startY = centerY + Math.sin(midAngle) * arrowStartRadius
+          const endX = centerX + Math.cos(midAngle) * outerRadius
+          const endY = centerY + Math.sin(midAngle) * outerRadius
+
+          const lineColor = targetColors[item.name] || '#7ACAEE'
+
+          // 绘制直线
+          graphics.push({
+            type: 'line',
+            shape: {
+              x1: startX,
+              y1: startY,
+              x2: endX,
+              y2: endY
+            },
+            style: {
+              stroke: lineColor,
+              lineWidth: 5
+            },
+            z: 10
+          })
+
+          // 绘制箭头
+          const arrowSize = 8
+          const arrowAngle = Math.atan2(endY - startY, endX - startX)
+
+          const arrowPoint1 = [endX, endY]
+          const arrowPoint2 = [
+            endX - arrowSize * Math.cos(arrowAngle - Math.PI / 6),
+            endY - arrowSize * Math.sin(arrowAngle - Math.PI / 6)
+          ]
+          const arrowPoint3 = [
+            endX - arrowSize * Math.cos(arrowAngle + Math.PI / 6),
+            endY - arrowSize * Math.sin(arrowAngle + Math.PI / 6)
+          ]
+
+          graphics.push({
+            type: 'polygon',
+            shape: {
+              points: [arrowPoint1, arrowPoint2, arrowPoint3]
+            },
+            style: {
+              fill: lineColor,
+              stroke: lineColor,
+              lineWidth: 1
+            },
+            z: 11
+          })
+
+          startAngle = endAngle
+        })
+      }
+
+      return graphics
+    },
+    // 初始化综合课堂评价环形图
+    initComprehensiveEvaluationChart() {
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+
+        const dom = document.getElementById('comprehensiveEvaluationChart')
+        if (!dom) {
+          return
+        }
+        const existingChart = this.$echarts.getInstanceByDom(dom)
+        if (existingChart) {
+          existingChart.dispose()
+        }
+        const chart = this.$echarts.init(dom)
+
+        // 获取数据，综合课堂得分向下取整（去掉小数点，不四舍五入）
+        const comprehensiveScore = Math.floor(Number(this.json.teaching_rating?.课堂综合评分 || 0))
+        const keyAbilityScore = this.json.teaching_rating?.关键能力得分 || 0
+        const keyBehaviorScore = this.json.teaching_rating?.关键行为得分 || 0
+        const emotionalExperienceScore = this.json.teaching_rating?.情感体验得分 || 0
+
+        const targetColors = {
+          '关键能力': '#5B9BD5',
+          '关键行为': '#ED7D31',
+          '情感体验': '#A4A4A4'
+        }
+        // 固定占比：三个模块各占1/3
+        const fixedValue = 100 / 3
+        const outerData = [
+          {
+            name: '关键能力',
+            value: fixedValue,
+            originalValue: keyAbilityScore,
+            color: targetColors['关键能力']  // 添加颜色
+          },
+          {
+            name: '情感体验',
+            value: fixedValue,
+            originalValue: emotionalExperienceScore,
+            color: targetColors['情感体验']  // 添加颜色
+          },
+          {
+            name: '关键行为',
+            value: fixedValue,
+            originalValue: keyBehaviorScore,
+            color: targetColors['关键行为']  // 添加颜色
+          }
+        ]
+
+        const centerLabelFormatter = this.showScores
+          ? `${comprehensiveScore}`
+          : `质量评价`
+
+        const dimensionLabelFormatter = (params) => {
+          if (this.showScores) {
+            // 显示得分时，显示原始得分数据
+            const originalData = outerData.find(item => item.name === params.name)
+            return `${params.name}`
+          } else {
+            return `${params.name}`
+          }
+        }
+
+        const option = {
+          tooltip: {
+            trigger: 'item',
+            formatter: (params) => {
+              if (params.seriesName === '评价维度') {
+                const originalData = outerData.find(item => item.name === params.name)
+              }
+              return params.name
+            }
+          },
+          series: [
+            {
+              name: '综合课堂评价',
+              type: 'pie',
+              radius: ['0%', '17%'],
+              center: ['50%', '50%'],
+              avoidLabelOverlap: false,
+              itemStyle: {
+                borderColor: '#ffffff',
+                borderWidth: 2
+              },
+              label: {
+                show: true,
+                position: 'center',
+                formatter: centerLabelFormatter,
+                fontSize: 14,
+                fontWeight: 'bold',
+                color: '#7ACAEE'
+              },
+              emphasis: {
+                label: {
+                  show: true,
+                  fontSize: 14,
+                  fontWeight: 'bold'
+                }
+              },
+              labelLine: {
+                show: false
+              },
+              data: [
+                {
+                  value: comprehensiveScore,
+                  name: ''
+                }
+              ]
+            },
+            {
+              name: '评价维度',
+              type: 'pie',
+              radius: ['40%', '70%'],
+              center: ['50%', '50%'],
+              startAngle: 150,
+              itemStyle: {
+                borderColor: '#0a1f3b',
+                borderWidth: 2
+              },
+              label: {
+                show: false,
+                position: 'outside',
+                formatter: (params) => {
+                  const dataItem = outerData.find(item => item.name === params.name)
+                  return `{rotate|${params.name}}`
+                },
+                fontSize: 16,
+                fontWeight: 'bold',
+                color: '#FFFFFF',
+                rich: {
+                  rotate: {
+                    fontSize: 12,
+                    fontWeight: 'bold',
+                    color: '#FFFFFF'
+                  }
+                }
+              },
+              labelLine: {
+                show: false
+              },
+              data: outerData.map(item => ({
+                value: item.value, // 使用固定占比
+                name: item.name,
+                originalValue: item.originalValue, // 保存原始得分用于显示
+                itemStyle: { color: item.color }
+              }))
+            }
+          ],
+          graphic: this.generateGraphicElements(dom, outerData.map(item => ({
+            name: item.name,
+            value: this.showScores ? item.originalValue : item.value,
+            labelPosition: item.labelPosition,
+            labelRotation: item.labelRotation
+          })))
+        }
+
+        chart.setOption(option)
+
+        // 移除旧的事件监听器，添加新的事件监听器
+        chart.off('click')
+        chart.on('click', (params) => {
+          if (params.componentType === 'series') {
+            if (params.seriesName === '综合课堂评价') {
+              this.handleTabChange(3)
+            } else if (params.seriesName === '评价维度') {
+              const targetTab = this.getTabByDimension(params.name)
+              if (targetTab !== -1) {
+                // 关键行为维度（tabIndex=0）使用handleTabChange1
+                if (params.name === '关键行为'|| params.name === '情感体验') {
+                  this.handleTabChange1(targetTab)
+                } else {
+                  // 其他维度仍使用原方法
+                  this.handleTabChange(targetTab)
+                }
+              }
+            }
+          }
+        })
+
+        const titleElement = dom.closest('.left-col').querySelector('.leftTitle')
+        if (titleElement) {
+          titleElement.style.cursor = 'pointer'
+          titleElement.addEventListener('click', () => {
+            this.handleTabChange(3)
+          })
+        }
+
+        // 响应式处理
+        const resizeHandler = () => {
+          chart.resize()
+          const newGraphic = this.generateGraphicElements(dom, outerData.map(item => ({
+            name: item.name,
+            value: this.showScores ? item.originalValue : item.value
+          })))
+          chart.setOption({ graphic: newGraphic }, { replaceMerge: ['graphic'] })
+        }
+
+        window.addEventListener('resize', resizeHandler)
+        this.$once('hook:beforeDestroy', () => {
+          window.removeEventListener('resize', resizeHandler)
+          chart.dispose()
+        })
+      })
+    },
+    getTabByDimension(dimensionName) {
+      const dimensionMap = {
+        '关键能力': 2,
+        '关键行为': 0,
+        '情感体验': 1
+      }
+      return dimensionMap[dimensionName] !== undefined ? dimensionMap[dimensionName] : -1
+    },
+    // 格式化综合评价文本
+    formatReviewText(text) {
+      if (!text) return ''
+
+      // 1. 按段落分割
+      const paragraphs = text.split('\n').filter(p => p.trim())
+
+      // 2. 对每个段落进行处理
+      const formattedParagraphs = paragraphs.map(paragraph => {
+        // 移除首尾空格
+        let formatted = paragraph.trim()
+
+        // 在段落头部添加两个全角空格（中文缩进）
+        formatted = `　　${formatted}`
+
+        // 优化标点符号（确保中文标点）
+        formatted = formatted
+          .replace(/,/g, '，')
+          .replace(/\./g, '。')
+          .replace(/\?/g, '？')
+          .replace(/!/g, '！')
+          .replace(/;/g, '；')
+          .replace(/:/g, '：')
+
+        return formatted
+      })
+
+      // 3. 重新组合成字符串
+      return formattedParagraphs.join('\n')
+    },
+    processTeacherEmotionData() {
+      if (this.json.teach_stu_emo_behavior?.data?.teacher_emotion_per_minute) {
+        const teacherEmotionData = this.json.teach_stu_emo_behavior.data.teacher_emotion_per_minute
+
+        // 统计教师情绪分布
+        let positive = 0
+        let neutral = 0
+        let negative = 0
+
+        teacherEmotionData.forEach(emotion => {
+          const emotionValue = parseInt(emotion)
+          if (emotionValue === 1) {
+            positive++
+          } else if (emotionValue === 2) {
+            neutral++
+          } else if (emotionValue === 3) {
+            negative++
+          }
+        })
+
+        const total = positive + neutral + negative
+
+        this.teacherEmotionsV2 = [
+          {
+            name: '消极',
+            value: total > 0 ? this.normalizeToNumber((negative / total * 100).toFixed(2)) : 0
+          },
+          {
+            name: '中性',
+            value: total > 0 ? this.normalizeToNumber((neutral / total * 100).toFixed(2)) : 0
+          },
+          {
+            name: '积极',
+            value: total > 0 ? this.normalizeToNumber((positive / total * 100).toFixed(2)) : 0
+          }
+        ]
+      } else {
+        // 如果没有数据，使用默认值
+        this.teacherEmotionsV2 = [
+          { name: '消极', value: 10 },
+          { name: '中性', value: 30 },
+          { name: '积极', value: 60 }
+        ]
+      }
+    },
+
+    // 初始化学生情绪图表
+    initStudentEmotionCharts() {
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+
+        const studentPieDom = document.getElementById('studentEmotionPie')
+        const studentBarDom = document.getElementById('studentEmotionBar')
+        const teacherPieDom = document.getElementById('teacherEmotionPie')
+        const teacherBarDom = document.getElementById('teacherEmotionBar')
+
+        // 教师情绪图表必须存在
+        if (!teacherPieDom || !teacherBarDom) return
+
+        // 初始化教师情绪图表
+        const teacherPieChart = this.$echarts.init(teacherPieDom)
+        const teacherBarChart = this.$echarts.init(teacherBarDom)
+
+        // 只有当 ifnostu !== 1 且学生情绪DOM存在时，才初始化学生情绪图表
+        let studentPieChart = null
+        let studentBarChart = null
+        if (this.ifnostu !== 1 && studentPieDom && studentBarDom) {
+          studentPieChart = this.$echarts.init(studentPieDom)
+          studentBarChart = this.$echarts.init(studentBarDom)
+        }
+
+        // 学生情绪饼图配置 - 修改为图片样式
+        const studentPieOpt = {
+          tooltip: {
+            trigger: 'item',
+            formatter: '{b}: {c}%'
+          },
+          legend: {
+            show: false
+          },
+          series: [{
+            type: 'pie',
+            radius: ['40%', '70%'],
+            center: ['50%', '50%'],
+            data: this.stuEmotionsV2.map(d => ({
+              value: d.value,
+              name: d.name,
+              itemStyle: {
+                color: d.name === '积极' ? '#22c55e' : d.name === '中性' ? '#60a5fa' : '#fb7185'
+              }
+            })),
+            label: {
+              show: true,
+              position: 'center',
+              formatter: () => '情绪分布',
+              color: '#cccccc',
+              fontWeight: 'bold',
+              fontSize: 14
+            },
+            labelLine: { show: false },
+            itemStyle: {
+              borderWidth: 2,
+              borderColor: 'rgba(10, 31, 59, 0.8)'
+            },
+            emphasis: {
+              scale: false,
+              label: {
+                show: true,
+                fontSize: 14,
+                fontWeight: 'bold'
+              }
+            }
+          }]
+        }
+
+        // 学生情绪横向柱状图配置 - 修改为显示百分比文本
+        const studentBarOpt = {
+          tooltip: {
+            show: false // 禁用浮窗
+          },
+          grid: {
+            left: '0%',
+            right: '1%',
+            top: '10%',
+            bottom: '10%',
+            containLabel: true
+          },
+          xAxis: {
+            type: 'value',
+            min: 0,
+            max: 100,
+            show: false,
+            axisLabel: {
+              show: false
+            },
+            splitLine: {
+              show: false
+            }
+          },
+          yAxis: {
+            type: 'category',
+            data: this.stuEmotionsV2.map(d => d.name),
+            axisLabel: {
+              color: '#cccccc',
+              fontSize: 12,
+              margin: 70,
+              formatter: (value) => {
+                const data = this.stuEmotionsV2.find(d => d.name === value)
+                return `${value} ${Math.round(data?.value || 0)}%`
+              }
+            },
+            axisLine: {
+              show: false
+            },
+            axisTick: {
+              show: false
+            }
+          },
+          series: [{
+            type: 'bar',
+            data: this.stuEmotionsV2.map((d, index) => ({
+              value: d.value,
+              itemStyle: {
+                color: d.name === '积极' ? '#22c55e' : d.name === '中性' ? '#60a5fa' : '#fb7185'
+              }
+            })),
+            barWidth: 12,
+            label: {
+              show: false // 不在柱子上显示标签
+            }
+          }]
+        }
+
+        // 教师情绪饼图配置 - 修改为图片样式
+        const teacherPieOpt = {
+          tooltip: {
+            trigger: 'item',
+            formatter: '{b}: {c}%'
+          },
+          legend: {
+            show: false
+          },
+          series: [{
+            type: 'pie',
+            radius: ['40%', '70%'],
+            center: ['50%', '50%'],
+            data: this.teacherEmotionsV2.map(d => ({
+              value: d.value,
+              name: d.name,
+              itemStyle: {
+                color: d.name === '积极' ? '#22c55e' : d.name === '中性' ? '#60a5fa' : '#fb7185'
+              }
+            })),
+            label: {
+              show: true,
+              position: 'center',
+              formatter: () => '情绪分布',
+              color: '#cccccc',
+              fontWeight: 'bold',
+              fontSize: 14
+            },
+            labelLine: { show: false },
+            itemStyle: {
+              borderWidth: 2,
+              borderColor: 'rgba(10, 31, 59, 0.8)'
+            },
+            emphasis: {
+              scale: false,
+              label: {
+                show: true,
+                fontSize: 14,
+                fontWeight: 'bold'
+              }
+            }
+          }]
+        }
+
+        // 教师情绪横向柱状图配置 - 修改为显示百分比文本
+        const teacherBarOpt = {
+          tooltip: {
+            show: false // 禁用浮窗
+          },
+          grid: {
+            left: '0%',
+            right: '1%',
+            top: '10%',
+            bottom: '10%',
+            containLabel: true
+          },
+          xAxis: {
+            type: 'value',
+            min: 0,
+            max: 100,
+            show: false,
+            axisLabel: {
+              show: false
+            },
+            splitLine: {
+              show: false
+            }
+          },
+          yAxis: {
+            type: 'category',
+            data: this.teacherEmotionsV2.map(d => d.name),
+            axisLabel: {
+              color: '#cccccc',
+              fontSize: 12,
+              margin: 70,
+              formatter: (value) => {
+                const data = this.teacherEmotionsV2.find(d => d.name === value)
+                return `${value} ${Math.round(data?.value || 0)}%`
+              }
+            },
+            axisLine: {
+              show: false
+            },
+            axisTick: {
+              show: false
+            }
+          },
+          series: [{
+            type: 'bar',
+            data: this.teacherEmotionsV2.map((d, index) => ({
+              value: d.value,
+              itemStyle: {
+                color: d.name === '积极' ? '#22c55e' : d.name === '中性' ? '#60a5fa' : '#fb7185'
+              }
+            })),
+            barWidth: 12,
+            label: {
+              show: false // 不在柱子上显示标签
+            }
+          }]
+        }
+
+        // 只有当学生情绪图表存在时才设置选项
+        if (studentPieChart && studentBarChart) {
+          studentPieChart.setOption(studentPieOpt)
+          studentBarChart.setOption(studentBarOpt)
+        }
+        teacherPieChart.setOption(teacherPieOpt)
+        teacherBarChart.setOption(teacherBarOpt)
+      })
+    },
+
+    // 处理学生情绪数据（从Analysis.vue移植）
+    processStudentEmotionData() {
+      if (this.json.CV_Recognise_content?.result?.data?.student_emotions_v2) {
+        const v2 = this.json.CV_Recognise_content.result.data.student_emotions_v2
+        this.stuEmotionsV2 = [
+          {
+            name: '消极',
+            value: this.normalizeToNumber((v2.total_neg * 100).toFixed(2))
+          },
+          {
+            name: '中性',
+            value: this.normalizeToNumber((v2.total_neu * 100).toFixed(2))
+          },
+          {
+            name: '积极',
+            value: this.normalizeToNumber((v2.total_pos * 100).toFixed(2))
+          }
+        ]
+      }
+    },
+    // 初始化可用能力指标列表
+    initAvailableAbilityIndicators() {
+      // 一级指标
+      const primaryIndicators = [
+        { key: '知识理解', label: '知识理解' },
+        { key: '表达交流', label: '表达交流' },
+        { key: '实践应用', label: '实践应用' },
+        { key: '创造迁移', label: '创造迁移' }
+      ]
+
+      // 二级指标
+      const secondaryIndicators = [
+        { key: '观察记忆', label: '观察记忆' },
+        { key: '概括理解', label: '概括理解' },
+        { key: '说明论证', label: '说明论证' },
+        { key: '经历经验', label: '经历经验' },
+        { key: '主观看法', label: '主观看法' },
+        { key: '情感态度', label: '情感态度' },
+        { key: '分析计算', label: '分析计算' },
+        { key: '推理解释', label: '推理解释' },
+        { key: '简单问题解决', label: '简单问题解决' },
+        { key: '综合问题解决', label: '综合问题解决' },
+        { key: '猜想探究', label: '猜想探究' },
+        { key: '发现创新', label: '发现创新' }
+      ]
+
+      this.availableAbilityIndicators = [...primaryIndicators, ...secondaryIndicators]
+
+      // 默认选中所有指标
+      this.selectedAbilityIndicators = this.availableAbilityIndicators.map(item => item.key)
+    },
+    // 清理关键能力二级指标数据
+    cleanAbilitySecondaryData(rawData) {
+      if (!rawData || !Array.isArray(rawData)) {
+        return []
+      }
+
+      return rawData.map(item => {
+        let typeName = this.abilitySecondaryTypeMap[item.type] || `未知类型${item.type}`
+        // 将"推测解释"转换为"推理解释"
+        if (typeName === '推测解释') {
+          typeName = '推理解释'
+        }
+        return {
+          type: typeName,
+          start: item.startTime / 60, // 转换为分钟
+          end: item.endTime / 60,     // 转换为分钟
+          duration: (item.endTime - item.startTime) / 60
+        }
+      }).filter(item => !item.type.startsWith('未知类型'))
+    },
+    // 处理时间序列放大
+    handleExpandTimeline() {
+      this.isTimelineExpanded = true
+      this.$nextTick(() => {
+        setTimeout(() => {
+          if (this.showSecondaryTimeline) {
+            this.initFullscreenSecondaryIndicatorSerial()
+          } else {
+            this.initFullscreenMoveSerial()
+          }
+        }, 300)
+      })
+    },
+    // 初始化全屏一级指标时间序列
+    initFullscreenMoveSerial() {
+      const that = this
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+        const dom = document.getElementById('FullscreenBehaviorTimeline')
+        if (!dom) return
+        const oldChart = this.$echarts.getInstanceByDom(dom)
+        if (oldChart) {
+          oldChart.dispose()
+        }
+        // 从 barData3 中提取一级指标名称
+        const availableLabels = this.barData3.map(item => item.category).filter(Boolean)
+        // 只显示在 barData3 中存在且被选中的指标
+        const filteredLabels = this.selectedIndicators.filter(indicator =>
+          availableLabels.includes(indicator)
+        )
+        if (filteredLabels.length === 0) {
+          const chart = this.$echarts.init(dom)
+          chart.setOption({
+            xAxis: { type: 'value', min: 0, max: 1 },
+            yAxis: { type: 'category', data: [],inverse: true },
+            series: []
+          })
+          return
+        }
+        const behaviorColorMap = {
+          '陈述': '#5B9BD5',
+          '提问': '#ED7D31',
+          '回答': '#A4A4A4',
+          '反馈': '#4472C4',
+          '管理': '#FFC000'
+        }
+
+        const behaviorTimeData = this.wordTimeData.filter(item =>
+          filteredLabels.includes(item.type)
+        )
+
+        const behaviorChart = this.initWordTimeline(
+          dom,
+          filteredLabels,
+          behaviorColorMap,
+          behaviorTimeData
+        )
+        behaviorChart.on('click', (params) => {
+          const timeInSeconds = params.data[0] * 60 // 统一转换为秒
+          that.$refs.videoPlayer.jumpToTime(timeInSeconds)
+        })
+      })
+    },
+
+    // 初始化全屏二级指标时间序列
+    initFullscreenSecondaryIndicatorSerial() {
+      const that = this
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+        const dom = document.getElementById('FullscreenSecondaryIndicatorTimeline')
+        if (!dom) return
+        const oldChart = this.$echarts.getInstanceByDom(dom)
+        if (oldChart) {
+          oldChart.dispose()
+        }
+        // 从 barData5（关键行为二级指标对比）中提取二级指标名称
+        const availableLabels = this.barData5.map(item => item.category).filter(Boolean)
+        // 只显示在 barData5 中存在且被选中的指标
+        const filteredLabels = this.selectedIndicators.filter(indicator =>
+          availableLabels.includes(indicator)
+        )
+
+        const secondaryChart = this.initSecondaryIndicatorTimeline(
+          dom,
+          filteredLabels,
+          this.secondaryIndicatorColorMap,
+          this.secondaryIndicatorTimeData
+        )
+        secondaryChart.on('click', (params) => {
+          const timeInSeconds = params.data[0] * 60
+          that.$refs.videoPlayer.jumpToTime(timeInSeconds)
+        })
+      })
+    },
+    // 处理关闭时间序列放大
+    handleCloseExpandTimeline() {
+      this.isTimelineExpanded = false
+      this.$nextTick(() => {
+        setTimeout(() => {
+          window.dispatchEvent(new Event('resize'))
+          // 重新渲染时间序列图表
+          if (this.showSecondaryTimeline) {
+            this.initSecondaryIndicatorSerial()
+          } else {
+            this.initMoveSerial()
+          }
+        }, 300)
+      })
+    },
+    // 切换时间序列级别
+    toggleTimelineLevel() {
+      this.showSecondaryTimeline = !this.showSecondaryTimeline
+      this.$nextTick(() => {
+        if (this.showSecondaryTimeline) {
+          this.initSecondaryIndicatorSerial()
+        } else {
+          this.initMoveSerial()
+        }
+        // 普通状态也添加重绘
+        setTimeout(() => {
+          window.dispatchEvent(new Event('resize'))
+        }, 300)
+      })
+    },
+
+    // 初始化可用指标列表
+    initAvailableIndicators() {
+      // 一级指标
+      const primaryIndicators = [
+        { key: '陈述', label: '陈述' },
+        { key: '提问', label: '提问' },
+        { key: '回答', label: '回答' },
+        { key: '反馈', label: '反馈' },
+        { key: '管理', label: '管理' }
+      ]
+
+      // 二级指标
+      const secondaryIndicators = [
+        { key: '面向群体', label: '面向群体' },
+        { key: '面向全体', label: '面向全体' }, // 兼容旧数据
+        { key: '面向个体', label: '面向个体' },
+        { key: '群体回答', label: '群体回答' },
+        { key: '个体回答', label: '个体回答' },
+        { key: '复述', label: '复述' },
+        { key: '深化', label: '深化' },
+        { key: '拓展', label: '拓展' },
+        { key: '评价', label: '评价' },
+        { key: '发布指令', label: '发布指令' },
+        { key: '学习指引', label: '学习指引' }
+      ]
+
+      this.availableIndicators = [...primaryIndicators, ...secondaryIndicators]
+
+      // 默认选中所有指标（一级和二级）
+      this.selectedIndicators = [...primaryIndicators, ...secondaryIndicators].map(item => item.key)
+    },
+
+
+    // 处理指标选择
+    handleIndicatorSelection({ key }) {
+      // 这个方法用于处理菜单项的点击，但我们使用复选框来控制
+    },
+
+    // 处理复选框变化
+    onCheckboxChange(e, indicatorKey) {
+      const checked = e.target.checked
+      if (checked) {
+        // 添加指标
+        if (!this.selectedIndicators.includes(indicatorKey)) {
+          this.selectedIndicators.push(indicatorKey)
+        }
+      } else {
+        // 移除指标
+        this.selectedIndicators = this.selectedIndicators.filter(item => item !== indicatorKey)
+      }
+
+      // 重新渲染时间序列图表
+      this.$nextTick(() => {
+        if (this.showSecondaryTimeline) {
+          this.initSecondaryIndicatorSerial()
+          if (this.isTimelineExpanded) {
+            setTimeout(() => {
+              this.initFullscreenSecondaryIndicatorSerial()
+            }, 100)
+          }
+        } else {
+          this.initMoveSerial()
+          if (this.isTimelineExpanded) {
+            setTimeout(() => {
+              this.initFullscreenMoveSerial()
+            }, 100)
+          }
+        }
+      })
+    },
+    handleExpandSpeechFormChart() {
+      this.isSpeechFormChartExpanded = true
+      this.$nextTick(() => {
+        // 强制图表重绘以适应新尺寸
+        setTimeout(() => {
+          // 触发窗口resize事件，让ECharts自动重绘
+          window.dispatchEvent(new Event('resize'))
+        }, 100)
+      })
+    },
+
+    // 处理关闭话语形式图表放大
+    handleCloseExpandSpeechFormChart() {
+      this.isSpeechFormChartExpanded = false
+      this.$nextTick(() => {
+        setTimeout(() => {
+          window.dispatchEvent(new Event('resize'))
+        }, 300)
+      })
+    },
+    handleExpandSecondaryBehaviorChart() {
+      this.isSecondaryBehaviorChartExpanded = true
+      this.$nextTick(() => {
+        // 强制图表重绘以适应新尺寸
+        setTimeout(() => {
+          // 触发窗口resize事件，让ECharts自动重绘
+          window.dispatchEvent(new Event('resize'))
+        }, 300)
+      })
+    },
+
+    // 处理关闭二级指标图表放大
+    handleCloseExpandSecondaryBehaviorChart() {
+      this.isSecondaryBehaviorChartExpanded = false
+      this.$nextTick(() => {
+        setTimeout(() => {
+          window.dispatchEvent(new Event('resize'))
+        }, 300)
+      })
+    },
+    // 处理放大关键行为图表
+    handleExpandBehaviorChart() {
+      this.isBehaviorChartExpanded = true
+      this.$nextTick(() => {
+        // 强制图表重绘以适应新尺寸
+        setTimeout(() => {
+          // 触发窗口resize事件，让ECharts自动重绘
+          window.dispatchEvent(new Event('resize'))
+        }, 300)
+      })
+    },
+
+    // 处理关闭放大
+    handleCloseExpandBehaviorChart() {
+      this.isBehaviorChartExpanded = false
+      this.$nextTick(() => {
+        setTimeout(() => {
+          window.dispatchEvent(new Event('resize'))
+        }, 300)
+      })
+    },
+    // 处理放大视频
+    handleExpandVideo() {
+      if (!this.$refs.videoPlayer || !this.$refs.videoPlayer.player) return
+
+      // 暂停原视频
+      if (!this.$refs.videoPlayer.player.paused()) {
+        this.$refs.videoPlayer.player.pause()
+      }
+
+      // 检查内容区下半部分是否处于全屏状态
+      const isAnyChartExpanded =
+        this.isBehaviorChartExpanded ||
+        this.isSecondaryBehaviorChartExpanded ||
+        this.isTimelineExpanded ||
+        this.isSpeechFormChartExpanded ||
+        this.isAbilityTimelineExpanded
+
+      // 如果下半部分有全屏状态，先退出这些全屏状态
+      if (isAnyChartExpanded) {
+        this.isBehaviorChartExpanded = false
+        this.isSecondaryBehaviorChartExpanded = false
+        this.isTimelineExpanded = false
+        this.isSpeechFormChartExpanded = false
+        this.isAbilityTimelineExpanded = false
+
+        // 短暂延迟后打开视频弹窗，确保DOM更新完成
+        this.$nextTick(() => {
+          setTimeout(() => {
+            this.openVideoModal()
+          }, 100)
+        })
+      } else {
+        // 直接打开视频弹窗
+        this.openVideoModal()
+      }
+    },
+
+// 提取打开视频弹窗的逻辑到单独方法
+    openVideoModal() {
+      // 获取当前视频进度（秒）和播放状态
+      const currentTime = this.$refs.videoPlayer.currentTime || 0
+      const isPlaying = this.$refs.videoPlayer.isPlaying || false
+
+      // 显示弹窗
+      this.videoModalVisible = true
+
+      // 等待弹窗渲染完成后同步进度
+      this.$nextTick(() => {
+        setTimeout(() => {
+          if (this.$refs.modalVideoPlayer && this.$refs.modalVideoPlayer.player) {
+            const player = this.$refs.modalVideoPlayer.player
+            // 检查播放器是否已准备好
+            if (!player.readyState || player.readyState() < 2) {
+              // 如果播放器还没准备好，等待 ready 事件
+              player.ready(() => {
+                try {
+                  // 设置弹窗视频进度与原视频一致
+                  player.currentTime(currentTime)
+                  // 保持播放状态一致
+                  if (isPlaying && player.paused()) {
+                    const playPromise = player.play()
+                    if (playPromise !== undefined) {
+                      playPromise.catch(error => {
+                        console.warn('播放视频失败:', error)
+                      })
+                    }
+                  } else if (!isPlaying && !player.paused()) {
+                    player.pause()
+                  }
+                } catch (error) {
+                  console.warn('操作视频播放器失败:', error)
+                }
+              })
+            } else {
+              try {
+                // 设置弹窗视频进度与原视频一致
+                player.currentTime(currentTime)
+                // 保持播放状态一致
+                if (isPlaying && player.paused()) {
+                  const playPromise = player.play()
+                  if (playPromise !== undefined) {
+                    playPromise.catch(error => {
+                      console.warn('播放视频失败:', error)
+                    })
+                  }
+                } else if (!isPlaying && !player.paused()) {
+                  player.pause()
+                }
+              } catch (error) {
+                console.warn('操作视频播放器失败:', error)
+              }
+            }
+          }
+        }, 100) // 短暂延迟确保DOM完全渲染
+      })
+    },
+
+    // 关闭弹窗时同步进度到主视频
+    handleModalClose() {
+      // 1. 暂停放大的视频（核心：关闭时必停放大视频）
+      if (this.$refs.modalVideoPlayer && this.$refs.modalVideoPlayer.player) {
+        // 无论放大视频是否在播放，都强制暂停
+        this.$refs.modalVideoPlayer.player.pause()
+      }
+
+      if (this.$refs.modalVideoPlayer && this.$refs.modalVideoPlayer.player &&
+        this.$refs.videoPlayer && this.$refs.videoPlayer.player) {
+
+        const mainPlayer = this.$refs.videoPlayer.player
+        // 2. 同步放大视频的进度到原视频（确保回到原视频时进度一致）
+        const modalTime = this.$refs.modalVideoPlayer.currentTime || 0
+        try {
+          mainPlayer.currentTime(modalTime)
+
+          // 3. 原视频自动播放（核心：关闭放大后，原视频强制恢复播放）
+          // 先判断原视频是否已暂停，避免重复触发播放导致错误
+          if (mainPlayer.paused() && mainPlayer.readyState && mainPlayer.readyState() >= 2) {
+            const playPromise = mainPlayer.play()
+            if (playPromise !== undefined) {
+              playPromise.catch(error => {
+                console.warn('播放视频失败:', error)
+              })
+            }
+          }
+        } catch (error) {
+          console.warn('操作视频播放器失败:', error)
+        }
+      }
+
+      // 4. 关闭放大视频模态框
+      this.videoModalVisible = false
+
+      // 原有图表重新渲染逻辑（保持不变）
+      this.$nextTick(() => {
+        setTimeout(() => {
+          if (this.currentTab === 0) {
+            if (this.showSecondaryTimeline) {
+              this.initSecondaryIndicatorSerial()
+            } else {
+              this.initMoveSerial()
+            }
+            if (this.barData5 && this.barData5.length > 0) {
+              this.$forceUpdate()
+            }
+          }
+
+          if (this.currentTab === 2) {
+            if (this.showSecondaryAbilityTimeline) {
+              this.initAbilitySecondarySerial()
+            } else {
+              this.initWordSerial()
+            }
+            if (this.barData6 && this.barData6.length > 0) {
+              this.$forceUpdate()
+            }
+          }
+
+          window.dispatchEvent(new Event('resize'))
+
+        }, 300)
+      })
+    },
+
+    // 弹窗视频时间更新
+    onModalVideoTimeUpdate(currentTime) {
+      this.modalCurrentTime = currentTime / 60
+    },
+
+    // 弹窗中对话跳转时间
+    handleModalChatJump(time) {
+      if (this.$refs.modalVideoPlayer) {
+        this.$refs.modalVideoPlayer.jumpToTime(time)
+      }
+    },
+    handleChatJumpToTime(timeInSeconds) {
+      // 跳转到视频的指定时间
+      if (this.$refs.videoPlayer) {
+        this.$refs.videoPlayer.jumpToTime(timeInSeconds)
+      }
+    },
+
+    // 切换对话显示状态
+    toggleChatInModal() {
+      this.showChatInModal = !this.showChatInModal
+      this.videoWidth = this.showChatInModal ? '60%' : '100%'
+    },
+    onVideoTimeUpdate(currentTime) {
+      // 将秒转换为分钟
+      this.currentVideoTime = currentTime / 60
+    },
+    loadAnalysisResult() {
+      const that = this
+      getAnalysisResult({ 'video_id': this.videoId }).then(res => {
+        that.json = res.data
+        // 读取 ifnostu 字段，用于控制是否显示学生情绪
+        that.ifnostu = res.data.video_basic_info?.ifnostu || 0
+        that.teacherTrajectoryData = that.json.CV_Recognise_content.result.data.patrolList
+        // 处理视频的章节信息
+        // 左侧上方雷达数据
+        that.json.teaching_rating = {
+          '关键能力得分': res.data.teaching_rating?.关键能力得分 || 0,
+          '关键行为得分': res.data.teaching_rating?.关键行为得分 || 0,
+          '情感体验得分': res.data.teaching_rating?.情感体验得分 || 0,
+          '课堂综合评分': res.data.teaching_rating?.课堂综合评分 || 0
+        }
+
+        // 初始化综合课堂评价环形图
+        that.initComprehensiveEvaluationChart()
+        // 左侧中间柱状数据
+        that.barData1 = []
+        const bar1Object = that.json.teach_stu_emo_behavior?.data.teacher_behavior_ratio
+        that.barData1 = [
+          {category: '全班讲解', y: bar1Object.teach, z: '35%'},
+          {category: '个别指导', y: bar1Object.guide, z: '35%'},
+          {category: '教师巡视', y: bar1Object.inspect, z: '30%'}
+        ]
+
+        that.barData2 = []
+        const bar2Object = that.json.CV_rating.师生行为
+        that.barData2 = [
+          {category: '学生听讲', y: bar2Object[3].占比, z: bar2Object[3].优质课},
+          {category: '学生回答', y: bar2Object[4].占比, z: bar2Object[4].优质课},
+          {category: '学生做题', y: bar2Object[5].占比, z: bar2Object[5].优质课},
+          {category: '小组活动', y: bar2Object[6].占比, z: bar2Object[6].优质课},
+          {category: '汇报展示', y: bar2Object[7].占比, z: bar2Object[7].优质课}
+        ]
+
+        that.barData3 = []
+        const bar3Array = that.json.speaking_analyze?.result.话语形式分析结果.discourse_form.classifications
+        that.barData3 = bar3Array.map(item => ({
+          category: item.primary_category_name,
+          y: item.ratio,
+          z: item.Quality_lessons
+        }))
+
+        that.barData4 = []
+        const bar4Array = that.json.speaking_analyze?.result.话语功能分析结果.discourse_form.classifications
+        that.barData4 = bar4Array.map(item => ({
+          category: item.primary_category_name,
+          y: item.ratio,
+          z: item.Quality_lessons
+        }))
+        that.barData5 = []
+        const formArray = that.json.speaking_analyze?.result.话语形式分析结果.discourse_form.classifications
+        if (formArray && formArray.length > 0) {
+          formArray.forEach(item => {
+            if (item.secondary_classifications && item.secondary_classifications.length > 0) {
+              item.secondary_classifications.forEach(innerItem => {
+                that.barData5.push({
+                  category: innerItem.secondary_category_name,
+                  y: innerItem.ratio,
+                  z: innerItem.Quality_lessons
+                })
+              })
+            }
+          })
+        }
+        that.barData6 = []
+        const funcArray = that.json.speaking_analyze?.result.话语功能分析结果.discourse_form.classifications
+        // 指标名称映射：将后端返回的名称转换为前端显示的名称
+        const categoryNameMap = {
+          '推测解释': '推理解释'
+        }
+        if (funcArray && funcArray.length > 0) {
+          funcArray.forEach(item => {
+            if (item.secondary_classifications && item.secondary_classifications.length > 0) {
+              item.secondary_classifications.forEach(innerItem => {
+                // 如果后端返回的名称在映射表中，则使用映射后的名称，否则使用原名称
+                const categoryName = categoryNameMap[innerItem.secondary_category_name] || innerItem.secondary_category_name
+                that.barData6.push({
+                  category: categoryName,
+                  y: innerItem.ratio,
+                  z: innerItem.Quality_lessons
+                })
+              })
+            }
+          })
+        }
+        const stuList = res.data.CV_Recognise_content.result.data.stuActionList
+        const teaList = res.data.CV_Recognise_content.result.data.teaActionList
+        that.behaviorTimeData = this.cleanStudentBehaviorData(stuList.concat(teaList))
+
+        const formList = res.data.speaking_analyze.result.话语形式分析结果.discourse_form.time_class.speak_form || []
+        const funcList = res.data.speaking_analyze.result.话语功能分析结果.discourse_form.time_class.speak_form || []
+        that.wordTimeData = this.cleanWordData(formList.concat(funcList))
+        that.abilitySecondaryTimeData = this.cleanAbilitySecondaryData(funcList)
+
+        const secondaryIndicatorData = res.data.speaking_analyze?.result.话语形式分析结果?.discourse_form?.time_class?.speak_form || []
+        that.secondaryIndicatorTimeData = this.cleanSecondaryIndicatorData(secondaryIndicatorData)
+
+        that.speechSpeedData = JSON.parse(res.data.speaking_analyze.result.其他话语分析结果).other_discourse_analysis.speak_speed || []
+        that.keywordsData = JSON.parse(res.data.speaking_analyze.result.其他话语分析结果).other_discourse_analysis.keywords || []
+        that.orals = JSON.parse(res.data.speaking_analyze.result.其他话语分析结果).other_discourse_analysis.orals || []
+        that.teacherAttentionData = res.data.CV_Recognise_content.result.data.tea_attention
+        that.stuConcentration = res.data.CV_Recognise_content?.result?.data?.stu_concentration || {}
+        const rawReview = that.json.comprehensive_review?.response || ''
+        that.comprehensiveReview = this.formatReviewText(rawReview)
+        that.timeSegments = dataInitVideoSegments(res.data['analyze-teaching-segments'].data)
+        this.initMoveSerial()
+        this.initWordSerial()
+        this.initSecondaryIndicatorSerial()
+        this.initAbilitySecondarySerial()
+        this.processStudentEmotionData()
+        this.initStudentEmotionCharts()
+        this.processStudentEmotionData()
+        this.processTeacherEmotionData()
+        // 根据 ifnostu 的值决定初始化哪些图表
+        if (this.ifnostu === 1) {
+          // 当 ifnostu === 1 时，初始化关键字和口头语图表
+          this.$nextTick(() => {
+            this.initKeywordChart()
+            this.initOralsChart()
+          })
+        } else {
+          // 当 ifnostu !== 1 时，初始化教学注意力分布和课堂专注度图表
+          this.initFocusDistributionCharts()
+          this.$nextTick(() => {
+            this.initFocusChart()
+          })
+        }
+      })
+
+    },
+    // 初始化关键能力二级指标时间序列
+    initAbilitySecondarySerial() {
+      const that = this
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+        const secondaryTimelineDom = document.getElementById('SecondaryAbilityTimeline')
+        if (!secondaryTimelineDom) return
+        const oldChart = this.$echarts.getInstanceByDom(secondaryTimelineDom)
+        if (oldChart) {
+          oldChart.dispose()
+        }
+        // 过滤选中的二级指标 - 只显示选中的指标
+        const filteredLabels = this.selectedAbilityIndicators.filter(indicator =>
+          [
+            '观察记忆', '概括理解', '说明论证', '经历经验', '主观看法',
+            '情感态度', '分析计算', '推理解释', '简单问题解决', '综合问题解决',
+            '猜想探究', '发现创新'
+          ].includes(indicator)
+        )
+
+        if (filteredLabels.length === 0) {
+          const chart = this.$echarts.init(secondaryTimelineDom)
+          chart.setOption({
+            grid: {
+              left: 80,
+              right: 10,
+              top: 10,
+              bottom: 20,
+              height: '75%'
+            },
+            xAxis: {
+              type: 'value',
+              min: 0,
+              max: 1,
+              axisLine: {
+                lineStyle: {
+                  color: '#2f4a68'
+                }
+              },
+              axisLabel: {
+                color: '#9fbcd3',
+                formatter: '{value}'
+              },
+              splitLine: {
+                lineStyle: {
+                  color: 'rgba(255, 255, 255, 0.06)'
+                }
+              },
+              axisTick: {
+                lineStyle: {
+                  color: '#9fbcd3'
+                }
+              }
+            },
+            yAxis: {
+              type: 'category',
+              data: [],
+              inverse: true,
+              axisLine: { lineStyle: { color: '#2f4a68' } },
+              axisLabel: { color: '#9fbcd3', fontSize: 11 },
+              splitLine: { show: false },
+              axisTick: { show: false }
+            },
+            series: []
+          })
+          return
+        }
+        const secondaryChart = this.initAbilitySecondaryTimeline(
+          secondaryTimelineDom,
+          filteredLabels, // 只传入选中的指标
+          this.abilitySecondaryColorMap,
+          this.abilitySecondaryTimeData
+        )
+        secondaryChart.on('click', (params) => {
+          const timeInSeconds = params.data[0] * 60
+          that.$refs.videoPlayer.jumpToTime(timeInSeconds)
+        })
+      })
+    },
+
+// 初始化关键能力二级指标时间序列图表
+    initAbilitySecondaryTimeline(dom, labels, colorMap, actions) {
+      let max = 0
+      const lanes = labels
+      const events = {}
+      Object.keys(events).forEach(key => delete events[key])
+      lanes.forEach(n => { events[n] = [] })
+
+      if (!actions || !Array.isArray(actions)) {
+        actions = []
+      }
+
+      // 处理数据
+      actions.forEach(action => {
+        const typeName = action.type
+        max = action.end > max ? action.end : max
+        if (lanes.includes(typeName)) {
+          const startMinute = action.start
+          const endMinute = action.end
+          const duration = action.duration
+          events[typeName].push([startMinute, lanes.indexOf(typeName), duration])
+        }
+      })
+
+      const series = lanes.map(label => ({
+        name: label,
+        type: 'scatter',
+        coordinateSystem: 'cartesian2d',
+        symbol: 'roundRect',
+        data: events[label].filter(item => {
+          // item[1] 是 lanes.indexOf(typeName)，确保数据属于当前指标
+          return lanes.indexOf(label) === item[1]
+        }),
+        symbolSize: (val) => [Math.max(8, val[2] * 15), 14],
+        itemStyle: {
+          color: colorMap[label]
+        },
+        emphasis: {
+          disabled: true
+        },
+        tooltip: {
+          formatter: (p) => {
+            const startTime = this.formatMinuteToTime(p.value[0])
+            const endTime = this.formatMinuteToTime(p.value[0] + p.value[2])
+            return `${p.seriesName}：${startTime}-${endTime}`
+          }
+        }
+      }))
+
+      const chart = this.$echarts.init(dom)
+      chart.setOption({
+        grid: {
+          left: 100,
+          right: 20,
+          top: 20,
+          bottom: 30,
+          height: '80%'
+        },
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: Math.ceil(max),
+          name: '',
+          nameTextStyle: {
+            color: '#9fbcd3',
+            fontSize: 12
+          },
+          axisLine: {
+            lineStyle: {
+              color: '#2f4a68'
+            }
+          },
+          axisLabel: {
+            color: '#9fbcd3',
+            formatter: '{value}'
+          },
+          splitLine: {
+            lineStyle: {
+              color: 'rgba(255, 255, 255, 0.06)'
+            }
+          },
+          axisTick: {
+            lineStyle: {
+              color: '#9fbcd3'
+            }
+          }
+        },
+        yAxis: {
+          show: true,
+          type: 'category',
+          data: lanes,
+          inverse: true,
+          axisLine: {
+            lineStyle: {
+              color: '#2f4a68'
+            }
+          },
+          axisLabel: {
+            color: '#9fbcd3',
+            fontSize: 10,
+            interval: 0
+          },
+          splitLine: {
+            show: false
+          },
+          axisTick: {
+            show: false
+          }
+        },
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(10, 31, 59, 0.9)',
+          borderColor: '#1390AB',
+          borderWidth: 1,
+          textStyle: {
+            color: '#fff'
+          },
+        },
+        legend: {
+          show: false,
+          top: 'bottom',
+          textStyle: {
+            color: '#9fbcd3',
+            fontSize: 10
+          },
+          itemWidth: 12,
+          itemHeight: 8,
+          type: 'scroll'
+        },
+        series
+      })
+
+      return chart
+    },
+    // 切换能力时间序列级别
+    toggleAbilityTimelineLevel() {
+      this.showSecondaryAbilityTimeline = !this.showSecondaryAbilityTimeline
+      this.$nextTick(() => {
+        if (this.isAbilityTimelineExpanded) {
+          // 全屏状态
+          if (this.showSecondaryAbilityTimeline) {
+            this.initFullscreenAbilitySecondarySerial()
+          } else {
+            this.initFullscreenAbilitySerial()
+          }
+        } else {
+          // 普通状态
+          if (this.showSecondaryAbilityTimeline) {
+            this.initAbilitySecondarySerial()
+          } else {
+            this.initWordSerial()
+          }
+        }
+        // 强制重绘
+        setTimeout(() => {
+          window.dispatchEvent(new Event('resize'))
+        }, 300)
+      })
+    },
+
+// 处理能力复选框变化
+    onAbilityCheckboxChange(e, indicatorKey) {
+      const checked = e.target.checked
+      if (checked) {
+        this.selectedAbilityIndicators.push(indicatorKey)
+      } else {
+        this.selectedAbilityIndicators = this.selectedAbilityIndicators.filter(
+          item => item !== indicatorKey
+        )
+      }
+      // 重新渲染时间序列图表
+      this.$nextTick(() => {
+        if (this.isAbilityTimelineExpanded) {
+          // 全屏状态下的更新
+          setTimeout(() => {
+            if (this.showSecondaryAbilityTimeline) {
+              this.initFullscreenAbilitySecondarySerial()
+            } else {
+              this.initFullscreenAbilitySerial()
+            }
+          }, 100)
+        } else {
+          // 普通状态下的更新
+          if (this.showSecondaryAbilityTimeline) {
+            this.initAbilitySecondarySerial()
+          } else {
+            this.initWordSerial()
+          }
+        }
+      })
+    },
+
+// 处理能力时间序列放大
+    handleExpandAbilityTimeline() {
+      this.isAbilityTimelineExpanded = true
+      this.$nextTick(() => {
+        setTimeout(() => {
+          if (this.showSecondaryAbilityTimeline) {
+            this.initFullscreenAbilitySecondarySerial()
+          } else {
+            this.initFullscreenAbilitySerial()
+          }
+        }, 300)
+      })
+    },
+
+// 初始化全屏一级能力指标时间序列
+    initFullscreenAbilitySerial() {
+      const that = this
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+        const dom = document.getElementById('FullscreenAbilityTimeline')
+        if (!dom) return
+        const oldChart = this.$echarts.getInstanceByDom(dom)
+        if (oldChart) {
+          oldChart.dispose()
+        }
+        const selectedPrimaryIndicators = this.selectedAbilityIndicators.filter(indicator =>
+          ['知识理解', '表达交流', '实践应用', '创造迁移'].includes(indicator)
+        )
+        const abilityLabels = selectedPrimaryIndicators
+        const abilityColorMap = {
+          '知识理解': '#FFC000',
+          '表达交流': '#EC808D',
+          '实践应用': '#ED7D31',
+          '创造迁移': '#5B9BD5'
+        }
+
+        const abilityTimeData = this.wordTimeData.filter(item =>
+          abilityLabels.includes(item.type)
+        )
+
+        const abilityChart = this.initWordTimeline(
+          dom,
+          abilityLabels,
+          abilityColorMap,
+          abilityTimeData
+        )
+        abilityChart.on('click', (params) => {
+          const timeInSeconds = params.data[0] * 60 // 统一转换为秒
+          that.$refs.videoPlayer.jumpToTime(timeInSeconds)
+        })
+      })
+    },
+
+// 初始化全屏二级能力指标时间序列
+    initFullscreenAbilitySecondarySerial() {
+      const that = this
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+        const dom = document.getElementById('FullscreenSecondaryAbilityTimeline')
+        if (!dom) return
+        const oldChart = this.$echarts.getInstanceByDom(dom)
+        if (oldChart) {
+          oldChart.dispose()
+        }
+        const filteredLabels = this.selectedAbilityIndicators.filter(indicator =>
+          [
+            '观察记忆', '概括理解', '说明论证', '经历经验', '主观看法',
+            '情感态度', '分析计算', '推理解释', '简单问题解决', '综合问题解决',
+            '猜想探究', '发现创新'
+          ].includes(indicator)
+        )
+
+        const secondaryChart = this.initAbilitySecondaryTimeline(
+          dom,
+          filteredLabels,
+          this.abilitySecondaryColorMap,
+          this.abilitySecondaryTimeData
+        )
+        secondaryChart.on('click', (params) => {
+          const timeInSeconds = params.data[0] * 60
+          that.$refs.videoPlayer.jumpToTime(timeInSeconds)
+        })
+      })
+    },
+
+// 处理关闭能力时间序列放大
+    handleCloseExpandAbilityTimeline() {
+      this.isAbilityTimelineExpanded = false
+      this.$nextTick(() => {
+        setTimeout(() => {
+          window.dispatchEvent(new Event('resize'))
+          // 重新渲染时间序列图表
+          if (this.showSecondaryAbilityTimeline) {
+            this.initAbilitySecondarySerial()
+          } else {
+            this.initWordSerial()
+          }
+        }, 300)
+      })
+    },
+    // 清理关键行为二级指标数据
+    cleanSecondaryIndicatorData(rawData) {
+      if (!rawData || !Array.isArray(rawData)) {
+        return []
+      }
+
+      return rawData.map(item => {
+        const typeName = this.secondaryIndicatorTypeMap[item.type] || `未知类型${item.type}`
+        return {
+          type: typeName,
+          start: item.startTime / 60, // 转换为分钟
+          end: item.endTime / 60,     // 转换为分钟
+          duration: (item.endTime - item.startTime) / 60
+        }
+      }).filter(item => item.type !== '未知类型')
+    },
+    // 初始化"关键行为二级指标时间序列"区域
+    initSecondaryIndicatorSerial() {
+      const that = this
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+        const secondaryTimelineDom = document.getElementById('SecondaryIndicatorTimeline')
+        if (!secondaryTimelineDom) return
+        const oldChart = this.$echarts.getInstanceByDom(secondaryTimelineDom)
+        if (oldChart) {
+          oldChart.dispose()
+        }
+        // 从 barData5（关键行为二级指标对比）中提取二级指标名称
+        const availableLabels = this.barData5.map(item => item.category).filter(Boolean)
+        // 只显示在 barData5 中存在且被选中的指标
+        const filteredLabels = this.selectedIndicators.filter(indicator =>
+          availableLabels.includes(indicator)
+        )
+        if (filteredLabels.length === 0) {
+          const chart = this.$echarts.init(secondaryTimelineDom)
+          chart.setOption({
+            xAxis: { type: 'value', min: 0, max: 1 },
+            yAxis: { type: 'category', data: [],inverse: true },
+            series: []
+          })
+          return
+        }
+
+        const secondaryChart = this.initSecondaryIndicatorTimeline(
+          secondaryTimelineDom,
+          filteredLabels,
+          this.secondaryIndicatorColorMap,
+          this.secondaryIndicatorTimeData
+        )
+        secondaryChart.on('click', (params) => {
+          const timeInSeconds = params.data[0] * 60
+          that.$refs.videoPlayer.jumpToTime(timeInSeconds)
+        })
+      })
+    },
+    // 初始化关键行为二级指标时间序列图表
+    initSecondaryIndicatorTimeline(dom, labels, colorMap, actions) {
+      let max = 0
+      const lanes = labels
+      const events = {}
+      Object.keys(events).forEach(key => delete events[key])
+      lanes.forEach(n => { events[n] = [] })
+
+      // 添加安全检查
+      if (!actions || !Array.isArray(actions)) {
+        actions = []
+      }
+
+      // 处理数据
+      actions.forEach(action => {
+        const typeName = action.type
+        max = action.end > max ? action.end : max
+        if (lanes.includes(typeName)) {
+          const startMinute = action.start
+          const endMinute = action.end
+          const duration = action.duration
+          events[typeName].push([startMinute, lanes.indexOf(typeName), duration])
+        }
+      })
+
+      const series = lanes.map(label => ({
+        name: label,
+        type: 'scatter',
+        coordinateSystem: 'cartesian2d',
+        symbol: 'roundRect',
+        data: events[label],
+        symbolSize: (val) => [Math.max(8, val[2] * 15), 14], // 调整大小以适应更多分类
+        itemStyle: {
+          color: colorMap[label]
+        },
+        emphasis: {
+          disabled: true
+        },
+        tooltip: {
+          formatter: (p) => {
+            const startTime = this.formatMinuteToTime(p.value[0])
+            const endTime = this.formatMinuteToTime(p.value[0] + p.value[2])
+            return `${p.seriesName}：${startTime}-${endTime}`
+          }
+        }
+      }))
+
+      const chart = this.$echarts.init(dom)
+      chart.setOption({
+        grid: {
+          left: 100,  // 增加左边距以适应更长的标签
+          right: 20,
+          top: 20,
+          bottom: 30,
+          height: '80%'
+        },
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: Math.ceil(max),
+          name: '',
+          nameTextStyle: {
+            color: '#9fbcd3',
+            fontSize: 12
+          },
+          axisLine: {
+            lineStyle: {
+              color: '#2f4a68'
+            }
+          },
+          axisLabel: {
+            color: '#9fbcd3',
+            formatter: '{value}'
+          },
+          splitLine: {
+            lineStyle: {
+              color: 'rgba(255, 255, 255, 0.06)'
+            }
+          },
+          axisTick: {
+            lineStyle: {
+              color: '#9fbcd3'
+            }
+          }
+        },
+        yAxis: {
+          show: true,
+          type: 'category',
+          data: lanes,
+          inverse: true,
+          axisLine: {
+            lineStyle: {
+              color: '#2f4a68'
+            }
+          },
+          axisLabel: {
+            color: '#9fbcd3',
+            fontSize: 10, // 减小字体大小以适应更多分类
+            interval: 0   // 显示所有标签
+          },
+          splitLine: {
+            show: false
+          },
+          axisTick: {
+            show: false
+          }
+        },
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(10, 31, 59, 0.9)',
+          borderColor: '#1390AB',
+          borderWidth: 1,
+          textStyle: {
+            color: '#fff'
+          },
+          formatter: (params) => {
+            const data = params.data
+            const startMinute = data[0].toFixed(1)
+            const endMinute = (data[0] + data[2]).toFixed(1)
+            const duration = data[2].toFixed(2)
+            return `
+          <div style="font-size: 12px; line-height: 1.4;">
+            <div style="font-weight: bold; margin-bottom: 4px;">${params.seriesName}</div>
+            <div>开始时间: ${startMinute} 分钟</div>
+            <div>结束时间: ${endMinute} 分钟</div>
+            <div>持续时间: ${duration} 分钟</div>
+          </div>
+        `
+          }
+        },
+        legend: {
+          show: false,
+          top: 'bottom',
+          textStyle: {
+            color: '#9fbcd3',
+            fontSize: 10
+          },
+          itemWidth: 12,
+          itemHeight: 8,
+          type: 'scroll' // 如果图例太多，启用滚动
+        },
+        series
+      })
+
+      return chart
+    },
+    // 初始化"行为时间序"区域
+    initMoveSerial() {
+      const that = this
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+        const behaviorTimelineDom  = document.getElementById('BehaviorTimeline')
+        if (!behaviorTimelineDom) return
+        const oldChart = this.$echarts.getInstanceByDom(behaviorTimelineDom)
+        if (oldChart) {
+          oldChart.dispose()
+        }
+        // 从 barData3 中提取一级指标名称
+        const availableLabels = this.barData3.map(item => item.category).filter(Boolean)
+        // 只显示在 barData3 中存在且被选中的指标
+        const filteredLabels = this.selectedIndicators.filter(indicator =>
+          availableLabels.includes(indicator)
+        )
+        const behaviorColorMap = {
+          '陈述': '#5B9BD5',
+          '提问': '#ED7D31',
+          '回答': '#A4A4A4',
+          '反馈': '#4472C4',
+          '管理': '#FFC000'
+        }
+
+        // 过滤出话语形式的数据
+        const behaviorTimeData = this.wordTimeData.filter(item =>
+          filteredLabels.includes(item.type)
+        )
+        const behaviorChart = this.initWordTimeline1(
+          behaviorTimelineDom,
+          filteredLabels,
+          behaviorColorMap,
+          behaviorTimeData
+        )
+        behaviorChart.on('click', (params) => {
+          const timeInSeconds = params.data[0] * 60
+          that.$refs.videoPlayer.jumpToTime(timeInSeconds)
+        })
+      })
+
+    },
+    initWordTimeline1(dom, labels, colorMap, actions) {
+      let max = 0
+      const lanes = labels
+      const events = {}
+      Object.keys(events).forEach(key => delete events[key])
+      lanes.forEach(n => { events[n] = [] })
+
+      // 添加安全检查
+      if (!actions || !Array.isArray(actions)) {
+        actions = []
+      }
+      // 将时间字符串转换为分钟数
+      actions.forEach(action => {
+        const typeName = action.type
+        max = action.end > max ? action.end : max
+        if (lanes.includes(typeName)) {
+          const startMinute = action.start
+          const endMinute = action.end
+          const duration = endMinute - startMinute
+          events[typeName].push([startMinute, lanes.indexOf(typeName), duration])
+        }
+      })
+      if (!labels || labels.length === 0) {
+        const chart = this.$echarts.init(dom)
+        chart.setOption({
+          grid: { left: 80, right: 10, top: 10, bottom: 20, height: '75%' }, // 与正常状态一致
+          xAxis: {
+            type: 'value',
+            min: 0,
+            max: Math.ceil(max),
+            axisLine: {
+              lineStyle: {
+                color: '#2f4a68'
+              }
+            },
+            axisLabel: {
+              color: '#9fbcd3',
+              formatter: '{value}'
+            },
+            splitLine: {
+              lineStyle: {
+                color: 'rgba(255, 255, 255, 0.06)'
+              }
+            },
+            axisTick: {
+              lineStyle: {
+                color: '#9fbcd3'
+              }
+            }
+          },
+          yAxis: {
+            type: 'category',
+            data: [], // 空分类
+            inverse: true,
+            axisLine: { lineStyle: { color: '#2f4a68' } },
+            axisLabel: { color: '#9fbcd3', fontSize: 11 },
+            splitLine: { show: false },
+            axisTick: { show: false }
+          },
+          series: [] // 空系列，不渲染数据
+        })
+        return chart // 返回空状态图表实例，保持方法返回值一致性
+      }
+
+      const series = lanes.map(label => ({
+        name: label,
+        type: 'scatter',
+        coordinateSystem: 'cartesian2d',
+        symbol: 'roundRect',
+        data: events[label].filter(item => {
+          // item[1] 是 lanes.indexOf(typeName)，确保数据属于当前指标
+          return lanes.indexOf(label) === item[1]
+        }),
+        symbolSize: (val) => [Math.max(6, val[2] * 12), 12],
+        itemStyle: { color: colorMap[label] },
+        emphasis: { scale: 1.02 },
+        tooltip: {
+          formatter: (p) => {
+            const startTime = this.formatMinuteToTime(p.value[0])
+            const endTime = this.formatMinuteToTime(p.value[0] + p.value[2])
+            return `${p.seriesName}：${startTime}-${endTime}`
+          }
+        }
+      }))
+      const chart = this.$echarts.init(dom)
+      chart.setOption({
+        grid: { left: 80, right: 10, top: 10, bottom: 20, height: '75%' },
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: Math.ceil(max),
+          axisLine: {
+            lineStyle: {
+              color: '#2f4a68'
+            }
+          },
+          axisLabel: {
+            color: '#9fbcd3',
+            formatter: '{value}'
+          },
+          splitLine: {
+            lineStyle: {
+              color: 'rgba(255, 255, 255, 0.06)'
+            }
+          },
+          axisTick: {
+            lineStyle: {
+              color: '#9fbcd3'
+            }
+          }
+        },
+        yAxis: {
+          show: true, // 如果不需要就改为false
+          type: 'category',
+          data: lanes,
+          inverse: true,
+          axisLine: {
+            lineStyle: {
+              color: '#2f4a68'
+            }
+          },
+          axisLabel: {
+            color: '#9fbcd3',
+            fontSize: 11
+          },
+          splitLine: {
+            show: false
+          },
+          axisTick: {
+            show: false
+          }
+        },
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(10, 31, 59, 0.9)',
+          borderColor: '#1390AB',
+          borderWidth: 1,
+          textStyle: {
+            color: '#fff'
+          },
+        },
+        series
+      })
+      return chart
+    },
+    initWordTimeline(dom, labels, colorMap, actions) {
+      let max = 0
+      const lanes = labels
+      const events = {}
+      Object.keys(events).forEach(key => delete events[key])
+      lanes.forEach(n => { events[n] = [] })
+
+      // 添加安全检查
+      if (!actions || !Array.isArray(actions)) {
+        actions = []
+      }
+      // 将时间字符串转换为分钟数
+      actions.forEach(action => {
+        const typeName = action.type
+        max = action.end > max ? action.end : max
+        if (lanes.includes(typeName)) {
+          const startMinute = action.start
+          const endMinute = action.end
+          const duration = endMinute - startMinute
+          events[typeName].push([startMinute, lanes.indexOf(typeName), duration])
+        }
+      })
+      if (!labels || labels.length === 0) {
+        const chart = this.$echarts.init(dom)
+        chart.setOption({
+          grid: { left: 80, right: 10, top: 10, bottom: 20, height: '75%' }, // 与正常状态一致
+          xAxis: {
+            type: 'value',
+            min: 0,
+            max: Math.ceil(max),
+            axisLine: {
+              lineStyle: {
+                color: '#2f4a68'
+              }
+            },
+            axisLabel: {
+              color: '#9fbcd3',
+              formatter: '{value}'
+            },
+            splitLine: {
+              lineStyle: {
+                color: 'rgba(255, 255, 255, 0.06)'
+              }
+            },
+            axisTick: {
+              lineStyle: {
+                color: '#9fbcd3'
+              }
+            }
+          },
+          yAxis: {
+            type: 'category',
+            data: [], // 空分类
+            inverse: true,
+            axisLine: { lineStyle: { color: '#2f4a68' } },
+            axisLabel: { color: '#9fbcd3', fontSize: 11 },
+            splitLine: { show: false },
+            axisTick: { show: false }
+          },
+          series: [] // 空系列，不渲染数据
+        })
+        return chart // 返回空状态图表实例，保持方法返回值一致性
+      }
+
+      const series = lanes.map(label => ({
+        name: label,
+        type: 'scatter',
+        coordinateSystem: 'cartesian2d',
+        symbol: 'roundRect',
+        data: events[label].filter(item => {
+          // item[1] 是 lanes.indexOf(typeName)，确保数据属于当前指标
+          return lanes.indexOf(label) === item[1]
+        }),
+        symbolSize: (val) => [Math.max(6, val[2] * 12), 12],
+        itemStyle: { color: colorMap[label] },
+        emphasis: { scale: 1.02 },
+        tooltip: {
+          formatter: (p) => {
+            const startTime = this.formatMinuteToTime(p.value[0])
+            const endTime = this.formatMinuteToTime(p.value[0] + p.value[2])
+            return `${p.seriesName}：${startTime}-${endTime}`
+          }
+        }
+      }))
+      const chart = this.$echarts.init(dom)
+      chart.setOption({
+        grid: { left: 80, right: 10, top: 10, bottom: 20, height: '75%' },
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: Math.ceil(max),
+          axisLine: {
+            lineStyle: {
+              color: '#2f4a68'
+            }
+          },
+          axisLabel: {
+            color: '#9fbcd3',
+            formatter: '{value}'
+          },
+          splitLine: {
+            lineStyle: {
+              color: 'rgba(255, 255, 255, 0.06)'
+            }
+          },
+          axisTick: {
+            lineStyle: {
+              color: '#9fbcd3'
+            }
+          }
+        },
+        yAxis: {
+          show: true, // 如果不需要就改为false
+          type: 'category',
+          data: lanes,
+          inverse: true,
+          axisLine: {
+            lineStyle: {
+              color: '#2f4a68'
+            }
+          },
+          axisLabel: {
+            color: '#9fbcd3',
+            fontSize: 11
+          },
+          splitLine: {
+            show: false
+          },
+          axisTick: {
+            show: false
+          }
+        },
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(10, 31, 59, 0.9)',
+          borderColor: '#1390AB',
+          borderWidth: 1,
+          textStyle: {
+            color: '#fff'
+          },
+        },
+        series
+      })
+      return chart
+    },
+    // 初始化“话语时间序”区域
+    initWordSerial() {
+      const that = this
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+        const abilityTimelineDom  = document.getElementById('AbilityTimeline')
+        if (!abilityTimelineDom ) return
+        const oldChart = this.$echarts.getInstanceByDom(abilityTimelineDom)
+        if (oldChart) {
+          oldChart.dispose()
+        }
+        const abilityLabels = this.selectedAbilityIndicators.filter(indicator =>
+          ['知识理解', '表达交流', '实践应用', '创造迁移'].includes(indicator)
+        )
+        const abilityColorMap = {
+          '知识理解': '#FFC000',
+          '表达交流': '#EC808D',
+          '实践应用': '#ED7D31',
+          '创造迁移': '#5B9BD5'
+        }
+
+        // 过滤出话语功能的数据
+        const abilityTimeData = this.wordTimeData.filter(item =>
+          abilityLabels.includes(item.type) // 只保留选中指标的数据
+        )
+        const abilityChart = this.initWordTimeline(
+          abilityTimelineDom,
+          abilityLabels,
+          abilityColorMap,
+          abilityTimeData
+        )
+        abilityChart.on('click', (params) => {
+          const timeInSeconds = params.data[0] * 60 // 统一转换为秒
+          that.$refs.videoPlayer.jumpToTime(timeInSeconds)
+        })
+
+      })
+    },
+    // 语速分析
+    initSpeechNormCharts() {
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+
+        const dom = document.getElementById('speechRatio')
+        if (!dom) return
+
+        const chart = this.$echarts.init(dom)
+
+        // 使用接口中的语速数据，如果没有数据则显示空图表
+        const speedData = this.speechSpeedData && this.speechSpeedData.length > 0
+          ? this.speechSpeedData
+          : []
+
+        // 如果没有数据，创建空图表
+        if (speedData.length === 0) {
+          const option = {
+            grid: { left: 50, right: 36, top: 30, bottom: 28 },
+            xAxis: {
+              type: 'category',
+              data: [],
+              name: '时间(分钟)'
+            },
+            yAxis: {
+              type: 'value',
+              min: 0,
+              max: 600,
+              name: '语速(字/分钟)',
+              interval: 300,
+              axisLabel: {
+                formatter: (v) => {
+                  if (v === 0) return '慢'
+                  if (v === 300) return '中'
+                  if (v === 500) return '快'
+                  return ''
+                }
+              }
+            },
+            graphic: {
+              type: 'text',
+              left: 'center',
+              top: 'center',
+              style: {
+                text: '暂无语速数据',
+                fill: '#9fbcd3',
+                fontSize: 14,
+                fontWeight: 'normal'
+              }
+            },
+            series: []
+          }
+          chart.setOption(option)
+          return
+        }
+
+        // 正常数据处理
+        const x = Array.from({ length: speedData.length }, (_, i) => i + 1)
+
+        const option = {
+          grid: { left: 50, right: 36, top: 30, bottom: 28 },
+          tooltip: {
+            trigger: 'axis',
+            formatter: function(params) {
+              const color = params[0].color
+              const name = params[0].name
+              const value = params[0].value
+              let speedLevel = ''
+              if (value <= 200) {
+                speedLevel = '慢'
+              } else if (value >= 200 && value <= 400) {
+                speedLevel = '中'
+              } else if (value >= 400) {
+                speedLevel = '快'
+              }
+              return name + '分钟<br/>' +
+                '<span style="display:inline-block;margin-right:5px;border-radius:10px;width:10px;height:10px;background-color:' + color + ';"></span>' +
+                '课堂语速 ' + speedLevel + '<br/>' +
+                '实际语速: ' + value + ' 字/分钟'
+            }
+          },
+          xAxis: {
+            type: 'category',
+            data: x,
+            name: '时间(分钟)'
+          },
+          yAxis: {
+            type: 'value',
+            min: 0,
+            max: 600,
+            name: '语速(字/分钟)',
+            interval: 300,
+            axisLabel: {
+              formatter: (v) => {
+                if (v === 0) return '慢'
+                if (v === 300) return '中'
+                if (v === 500) return '快'
+                return ''
+              }
+            }
+          },
+          visualMap: {
+            show: false,
+            type: 'piecewise',
+            pieces: [
+              { gt: 400, color: '#f7b267' },
+              { gt: 200, lte: 400, color: '#4cd970' },
+              { lte: 200, color: '#ffa07a' }
+            ]
+          },
+          series: [{
+            type: 'line',
+            step: 'middle',
+            data: speedData,
+            lineStyle: { width: 2 },
+            symbol: 'none',
+            smooth: true
+          }]
+        }
+
+        chart.setOption(option)
+      })
+    },
+    initWordCloudCharts (domId, data) {
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+
+        const dom = document.getElementById(domId)
+        if (!dom) return
+
+        const chart = this.$echarts.init(dom)
+        const renderData = []
+
+        // 处理数据：支持对象和数组两种格式
+        if (Array.isArray(data)) {
+          // 如果是数组格式，直接使用
+          renderData.push(...data.map(item => ({
+            name: typeof item === 'string' ? item : item.name || item.text,
+            value: typeof item === 'string' ? 1 : item.value || item.count || 1
+          })))
+        } else if (typeof data === 'object' && data !== null) {
+          // 如果是对象格式，转换为数组
+          for (const prop in data) {
+            renderData.push({
+              'name': prop,
+              'value': data[prop]
+            })
+          }
+        }
+
+        if (renderData.length === 0) {
+          // 如果没有数据，显示空状态
+          chart.setOption({
+            graphic: {
+              type: 'text',
+              left: 'center',
+              top: 'center',
+              style: {
+                text: '暂无数据',
+                fill: '#9fbcd3',
+                fontSize: 14,
+                fontWeight: 'normal'
+              }
+            }
+          })
+          return
+        }
+
+        const option = {
+          series: [
+            {
+              type: 'wordCloud',
+              // 词云形状，可选 'circle'（圆形）、'cardioid'（心形）等，也可自定义图片形状
+              shape: 'rectangle',
+              // 词云布局相关配置 - 完全去除边距确保铺满
+              left: 0,
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: '100%',
+              height: '100%',
+              // 字体大小范围 - 调整为更适合横向排列的范围
+              sizeRange: [10, 80],
+              // 字体间距 - 最小化间距
+              gridSize: 8,
+              // 关键：强制所有文字横向排列（0度）
+              rotationRange: [0, 0],
+              rotationStep: 0,
+              // 允许文字超出边界以更好填充
+              drawOutOfBound: false,
+              // 布局算法优化
+              layoutAnimation: false,
+              data: renderData,
+              // 词云文字样式
+              textStyle: {
+                // 颜色可配置渐变等，这里简单用单色
+                color: function () {
+                  return 'rgb(' + [
+                    Math.round(Math.random() * 160),
+                    Math.round(Math.random() * 160),
+                    Math.round(Math.random() * 160)
+                  ].join(',') + ')'
+                }
+              },
+              emphasis: {
+                textStyle: {
+                  // 鼠标悬浮时的放大倍数
+                  shadowBlur: 10,
+                  shadowColor: '#333'
+                }
+              }
+            }
+          ]
+        }
+        chart.setOption(option)
+      })
+    },
+    // 初始化关键字图表
+    initKeywordChart() {
+      this.initWordCloudCharts('classKeyword', this.keywordsData)
+    },
+    // 初始化口头语图表
+    initOralsChart() {
+      this.initWordCloudCharts('teacherOrals', this.orals)
+    },
+    initFocusDistributionCharts () {
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+
+        const dom = document.getElementById('focusDistribution')
+        if(dom) {
+          const chart = this.$echarts.init(dom)
+
+          const renderData = []
+          let index = 0
+          for(const prop in this.teacherAttentionData) {
+            renderData[index] = this.teacherAttentionData[prop]
+            index ++
+          }
+          const option = {
+            grid: {
+              left: '10',
+              right: '10',
+              bottom: '10',
+              top: '25',
+              containLabel: true
+            },
+            tooltip: {
+              trigger: 'item',
+              formatter: function(params) {
+                return params.seriesName + '<br/> <span style="display:inline-block;margin-right:4px;border-radius:50%;width:10px;height:10px;background-color:' + params.color +';"></span>' + params.value[2]
+              }
+            },
+            xAxis: {
+              type: 'value',
+              min: 0,
+              max: 45,
+              interval: 5, // x轴刻度间隔
+              axisLine: {
+                lineStyle: {
+                  color: 'rgba(255, 255, 255, 0.2)'
+                }
+              },
+              axisLabel: {
+                color: 'rgba(255, 255, 255, 0.2)'
+              },
+              splitLine: {
+                lineStyle: {
+                  color: 'rgba(255, 255, 255, 0.2)'
+                }
+              }
+            },
+            yAxis: {
+              type: 'category',
+              data: ['上', '下', '左', '右', '左上', '右上', '左下', '右下'], // y轴分类
+              axisLine: {
+                lineStyle: {
+                  color: 'rgba(255, 255, 255, 0.2)'
+                }
+              },
+              axisLabel: {
+                color: 'rgba(255, 255, 255, 0.2)'
+              },
+              splitLine: {
+                lineStyle: {
+                  color: 'rgba(255, 255, 255, 0.2)'
+                }
+              }
+            },
+            series: [
+              {
+                name: '右下',
+                type: 'scatter',
+                data: [
+                  [0, 7, renderData[0]?.tea_face_lowerRight_num || 0],
+                  [5, 7, renderData[1]?.tea_face_lowerRight_num || 0],
+                  [10, 7, renderData[2]?.tea_face_lowerRight_num || 0],
+                  [15, 7, renderData[3]?.tea_face_lowerRight_num || 0],
+                  [20, 7, renderData[4]?.tea_face_lowerRight_num || 0],
+                  [25, 7, renderData[5]?.tea_face_lowerRight_num || 0],
+                  [30, 7, renderData[6]?.tea_face_lowerRight_num || 0],
+                  [35, 7, renderData[7]?.tea_face_lowerRight_num || 0],
+                  [40, 7, renderData[8]?.tea_face_lowerRight_num || 0]
+                ],
+                symbolSize: function (data) {
+                  return logSize(data[2]) // 第三个值控制散点大小
+                },
+                itemStyle: {
+                  color: '#ff6347' // 红色系
+                }
+              },
+              {
+                name: '左下',
+                type: 'scatter',
+                data: [
+                  [0, 6, renderData[0]?.tea_face_lowerLeft_num],
+                  [5, 6, renderData[1]?.tea_face_lowerLeft_num],
+                  [10, 6, renderData[2]?.tea_face_lowerLeft_num],
+                  [15, 6, renderData[3]?.tea_face_lowerLeft_num],
+                  [20, 6, renderData[4]?.tea_face_lowerLeft_num],
+                  [25, 6, renderData[5]?.tea_face_lowerLeft_num],
+                  [30, 6, renderData[6]?.tea_face_lowerLeft_num],
+                  [35, 6, renderData[7]?.tea_face_lowerLeft_num],
+                  [40, 6, renderData[8]?.tea_face_lowerLeft_num]
+                ],
+                symbolSize: function (data) {
+                  return logSize(data[2]) // 第三个值控制散点大小
+                },
+                itemStyle: {
+                  color: '#9370db' // 紫色系
+                }
+              },
+              {
+                name: '右上',
+                type: 'scatter',
+                data: [
+                  [0, 5, renderData[0]?.tea_face_upperRight_num || 0],
+                  [5, 5, renderData[1]?.tea_face_upperRight_num || 0],
+                  [10, 5, renderData[2]?.tea_face_upperRight_num || 0],
+                  [15, 5, renderData[3]?.tea_face_upperRight_num || 0],
+                  [20, 5, renderData[4]?.tea_face_upperRight_num || 0],
+                  [25, 5, renderData[5]?.tea_face_upperRight_num || 0],
+                  [30, 5, renderData[6]?.tea_face_upperRight_num || 0],
+                  [35, 5, renderData[7]?.tea_face_upperRight_num || 0],
+                  [40, 5, renderData[8]?.tea_face_upperRight_num || 0]
+                ],
+                symbolSize: function (data) {
+                  return logSize(data[2]) // 第三个值控制散点大小
+                },
+                itemStyle: {
+                  color: '#3cb371' // 绿色系
+                }
+              },
+              {
+                name: '左上',
+                type: 'scatter',
+                data: [
+                  [0, 4, renderData[0]?.tea_face_upperLeft_num || 0],
+                  [5, 4, renderData[1]?.tea_face_upperLeft_num || 0],
+                  [10, 4, renderData[2]?.tea_face_upperLeft_num || 0],
+                  [15, 4, renderData[3]?.tea_face_upperLeft_num || 0],
+                  [20, 4, renderData[4]?.tea_face_upperLeft_num || 0],
+                  [25, 4, renderData[5]?.tea_face_upperLeft_num || 0],
+                  [30, 4, renderData[6]?.tea_face_upperLeft_num || 0],
+                  [35, 4, renderData[7]?.tea_face_upperLeft_num || 0],
+                  [40, 4, renderData[8]?.tea_face_upperLeft_num || 0]
+                ],
+                symbolSize: function (data) {
+                  return logSize(data[2]) // 第三个值控制散点大小
+                },
+                itemStyle: {
+                  color: '#ffd700' // 黄色系
+                }
+              },
+              {
+                name: '右',
+                type: 'scatter',
+                data: [
+                  [0, 3, renderData[0]?.tea_face_right_num || 0],
+                  [5, 3, renderData[1]?.tea_face_right_num || 0],
+                  [10, 3, renderData[2]?.tea_face_right_num || 0],
+                  [15, 3, renderData[3]?.tea_face_right_num || 0],
+                  [20, 3, renderData[4]?.tea_face_right_num || 0],
+                  [25, 3, renderData[5]?.tea_face_right_num || 0],
+                  [30, 3, renderData[6]?.tea_face_right_num || 0],
+                  [35, 3, renderData[7]?.tea_face_right_num || 0],
+                  [40, 3, renderData[8]?.tea_face_right_num || 0]
+                ],
+                symbolSize: function (data) {
+                  return logSize(data[2]) // 第三个值控制散点大小
+                },
+                itemStyle: {
+                  color: '#ffa500' // 橙色系
+                }
+              },
+              {
+                name: '左',
+                type: 'scatter',
+                data: [
+                  [0, 2, renderData[0]?.tea_face_left_num || 0],
+                  [5, 2, renderData[1]?.tea_face_left_num || 0],
+                  [10, 2, renderData[2]?.tea_face_left_num || 0],
+                  [15, 2, renderData[3]?.tea_face_left_num || 0],
+                  [20, 2, renderData[4]?.tea_face_left_num || 0],
+                  [25, 2, renderData[5]?.tea_face_left_num || 0],
+                  [30, 2, renderData[6]?.tea_face_left_num || 0],
+                  [35, 2, renderData[7]?.tea_face_left_num || 0],
+                  [40, 2, renderData[8]?.tea_face_left_num || 0]
+                ],
+                symbolSize: function (data) {
+                  return logSize(data[2]) // 第三个值控制散点大小
+                },
+                itemStyle: {
+                  color: '#90ee90' // 浅绿色系
+                }
+              },
+              {
+                name: '下',
+                type: 'scatter',
+                data: [
+                  [0, 1, renderData[0]?.tea_face_down_num || 0],
+                  [5, 1, renderData[1]?.tea_face_down_num || 0],
+                  [10, 1, renderData[2]?.tea_face_down_num || 0],
+                  [15, 1, renderData[3]?.tea_face_down_num || 0],
+                  [20, 1, renderData[4]?.tea_face_down_num || 0],
+                  [25, 1, renderData[5]?.tea_face_down_num || 0],
+                  [30, 1, renderData[6]?.tea_face_down_num || 0],
+                  [35, 1, renderData[7]?.tea_face_down_num || 0],
+                  [40, 1, renderData[8]?.tea_face_down_num || 0]
+                ],
+                symbolSize: function (data) {
+                  return logSize(data[2]) // 第三个值控制散点大小
+                },
+                itemStyle: {
+                  color: '#90ee90' // 浅绿色系
+                }
+              },
+              {
+                name: '上',
+                type: 'scatter',
+                data: [
+                  [0, 0, renderData[0]?.tea_face_up_num || 0],
+                  [5, 0, renderData[1]?.tea_face_up_num || 0],
+                  [10, 0, renderData[2]?.tea_face_up_num || 0],
+                  [15, 0, renderData[3]?.tea_face_up_num || 0],
+                  [20, 0, renderData[4]?.tea_face_up_num || 0],
+                  [25, 0, renderData[5]?.tea_face_up_num || 0],
+                  [30, 0, renderData[6]?.tea_face_up_num || 0],
+                  [35, 0, renderData[7]?.tea_face_up_num || 0],
+                  [40, 0, renderData[8]?.tea_face_up_num || 0]
+                ],
+                symbolSize: function (data) {
+                  return logSize(data[2]) // 第三个值控制散点大小
+                },
+                itemStyle: {
+                  color: '#90ee90' // 浅绿色系
+                }
+              }
+            ]
+          }
+          chart.setOption(option)
+        }
+      })
+    },
+    /*initTeacherTrajectoryCharts () {
+      const that = this
+      this.$nextTick(() => {
+        if (!this.$echarts) return
+
+        const dom = document.getElementById('teacherTrajectory')
+        if(dom) {
+          const chart = this.$echarts.init(dom)
+
+          // 获取真实的教师轨迹数据
+          debugger
+          const trajectoryData = that.teacherTrajectoryData || []
+
+          // 处理轨迹数据，将坐标转换为图表坐标系
+          const processedData = trajectoryData.map(point => {
+            if (point && point.x_show !== undefined && point.y_show !== undefined) {
+              return [point.x_show, point.y_show]
+            }
+            return null
+          }).filter(point => point !== null)
+
+          // 根据Y坐标判断区域并分组
+          const teacherAreaData = processedData.filter(point => point[1] <= 250)
+          const studentAreaData = processedData.filter(point => point[1] > 250)
+
+          const option = {
+            grid: {
+              left: '10',
+              right: '10',
+              bottom: '10',
+              top: '0'
+            },
+            xAxis: {
+              show: false,
+              min: 0,
+              max: 1000
+            },
+            yAxis: {
+              show: false,
+              min: 0,
+              max: 500
+            },
+            graphic: [
+              {
+                type: 'text',
+                left: 'center',
+                top: '30%',
+                style: {
+                  text: '学生区域',
+                  fill: '#ccc',
+                  fontSize: 12
+                }
+              },
+              {
+                type: 'text',
+                left: 'center',
+                top: '70%',
+                style: {
+                  text: '讲台区',
+                  fill: '#ccc',
+                  fontSize: 12
+                }
+              }
+            ],
+            series: [
+              // 学生区域背景 (Y: 250-500)
+              {
+                name: '学生区域背景',
+                type: 'line',
+                data: [[0, 250], [1000, 250], [1000, 500], [0, 500], [0, 250]],
+                lineStyle: {
+                  opacity: 0
+                },
+                areaStyle: {
+                  color: '#8ecae6',
+                  opacity: 0.2
+                },
+                symbol: 'none',
+                z: 0
+              },
+              // 讲台区域背景 (Y: 0-250)
+              {
+                name: '讲台区域背景',
+                type: 'line',
+                data: [[0, 0], [1000, 0], [1000, 250], [0, 250], [0, 0]],
+                lineStyle: {
+                  opacity: 0
+                },
+                areaStyle: {
+                  color: 'rgba(255, 105, 180, 0.2)'  // 浅粉色
+                },
+                symbol: 'none',
+                z: 0
+              },
+              // 学生区域轨迹点（使用粉色脚印SVG图标）
+              {
+                name: '学生区域轨迹',
+                type: 'scatter',
+                data: studentAreaData,
+                symbol: 'image://' + require('@/assets/icons/foot-print-pink.svg'),
+                symbolSize: [20, 20], // 图标大小 [宽, 高]
+                z: 1,
+                tooltip: {
+                  formatter: function(params) {
+                    return `学生区域<br/>位置: (${params.data[0].toFixed(1)}, ${params.data[1].toFixed(1)})`
+                  }
+                }
+              },
+              // 讲台区轨迹点（使用黄色脚印SVG图标）
+              {
+                name: '讲台区轨迹',
+                type: 'scatter',
+                data: teacherAreaData,
+                symbol: 'image://' + require('@/assets/icons/foot-print-yellow.svg'),
+                symbolSize: [20, 20], // 图标大小 [宽, 高]
+                z: 1,
+                tooltip: {
+                  formatter: function(params) {
+                    return `讲台区域<br/>位置: (${params.data[0].toFixed(1)}, ${params.data[1].toFixed(1)})`
+                  }
+                }
+              }
+            ]
+          }
+          chart.setOption(option)
+          this.registerChart(chart)
+        }
+      })
+    },*/
+    handleRouter() {
+      this.$router.push('/class/analysis/' + this.videoId)
+    },
+    handleTabChange(val) {
+      // 如果当前在全屏状态，先退出全屏
+      if (this.isBehaviorChartExpanded ||
+        this.isSecondaryBehaviorChartExpanded ||
+        this.isTimelineExpanded ||
+        this.isSpeechFormChartExpanded ||
+        this.isAbilityTimelineExpanded ||
+        this.isSecondaryAbilityChartExpanded){
+
+        this.isBehaviorChartExpanded = false
+        this.isSecondaryBehaviorChartExpanded = false
+        this.isTimelineExpanded = false
+        this.isSpeechFormChartExpanded = false
+        this.isAbilityTimelineExpanded = false
+        this.isSecondaryAbilityChartExpanded = false
+
+        // 短暂延迟后切换选项卡
+        this.$nextTick(() => {
+          setTimeout(() => {
+            this.currentTab = val
+            this.initTabCharts(val)
+          }, 100)
+        })
+      } else {
+        this.currentTab = val
+        this.initTabCharts(val)
+      }
+    },
+    // 提取图表初始化逻辑到单独方法
+    initTabCharts(tab) {
+      if (tab === 1) {
+        this.initSpeechNormCharts()
+        this.initStudentEmotionCharts()
+        // 根据 ifnostu 的值决定初始化哪些图表
+        if (this.ifnostu === 1) {
+          // 当 ifnostu === 1 时，显示关键字和口头语
+          this.$nextTick(() => {
+            this.initKeywordChart()
+            this.initOralsChart()
+          })
+        } else {
+          // 当 ifnostu !== 1 时，显示教学注意力分布和课堂专注度
+          this.initFocusDistributionCharts()
+          this.$nextTick(() => {
+            this.initFocusChart()
+          })
+        }
+        // this.initTeacherTrajectoryCharts()
+      } else if (tab === 2) {
+        this.$nextTick(() => {
+          if (this.showSecondaryAbilityTimeline) {
+            this.initAbilitySecondarySerial()
+          } else {
+            this.initWordSerial()
+          }
+          window.dispatchEvent(new Event('resize'))
+        })
+      }
+    }
+  },
+  mounted() {
+    this.updateCozePosition()
+    this.loadAnalysisResult()
+    this.initAvailableIndicators()
+    this.initAvailableAbilityIndicators()
+    window.addEventListener('resize', this.handleWindowResize)
+    document.addEventListener('mousemove', this.handleDragOrResize)
+    document.addEventListener('mouseup', this.stopAllActions)
+  },
+  watch: {
+    '$route.params.videoId'(newVal) {
+      console.log('ClassEval videoId changed:', newVal)
+    }
+  },
+  beforeDestroy() {
+    window.removeEventListener('resize', this.handleWindowResize)
+    document.removeEventListener('mousemove', this.handleDragOrResize)
+    document.removeEventListener('mouseup', this.stopAllActions)
+    this.destroyCozeApp()
+    if (this.comprehensiveChart) {
+      this.comprehensiveChart.dispose()
+      this.comprehensiveChart = null
+    }
+    if (this.cozeSDK) {
+      this.cozeSDK.destroy()
+    }
+    if (this.teacherBarChart) {
+      this.teacherBarChart.dispose()
+      this.teacherBarChart = null
+    }
+    // 清理图表实例和事件监听器
+    if (this.emoPieChart) {
+      this.emoPieChart.dispose()
+      this.emoPieChart = null
+    }
+    if (this.emoBarChart) {
+      this.emoBarChart.dispose()
+      this.emoBarChart = null
+    }
+    if (this.focusLineChart) {
+      this.focusLineChart.dispose()
+      this.focusLineChart = null
+    }
+    if (this.studentPieChart) {
+      this.studentPieChart.dispose()
+      this.studentPieChart = null
+    }
+    if (this.moveTimelineChart) {
+      this.moveTimelineChart.dispose()
+      this.moveTimelineChart = null
+    }
+    if (this.wordFormPieChart) {
+      this.wordFormPieChart.dispose()
+      this.wordFormPieChart = null
+    }
+    if (this.wordFuncPieChart) {
+      this.wordFuncPieChart.dispose()
+      this.wordFuncPieChart = null
+    }
+    if (this.wordTimelineChart) {
+      this.wordTimelineChart.dispose()
+      this.wordTimelineChart = null
+    }
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler)
+      this.resizeHandler = null
+    }
+  }
+}
+</script>
+
+<style scoped>
+.score-toggle-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  background: rgba(10, 31, 59, 0.7);
+  border: 1px solid #1390AB;
+  color: #7ACAEE;
+}
+
+.score-toggle-btn:hover {
+  background: rgba(122, 202, 238, 0.2);
+  border-color: #7ACAEE;
+}
+#comprehensiveEvaluationChart {
+  position: relative;
+}
+
+/* 确保环形图标签清晰可见 */
+#comprehensiveEvaluationChart ::v-deep .echarts-tooltip {
+  background: rgba(10, 31, 59, 0.9) !important;
+  border: 1px solid #1390AB !important;
+  color: #FFFFFF !important;
+}
+.comprehensive-review-content {
+  background: linear-gradient(135deg, rgba(19, 144, 171, 0.1) 0%, rgba(122, 202, 238, 0.05) 100%);
+  border-radius: 12px;
+  padding: 24px;
+  border: 1px solid rgba(122, 202, 238, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.review-text {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  letter-spacing: 0.5px;
+}
+
+/* 段落间距优化 */
+.review-text br + br {
+  display: block;
+  content: "";
+  margin-top: 12px;
+}
+
+/* 滚动条美化 */
+.comprehensive-review-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.comprehensive-review-content::-webkit-scrollbar-track {
+  background: rgba(10, 31, 59, 0.5);
+  border-radius: 3px;
+}
+
+.comprehensive-review-content::-webkit-scrollbar-thumb {
+  background: rgba(122, 202, 238, 0.6);
+  border-radius: 3px;
+}
+
+.comprehensive-review-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(122, 202, 238, 0.8);
+}
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 0 10px;
+}
+
+.timeline-controls {
+  display: flex;
+  gap: 8px;
+}
+.timeline-right-controls {
+  display: flex;
+  gap: 8px;
+}
+.timeline-toggle-btn,
+.indicator-selector button ,
+.expand-timeline-btn {
+  background: transparent !important; /* 透明背景 */
+  border: none !important;
+  color: #7ACAEE;
+  font-size: 15px;
+  height: 24px;
+  line-height: 22px;
+}
+
+.timeline-toggle-btn:hover,
+.indicator-selector button:hover ,
+.expand-timeline-btn:hover {
+  background: transparent !important; /* 透明背景 */
+  border: none !important;
+  color: #7ACAEE;
+}
+.video-modal-fullscreen {
+  z-index: 10001 !important;
+}
+
+.fullscreen-timeline {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  width: 100%;
+  height: calc(100% - 40px);
+  background-color: rgba(10, 30, 59, 0.95);
+  z-index: 9999;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.fullscreen-timeline-content {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: rgba(10, 31, 59, 0.95);
+  border-radius: 8px;
+  border: 1px solid #1390AB;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.close-timeline-expand-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  color: #7ACAEE;
+  font-size: 16px;
+  background: transparent !important; /* 移除背景 */
+  border: none !important; /* 移除边框 */
+  border-radius: 4px;
+  padding: 4px 12px;
+}
+
+.close-timeline-expand-btn:hover {
+  background: rgba(122, 202, 238, 0.2);
+  color: #4fa8d5;
+}
+
+
+/* 确保在全屏状态下隐藏原始内容 */
+.fullscreen-timeline ~ .titleOnly,
+.fullscreen-timeline ~ .a-row {
+  display: none !important;
+}
+
+/* 下拉菜单样式调整 */
+.indicator-selector ::v-deep .ant-dropdown-menu {
+  background: rgba(10, 31, 59, 0.95);
+  border: 1px solid #1390AB;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.indicator-selector ::v-deep .ant-dropdown-menu-item {
+  color: #CCCCCC;
+}
+
+.indicator-selector ::v-deep .ant-dropdown-menu-item:hover {
+  background: rgba(122, 202, 238, 0.2);
+}
+
+.indicator-selector ::v-deep .ant-checkbox-wrapper {
+  color: #CCCCCC;
+}
+
+.indicator-selector ::v-deep .ant-checkbox-inner {
+  background-color: transparent;
+  border-color: #7ACAEE;
+}
+
+.indicator-selector ::v-deep .ant-checkbox-checked .ant-checkbox-inner {
+  background-color: #7ACAEE;
+  border-color: #7ACAEE;
+}
+.fullscreen-behavior-chart {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  width: 100%;
+  height: calc(100% - 40px);
+  background-color: rgba(10, 30, 59, 0.0); /* 与背景协调的深色 */
+  z-index: 9999; /* 确保在最上层 */
+  padding: 20px;
+  box-sizing: border-box;
+}
+.fullscreen-content {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: rgba(10, 31, 59, 0.95);
+  border-radius: 8px;
+  border: 1px solid #1390AB;
+  padding: 20px;
+  box-sizing: border-box;
+}
+.close-expand-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  color: #7ACAEE;
+  font-size: 16px;
+  background: transparent !important; /* 移除背景 */
+  border: none !important; /* 移除边框 */
+  border-radius: 4px;
+  padding: 4px 12px;
+}
+.close-expand-btn:hover {
+  background: rgba(122, 202, 238, 0.2);
+  color: #4fa8d5;
+}
+.fullscreen-behavior-chart ~ .titleOnly,
+
+  /* 确保在全屏状态下隐藏原始的关键行为内容 */
+.fullscreen-video-container {
+  display: flex;
+  width: 100%;
+  height: 80vh;
+  min-height: 400px;
+  max-height: 90vh;
+  position: relative;
+  align-items: center; /* 垂直居中 */
+}
+
+/* 全屏视频容器响应式调整 */
+@media screen and (max-height: 600px) {
+  .fullscreen-video-container {
+    height: 70vh;
+    min-height: 300px;
+  }
+}
+
+@media screen and (min-height: 601px) and (max-height: 900px) {
+  .fullscreen-video-container {
+    height: 75vh;
+    min-height: 400px;
+  }
+}
+
+@media screen and (min-height: 901px) {
+  .fullscreen-video-container {
+    height: 80vh;
+    min-height: 500px;
+  }
+}
+.titleOnly:has(~ .is-expanded) {
+  height: 40px;
+  border: 1px solid #1390AB;
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  background: rgba(10, 31, 59, 0.8);
+
+}
+/* 选项卡项基础样式 */
+.titleOnly > div {
+  transition: all 0.3s ease;
+  margin: 4px 0;
+  position: relative;
+}
+/* 添加分隔线 */
+.titleOnly > div:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  width: 2px;
+  background: rgba(19, 144, 171, 0.5);
+}
+
+/* 选中状态 - 深色样式 */
+.titleOnly > div.activeTab {
+  background: rgba(19, 144, 171, 0.8); /* 深色背景 */
+  color: #ffffff !important; /* 白色文字 */
+  font-weight: bold;
+  box-shadow: 0 0 10px rgba(122, 202, 238, 0.5); /* 发光效果 */
+}
+
+/* 悬停效果 */
+.titleOnly > div:hover:not(.activeTab) {
+  background: rgba(19, 144, 171, 0.5);
+  border-color: #7ACAEE;
+  color: #ffffff;
+}
+.video-wrapper {
+  height: 100%;
+  transition: width 0.3s ease;
+  flex-shrink: 0; /* 防止视频容器被压缩 */
+  position: relative;
+  min-width: 300px; /* 确保视频有最小宽度 */
+}
+
+/* 视频包装器响应式调整 */
+@media screen and (max-width: 768px) {
+  .video-wrapper {
+    min-width: 100%;
+  }
+}
+
+@media screen and (min-width: 769px) and (max-width: 1024px) {
+  .video-wrapper {
+    min-width: 400px;
+  }
+}
+
+.modal-chat-container {
+  width: 40%;
+  height: 100%;
+  padding: 15px 16px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  background-image: url(~@/assets/background.svg);
+  background-position: center center;
+  background-size: cover;
+  border-radius: 4px;
+  position: relative;
+  transition: width 0.3s ease;
+  flex-shrink: 0; /* 防止对话容器被压缩 */
+}
+.modal-teacher-student-chat {
+  width: 100%;
+  height: 80%;
+  padding: 20px;
+  box-sizing: border-box;
+  /* 可以根据需要添加更多样式 */
+}
+
+/* 三角形切换按钮样式 - 关键修改 */
+.triangle-btn {
+  width: 24px;
+  height: 60px;
+  background: rgba(0, 0, 0, 0.6);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  margin: 0 8px;
+  transition: all 0.3s ease;
+  flex-shrink: 0; /* 防止按钮被压缩 */
+  /* 移除 position 相关属性，让它在 flex 布局中自然排列 */
+}
+
+.triangle-btn:hover {
+  background: rgba(24, 48, 101, 0.8);
+  transform: scale(1.05); /* 添加悬停放大效果 */
+}
+
+.triangle-icon {
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 6px 0 6px 8px;
+  border-color: transparent transparent transparent #ffffff;
+  transition: all 0.3s ease;
+}
+
+/* 收起状态时的三角形方向 */
+.triangle-btn.collapsed .triangle-icon {
+  transform: rotate(180deg);
+}
+
+
+.chat-title {
+  color: white;
+  font-size: 16px;
+  font-weight: bold;
+  margin: 0;
+  text-align: center;
+}
+
+::v-deep .ant-modal-content {
+  background: transparent;
+  box-shadow: none;
+}
+::v-deep .ant-modal {
+  z-index: 10000 !important; /* 高于全屏图表的9999 */
+}
+::v-deep .ant-modal-header {
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+::v-deep .ant-modal-title {
+  color: white;
+}
+
+::v-deep .ant-modal-close {
+  color: white;
+}
+
+::v-deep .ant-modal-close:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+::v-deep .ant-modal-body {
+  background: transparent;
+  padding: 0;
+}
+.toggle-chat-btn {
+  position: absolute;
+  top: 50%;  /* 垂直居中 */
+  right: calc(40% - 12px);  /* 根据视频宽度60%定位 */
+  transform: translateY(-50%);
+  z-index: 100;
+  padding: 8px 4px;
+  background: rgba(0,0,0,0.7);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  width: 20px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.toggle-chat-btn:hover {
+  background: rgba(24, 48, 101, 0.8);
+  transform: translateY(-50%) scale(1.05);
+}
+
+/* 如果对话收起状态，调整按钮位置 */
+.toggle-chat-btn.collapsed {
+  right: calc(10% - 180px); /* 当对话收起时靠右显示 */
+}
+.class-eval-dashboard {
+  background-image: url(~@/assets/background.svg);
+  background-position: center center;
+  background-size: cover;
+  height: 200vh;
+  /* Safari 特殊处理：使用 -webkit-fill-available 作为后备 */
+  height: -webkit-fill-available;
+  width: 100%;
+  color: #fff;
+  /* 让最外层容器使用 flex 垂直布局，自适应高度 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Safari 特殊处理：确保正确计算高度 */
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+}
+/* 内容区 flex 布局，填充剩余空间 */
+.content-row{
+  position: relative;
+  z-index: 1;
+  border: 1px solid #1390AB;
+  border-radius: 10px;
+  padding-top: 5px;
+  height: 50vh;
+  /* Safari 特殊处理：使用 flex 自适应 */
+  flex: 1 1 50vh;
+  min-height: 0;
+  /* 确保 Safari 正确计算高度 */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+.left-col,
+.middle-col,
+.right-col {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 10px;
+  height: 50vh;
+  /* Safari 特殊处理：使用 flex 自适应 */
+  flex: 1 1 auto;
+  min-height: 0;
+  /* 确保 Safari 正确计算高度 */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+.right-col > *:nth-child(2) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.middle-col {
+  gap: 6px;
+}
+.video-flex {
+  /* 使用现代CSS aspect-ratio属性，兼容性更好 */
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  position: relative;
+  overflow: hidden;
+  /* 修复 Safari flex 布局嵌套问题 */
+  display: block;
+  /* 苹果视网膜屏优化 */
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  /* 确保视频容器有最小高度 */
+  min-height: 200px;
+  max-height: 100%;
+}
+
+/* 视频播放器子元素：绝对定位填满容器 */
+.video-flex > .macos-video-player {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  /* Safari 视频渲染优化 */
+  -webkit-object-fit: contain;
+  object-fit: contain;
+  /* 防止视频拉伸 */
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* 不支持aspect-ratio的浏览器使用padding-top方式（IE11等） */
+@supports not (aspect-ratio: 16/9) {
+  .video-flex {
+    padding-top: 56.25%; /* 16:9 比例 = 9/16 = 0.5625 = 56.25% */
+    height: 0;
+  }
+}
+
+/* 超小屏幕（手机） */
+@media screen and (max-width: 768px) {
+  .video-flex {
+    aspect-ratio: 16 / 9;
+    min-height: 180px;
+  }
+
+  @supports not (aspect-ratio: 16/9) {
+    .video-flex {
+      padding-top: 56.25%;
+    }
+  }
+}
+
+/* 小屏幕（平板、小笔记本） */
+@media screen and (min-width: 769px) and (max-width: 1024px) {
+  .video-flex {
+    aspect-ratio: 16 / 9;
+    min-height: 250px;
+  }
+
+  @supports not (aspect-ratio: 16/9) {
+    .video-flex {
+      padding-top: 56.25%;
+    }
+  }
+}
+
+/* 中等屏幕（标准笔记本） */
+@media screen and (min-width: 1025px) and (max-width: 1440px) {
+  .video-flex {
+    aspect-ratio: 16 / 9;
+    min-height: 300px;
+  }
+
+  @supports not (aspect-ratio: 16/9) {
+    .video-flex {
+      padding-top: 56.25%;
+    }
+  }
+}
+
+/* 大屏幕（大笔记本、台式机） */
+@media screen and (min-width: 1441px) and (max-width: 1920px) {
+  .video-flex {
+    aspect-ratio: 16 / 9;
+    min-height: 350px;
+  }
+
+  @supports not (aspect-ratio: 16/9) {
+    .video-flex {
+      padding-top: 56.25%;
+    }
+  }
+}
+
+/* 超大屏幕（4K显示器等） */
+@media screen and (min-width: 1921px) {
+  .video-flex {
+    aspect-ratio: 16 / 9;
+    max-width: 1400px;
+    margin: 0 auto;
+    min-height: 400px;
+  }
+
+  @supports not (aspect-ratio: 16/9) {
+    .video-flex {
+      padding-top: 56.25%;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+  }
+}
+/* 苹果电脑专用视频播放器样式 */
+.macos-video-player {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  /* 优化Retina屏幕显示 */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  /* 消除视频边框模糊问题 */
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.middle-col .video-flex {
+  flex: 1;
+  display: block;
+  /* 使用视口单位，但不超过父容器 */
+  max-height: calc(100vh - 200px);
+  /* 确保在不同屏幕下都能正常显示 */
+  width: 100%;
+}
+
+.middle-col .video-flex ::v-deep(.video-player-container) {
+  width: 100%;
+  margin: 0;
+  height: 100%;
+  border: none;
+  padding: 0;
+}
+
+/* 确保中间列的视频容器能够自适应 */
+.middle-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 响应式调整中间列的视频高度 */
+@media screen and (max-height: 800px) {
+  .middle-col .video-flex {
+    max-height: calc(100vh - 150px);
+  }
+}
+
+@media screen and (min-height: 801px) and (max-height: 1080px) {
+  .middle-col .video-flex {
+    max-height: calc(100vh - 200px);
+  }
+}
+
+@media screen and (min-height: 1081px) {
+  .middle-col .video-flex {
+    max-height: calc(100vh - 250px);
+  }
+}
+.titleOnly {
+  height: 40px;
+  border: 1px solid #1390AB;
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+.score-row {
+  display: flex;
+  padding-top: 10px;
+  height: 20vh;
+  /* Safari 特殊处理：确保正确计算高度 */
+  min-height: 0;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+.item-align {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #1390AB;
+  border-radius: 10px;
+  position: relative;
+  height: 90%;
+}
+.dashboard-header {
+  background-image: url(~@/assets/header-bg.svg);
+  background-position: center center;
+  background-size: cover;
+  height: 64px;
+}
+.logo-title {
+  display: flex;
+  align-items: center;
+}
+.view-report {
+  font-size: 12px;
+  width: 40%;
+  margin: auto 10px;
+  height: 30px;
+  background-image: url(~@/assets/view-report.svg);
+  background-size: 100% 100%;
+  text-align: center;
+  line-height: 2rem;
+}
+.system-title {
+  font-size: 24px;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: bold;
+  color: #fff;
+  margin: 0 auto;
+}
+.header-center .header-info {
+  display: flex!important;
+  justify-content: left;
+  font-size: 16px;
+  border-right: 1px solid white;
+}
+.header-info {
+  display: flex;
+  align-items: center;
+  justify-content: center; /* 水平居中整个内容 */
+  height: 100%;
+  width: 100%;
+
+h2 {
+  color: white;
+  border-right: 1px solid gray;
+  margin-left: 12px; width: 100%;
+}
+}
+.course-info {
+  width: 100%;
+  padding: 0 12px; /* 统一的内边距 */
+  border-right: 1px solid rgba(255, 255, 255, 0.3); /* 半透明分隔线 */
+}
+.course-name {
+  color: #f5f5f7;
+  margin: 0;
+  text-align: center;
+  font-size: 18px;
+  line-height: 1.2;
+  white-space: nowrap; /* 防止换行 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.leftTitle {
+  width: 150px;
+  margin: 0 auto;
+  background-size: 100%;
+  background-position: top;
+  background-position-x: center;
+  background-repeat: no-repeat;
+  padding-left: 20px;
+  height: 30px;
+  cursor: pointer; /* 添加手型光标 */
+  transition: color 0.3s ease; /* 添加过渡效果 */
+}
+/* 修改全屏状态下的隐藏逻辑 */
+.fullscreen-behavior-chart:not(:last-child) ~ .titleOnly,
+.fullscreen-behavior-chart:not(:last-child) ~ .a-row,
+.fullscreen-timeline:not(:last-child) ~ .titleOnly,
+.fullscreen-timeline:not(:last-child) ~ .a-row {
+  display: none !important;
+}
+.coze-toggle-btn {
+  position: fixed;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: #1890ff;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  transition: all 0.3s ease;
+  user-select: none;
+}
+
+.coze-toggle-btn.dragging {
+  cursor: move;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.coze-toggle-btn:hover:not(.dragging) {
+  background-color: #40a9ff;
+  transform: scale(1.05);
+}
+
+.coze-toggle-btn span {
+  font-size: 14px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.coze-float-window {
+  position: fixed;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  background-color: white;
+  z-index: 1001;
+  overflow: hidden;
+  border: 1px solid #e8e8e8;
+  transition: box-shadow 0.2s ease;
+}
+
+.coze-float-window:hover {
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+}
+
+.coze-window-header {
+  padding: 12px 16px;
+  background-color: #f5f7fa;
+  border-bottom: 1px solid #e8e8e8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: move;
+  user-select: none;
+}
+
+.coze-window-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #1f2329;
+  font-weight: 500;
+}
+
+.coze-close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #86909c;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.coze-close-btn:hover {
+  background-color: #e8e8e8;
+  color: #1f2329;
+}
+
+.coze-window-content {
+  width: 100%;
+  height: calc(100% - 45px);
+  overflow: hidden;
+}
+
+.coze-inner-content {
+  width: 100% !important;
+  height: 100% !important;
+  overflow: auto !important;
+  box-sizing: border-box;
+}
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: se-resize;
+  background: linear-gradient(135deg, transparent 50%, #e8e8e8 50%);
+  border-top-left-radius: 4px;
+  z-index: 10;
+}
+
+.resize-handle:hover {
+  background: linear-gradient(135deg, transparent 50%, #1890ff 50%);
+}
+
+@media (max-width: 768px) {
+  .coze-toggle-btn {
+    width: 60px;
+    height: 60px;
+  }
+
+  .coze-toggle-btn span {
+    font-size: 12px;
+  }
+
+  .coze-float-window {
+    width: 90vw !important;
+    height: 70vh !important;
+    left: 5vw !important;
+    top: 15vh !important;
+  }
+
+  .resize-handle {
+    width: 20px;
+    height: 20px;
+  }
+}
+/* 为专注度图表添加响应式样式 */
+#classFocusChart, #focusDistributionReport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* 确保在情感体验选项卡中，右侧列的两个图表高度正确分配 */
+.item-align .leftTitle {
+  height: 30px;
+  line-height: 30px;
+  margin-bottom: 5px;
+  text-align: center;
+}
+
+/* 为专注度图表容器添加适当的间距 */
+.item-align > div {
+  box-sizing: border-box;
+}
+
+/* Safari 特殊处理：下半部分内容区域 */
+.bottom-content-row {
+  flex: 1 1 45%;
+  min-height: 0;
+  /* 确保 Safari 正确计算高度 */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+
+/* Safari 特殊处理：确保所有使用 vh 的容器都能正确计算 */
+@supports (-webkit-touch-callout: none) {
+  .class-eval-dashboard {
+    height: -webkit-fill-available;
+  }
+
+  .content-row {
+    height: -webkit-fill-available;
+    flex: 1 1 50%;
+  }
+
+  .left-col,
+  .middle-col,
+  .right-col {
+    height: -webkit-fill-available;
+  }
+
+  .score-row {
+    height: -webkit-fill-available;
+    flex: 0 0 20%;
+  }
+
+  .bottom-content-row {
+    height: -webkit-fill-available;
+    flex: 1 1 45%;
+  }
+}
+</style>

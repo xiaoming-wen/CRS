@@ -20,7 +20,7 @@ export default {
   components: { MyCompetitionEnrollments },
   methods: {
     goBack () {
-      this.$router.push({ name: 'ManuVideoCompetition' }).catch(() => {})
+      this.$router.push({ name: 'ManuVideo' }).catch(() => {})
     }
   }
 }

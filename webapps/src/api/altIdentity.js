@@ -22,8 +22,14 @@ function unwrapError (resp) {
   const d = data.detail
   if (typeof d === 'string') return new Error(d)
   if (Array.isArray(d) && d.length) {
-    const first = d[0]
-    if (first && first.msg) return new Error(String(first.msg))
+    const parts = d
+      .map(item => {
+        if (!item || typeof item !== 'object') return ''
+        const raw = item.msg || item.message || ''
+        return String(raw).replace(/^Value error,\s*/i, '').trim()
+      })
+      .filter(Boolean)
+    if (parts.length) return new Error(parts.join('；'))
   }
   if (d && typeof d === 'object' && d.error_code != null) {
     return new Error(d.detail || d.error_code || String(d.msg || '请求失败'))
@@ -34,6 +40,7 @@ function unwrapError (resp) {
 /**
  * 8.0.1 注册 POST /api/alt-identity/register
  * body 与主站注册字段对齐，并含 school（学校名称）。
+ * role：`student` | `advisor` | `teacher` | `expert`（注册时 expert_verified=false，须管理员 §8.0.6 核验）；`super_admin` 不可自助注册。
  */
 export async function altIdentityRegister (body) {
   try {
@@ -83,6 +90,7 @@ export async function altIdentityRefreshToken () {
  * 权限：请求头须携带第二套 `Authorization: Bearer <alt_access_token>`（与主站 Token **不可互换**）。
  * 响应（200）：`id`、`username`、`email`、`full_name`、`role`、`is_active`、`student_id`、`teacher_id`、`school`、`created_at`，
  * 以及 **`effective_permissions`**（字符串数组，即 `ROLE_PERMISSIONS[role]` 展开）。
+ * 专家帐号另含 **`expert_verified`**、**`assigned_competition_ids`**（已指派可评阅的竞赛 id 列表）。
  */
 export async function fetchAltIdentityMe () {
   const t = getStoredAltToken()
@@ -120,9 +128,23 @@ export function clearAltIdentityStorage () {
 /**
  * 将 GET /alt-identity/me 的响应合并进本地资料（不替换令牌，除非 payload 中含 access_token）。
  */
+function normalizeAssignedCompetitionIds (raw) {
+  const list = Array.isArray(raw) ? raw : []
+  const ids = []
+  for (const item of list) {
+    const n = Number(item)
+    if (Number.isFinite(n)) ids.push(n)
+  }
+  return [...new Set(ids)]
+}
+
 export function applyAltIdentityMeToStorage (me) {
   if (!me || typeof me !== 'object') return
   const prev = getAltProfileFromStorage()
+  const assignedRaw =
+    me.assigned_competition_ids != null
+      ? me.assigned_competition_ids
+      : (me.assignedCompetitionIds != null ? me.assignedCompetitionIds : prev.assigned_competition_ids)
   const profile = {
     ...prev,
     user_id: me.id != null ? me.id : (me.user_id != null ? me.user_id : prev.user_id),
@@ -134,6 +156,10 @@ export function applyAltIdentityMeToStorage (me) {
     student_id: me.student_id != null ? me.student_id : prev.student_id,
     teacher_id: me.teacher_id != null ? me.teacher_id : prev.teacher_id,
     is_active: me.is_active !== undefined ? me.is_active : prev.is_active,
+    expert_verified: me.expert_verified !== undefined ? me.expert_verified === true : prev.expert_verified,
+    assigned_competition_ids: assignedRaw !== undefined
+      ? normalizeAssignedCompetitionIds(assignedRaw)
+      : prev.assigned_competition_ids,
     created_at: me.created_at != null ? me.created_at : prev.created_at,
     effective_permissions: Array.isArray(me.effective_permissions)
       ? me.effective_permissions
@@ -162,6 +188,14 @@ export function saveAltSession (payload, extras = {}) {
     school: p.school !== undefined ? p.school : (extras.school !== undefined ? extras.school : prev.school),
     student_id: p.student_id != null ? p.student_id : (extras.student_id != null ? extras.student_id : prev.student_id),
     teacher_id: p.teacher_id != null ? p.teacher_id : (extras.teacher_id != null ? extras.teacher_id : prev.teacher_id),
+    expert_verified: p.expert_verified !== undefined
+      ? p.expert_verified === true
+      : (extras.expert_verified !== undefined ? extras.expert_verified === true : prev.expert_verified),
+    assigned_competition_ids: p.assigned_competition_ids !== undefined
+      ? normalizeAssignedCompetitionIds(p.assigned_competition_ids)
+      : (extras.assigned_competition_ids !== undefined
+        ? normalizeAssignedCompetitionIds(extras.assigned_competition_ids)
+        : prev.assigned_competition_ids),
     effective_permissions: Array.isArray(p.effective_permissions)
       ? p.effective_permissions
       : (Array.isArray(extras.effective_permissions)
@@ -193,7 +227,64 @@ export function getAltRoleNormalized () {
   return String(r).trim().toLowerCase()
 }
 
-/** 竞赛端「教师/管理员」能力：创建竞赛、评阅等（教师或超管） */
+export function getAltEffectivePermissions () {
+  const p = getAltProfileFromStorage()
+  const arr = Array.isArray(p && p.effective_permissions) ? p.effective_permissions : []
+  return arr
+    .map(x => (x == null ? '' : String(x).trim()))
+    .filter(Boolean)
+}
+
+/** 权限键统一为小写（后端 ROLE_PERMISSIONS 如 review_submissions、view_competitions） */
+export function normalizeAltPermissionKey (permission) {
+  return String(permission || '').trim().toLowerCase()
+}
+
+export function hasAltPermission (permission) {
+  if (!permission) return false
+  const target = normalizeAltPermissionKey(permission)
+  if (!target) return false
+  return getAltEffectivePermissions().some(p => normalizeAltPermissionKey(p) === target)
+}
+
+export function isAltCompetitionSuperAdmin () {
+  return getAltRoleNormalized() === 'super_admin'
+}
+
+export function isAltCompetitionAdvisorOrTeacher () {
+  const r = getAltRoleNormalized()
+  return r === 'advisor' || r === 'teacher'
+}
+
+/** 竞赛端队务能力：建队、改队名、邀请/踢队员（student / advisor / teacher） */
+export function isAltCompetitionCanManageTeams () {
+  return hasAltPermission('MANAGE_TEAMS')
+}
+
+export function isAltCompetitionExpert () {
+  return getAltRoleNormalized() === 'expert'
+}
+
+export function isAltCompetitionExpertVerified () {
+  const p = getAltProfileFromStorage()
+  return isAltCompetitionExpert() && p && p.expert_verified === true
+}
+
+/** 专家已指派竞赛 id 列表（来自 GET /alt-identity/me） */
+export function getAltAssignedCompetitionIds () {
+  const p = getAltProfileFromStorage()
+  return normalizeAssignedCompetitionIds(p && p.assigned_competition_ids)
+}
+
+/** 当前专家是否已被指派到指定竞赛（须已核验） */
+export function isAltExpertAssignedToCompetition (competitionId) {
+  if (!isAltCompetitionExpertVerified()) return false
+  const cid = Number(competitionId)
+  if (!Number.isFinite(cid)) return false
+  return getAltAssignedCompetitionIds().some(id => Number(id) === cid)
+}
+
+/** 兼容旧前端判断：teacher 或 super_admin。新逻辑请优先使用细分能力函数。 */
 export function isAltCompetitionTeacherOrAdmin () {
   const r = getAltRoleNormalized()
   return r === 'teacher' || r === 'super_admin'

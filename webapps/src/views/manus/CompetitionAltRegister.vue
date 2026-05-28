@@ -110,8 +110,15 @@
                     @change="handleRoleChange"
                   >
                     <a-select-option value="student">学生</a-select-option>
-                    <a-select-option value="teacher">教师</a-select-option>
+                    <a-select-option value="advisor">指导老师</a-select-option>
+                    <a-select-option value="expert">专家</a-select-option>
                   </a-select>
+                  <template slot="extra">
+                    <span
+                      v-if="form.getFieldValue('role') === 'expert'"
+                      class="register-field-hint register-field-hint--info"
+                    >专家可在此自助注册，注册成功后 <code>expert_verified</code> 为 <strong>false</strong>，<strong>暂不可登录</strong>。请牢记系统提示的<strong>用户 ID</strong>，待管理员核验（§8.0.6）并指派竞赛（§8.0.7）后再登录评阅。</span>
+                  </template>
                 </a-form-item>
 
                 <a-form-item v-if="form.getFieldValue('role') === 'student'">
@@ -128,14 +135,14 @@
                   </a-input>
                 </a-form-item>
 
-                <a-form-item v-if="form.getFieldValue('role') === 'teacher'">
+                <a-form-item v-if="form.getFieldValue('role') === 'advisor'">
                   <a-input
                     size="large"
                     type="text"
-                    placeholder="请输入教师编号"
+                    placeholder="请输入指导老师编号"
                     v-decorator="[
                       'teacher_id',
-                      { rules: [{ required: true, message: '请输入教师编号' }], validateTrigger: 'change' }
+                      { rules: [{ required: true, message: '请输入指导老师编号' }], validateTrigger: 'change' }
                     ]"
                   >
                     <a-icon slot="prefix" type="number" :style="{ color: 'rgba(0,0,0,.25)' }" />
@@ -250,13 +257,16 @@ export default {
     document.body.classList.remove('userLayout')
   },
   methods: {
+    isAdvisorRegisterRole (role) {
+      return role === 'advisor' || role === 'teacher'
+    },
     handleRoleChange () {
       this.$nextTick(() => {
         const currentRole = this.form.getFieldValue('role')
         if (currentRole !== 'student') {
           this.form.setFieldsValue({ student_id: undefined })
         }
-        if (currentRole !== 'teacher') {
+        if (!this.isAdvisorRegisterRole(currentRole)) {
           this.form.setFieldsValue({ teacher_id: undefined })
         }
       })
@@ -282,7 +292,7 @@ export default {
       const currentRole = this.form.getFieldValue('role')
       if (currentRole === 'student') {
         validateFieldsKey.push('student_id')
-      } else if (currentRole === 'teacher') {
+      } else if (this.isAdvisorRegisterRole(currentRole)) {
         validateFieldsKey.push('teacher_id')
       }
 
@@ -299,17 +309,30 @@ export default {
           if (values.role === 'student') {
             registerParams.student_id = values.student_id
           }
-          if (values.role === 'teacher') {
+          if (this.isAdvisorRegisterRole(values.role)) {
+            registerParams.role = 'advisor'
             registerParams.teacher_id = values.teacher_id
           }
 
           altIdentityRegister(registerParams)
             .then((res) => {
               if (res && (res.id != null || res.user_id != null || res.access_token)) {
-                this.$message.success('注册成功！')
-                setTimeout(() => {
-                  this.$router.push({ name: 'ManuVideoCompetition' }).catch(() => {})
-                }, 1500)
+                const registeredId = res.id != null ? res.id : res.user_id
+                if (values.role === 'expert' && registeredId != null) {
+                  this.$notification.success({
+                    message: '专家注册成功',
+                    description: `您的用户 ID 为 ${registeredId}。当前待管理员核验，暂无法登录。请将 ID 告知管理员，在「专家指派」中完成核验与竞赛指派后再登录。`,
+                    duration: 0
+                  })
+                  setTimeout(() => {
+                    this.$router.push({ name: 'ManuVideoCompetition' }).catch(() => {})
+                  }, 6000)
+                } else {
+                  this.$message.success('注册成功！')
+                  setTimeout(() => {
+                    this.$router.push({ name: 'ManuVideoCompetition' }).catch(() => {})
+                  }, 1500)
+                }
               } else {
                 this.$message.error('注册失败，请重试')
               }
@@ -445,6 +468,10 @@ export default {
     color: #f5222d;
     font-size: 14px;
     line-height: 1.5;
+
+    &--info {
+      color: rgba(0, 0, 0, 0.45);
+    }
   }
 }
 </style>

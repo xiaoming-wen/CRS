@@ -69,6 +69,9 @@
           <CompetitionRegistrationSystem
             v-if="currentSection === 'competition-list' && competitionBootstrapDone"
           />
+          <CompetitionExpertAssignment
+            v-else-if="currentSection === 'expert-assignment' && isSuperAdmin && competitionBootstrapDone"
+          />
           <MyCompetitionEnrollments
             v-else-if="currentSection === 'my-enrollments' && isAltStudentAccount && competitionBootstrapDone"
           />
@@ -81,6 +84,7 @@
 <script>
 import { mixinDevice } from '@/utils/mixin'
 import CompetitionRegistrationSystem from '@/views/manus/CompetitionRegistrationSystem.vue'
+import CompetitionExpertAssignment from '@/views/manus/CompetitionExpertAssignment.vue'
 import MyCompetitionEnrollments from '@/views/manus/MyCompetitionEnrollments.vue'
 import ManuAltIdentityPanel from '@/views/manus/ManuAltIdentityPanel.vue'
 import {
@@ -88,6 +92,7 @@ import {
   clearAltIdentityStorage,
   ALT_PROFILE_KEY,
   isAltCompetitionTeacherOrAdmin,
+  isAltCompetitionSuperAdmin,
   isAltCompetitionStudent,
   fetchAltIdentityMe,
   applyAltIdentityMeToStorage
@@ -95,12 +100,14 @@ import {
 import { sanitizeCompetitionReturnPath } from '@/utils/competitionAuthFlow'
 
 const SECTION_LIST = 'competition-list'
+const SECTION_EXPERTS = 'expert-assignment'
 const SECTION_MINE = 'my-enrollments'
 
 export default {
   name: 'CompetitionRegistrationFullPage',
   components: {
     CompetitionRegistrationSystem,
+    CompetitionExpertAssignment,
     MyCompetitionEnrollments,
     ManuAltIdentityPanel
   },
@@ -129,12 +136,21 @@ export default {
       void this.altGateTick
       return isAltCompetitionStudent()
     },
+    isSuperAdmin () {
+      void this.altGateTick
+      return isAltCompetitionSuperAdmin()
+    },
     visibleCatalogItems () {
       const all = [
         { key: SECTION_LIST, icon: 'unordered-list', title: '竞赛列表与报名' },
+        { key: SECTION_EXPERTS, icon: 'team', title: '专家指派', superAdminOnly: true },
         { key: SECTION_MINE, icon: 'solution', title: '我报名的竞赛', studentOnly: true }
       ]
-      return all.filter(row => !row.studentOnly || this.isAltStudentAccount)
+      return all.filter(row => {
+        if (row.superAdminOnly && !this.isSuperAdmin) return false
+        if (row.studentOnly && !this.isAltStudentAccount) return false
+        return true
+      })
     },
     /** 随 altGateTick 刷新，与 localStorage 中独立账号资料一致 */
     altProfile () {
@@ -167,7 +183,10 @@ export default {
           this.currentSection = SECTION_LIST
           await this.refreshAltIdentityProfile()
           this.competitionBootstrapDone = true
-          this.$nextTick(() => this.consumeRedirectAfterAltIfPresent())
+          this.$nextTick(() => {
+            this.consumeRedirectAfterAltIfPresent()
+            this.applyExpertUserIdQuerySection()
+          })
         } else {
           this.competitionBootstrapDone = false
           document.body.classList.add('userLayout')
@@ -226,6 +245,15 @@ export default {
       const next = sanitizeCompetitionReturnPath(raw)
       if (!next) return
       this.$router.replace(next).catch(() => {})
+    },
+    /** 专家注册成功后若带 expertUserId 查询参数，管理员直达「专家指派」步骤 1 */
+    applyExpertUserIdQuerySection () {
+      if (!this.isSuperAdmin) return
+      const raw = this.$route.query.expertUserId
+      if (raw == null || String(raw).trim() === '') return
+      if (this.visibleCatalogItems.some(i => i.key === SECTION_EXPERTS)) {
+        this.currentSection = SECTION_EXPERTS
+      }
     },
     onAltAvatarMenu ({ key }) {
       if (key !== 'logout') return
