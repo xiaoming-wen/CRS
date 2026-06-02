@@ -427,6 +427,33 @@ class CompetitionEnrollmentScope(str, Enum):
     TEAM = "team"
 
 
+class CompetitionDivisionMode(str, Enum):
+    SINGLE = "single"
+    DUAL = "dual"
+
+
+class CompetitionQrLayout(str, Enum):
+    SHARED = "shared"
+    SEPARATE = "separate"
+
+
+class CompetitionDivision(str, Enum):
+    DEFAULT = "default"
+    UNDERGRADUATE = "undergraduate"
+    VOCATIONAL = "vocational"
+
+
+class CompetitionQrSlot(BaseModel):
+    path: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+class CompetitionQrCodes(BaseModel):
+    shared: Optional[CompetitionQrSlot] = None
+    undergraduate: Optional[CompetitionQrSlot] = None
+    vocational: Optional[CompetitionQrSlot] = None
+
+
 class SubmissionStatus(str, Enum):
     SUBMITTED = "submitted"
     UNDER_REVIEW = "under_review"
@@ -445,7 +472,14 @@ class CompetitionBase(BaseModel):
 
 
 class CompetitionCreate(CompetitionBase):
-    pass
+    division_mode: CompetitionDivisionMode = Field(
+        CompetitionDivisionMode.SINGLE,
+        description="single=不分本科/高职；dual=分本科组与高职组",
+    )
+    qr_layout: CompetitionQrLayout = Field(
+        CompetitionQrLayout.SHARED,
+        description="dual 时有效：shared=两组共用一个码；separate=各传一张",
+    )
 
 
 class CompetitionUpdate(BaseModel):
@@ -457,6 +491,8 @@ class CompetitionUpdate(BaseModel):
     end_at: Optional[datetime] = None
     allow_individual: Optional[bool] = None
     allow_team: Optional[bool] = None
+    division_mode: Optional[CompetitionDivisionMode] = None
+    qr_layout: Optional[CompetitionQrLayout] = None
 
 
 class CompetitionResponse(CompetitionBase):
@@ -464,24 +500,32 @@ class CompetitionResponse(CompetitionBase):
     status: CompetitionStatus = CompetitionStatus.DRAFT
     created_at: UtcDatetime
     updated_at: UtcDatetime
-    qr_code_path: Optional[str] = Field(None, description="服务端保存的二维码图片相对路径")
+    division_mode: CompetitionDivisionMode = CompetitionDivisionMode.SINGLE
+    qr_layout: CompetitionQrLayout = CompetitionQrLayout.SHARED
+    qr_code_path: Optional[str] = Field(None, description="共用/单组别二维码相对路径")
+    qr_code_path_undergraduate: Optional[str] = Field(None, description="本科组二维码（dual+separate）")
+    qr_code_path_vocational: Optional[str] = Field(None, description="高职组二维码（dual+separate）")
+    qr_codes: Optional[CompetitionQrCodes] = Field(
+        None,
+        description="结构化二维码下载地址（详情页按组别取用）",
+    )
+    qr_code_image_url: Optional[str] = Field(
+        None,
+        description="兼容字段：single 或 dual+shared 时的二维码 URL",
+    )
 
     class Config:
         from_attributes = True
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def qr_code_image_url(self) -> Optional[str]:
-        """有二维码时可 GET /api/v1/competitions/{id}/qr-code 拉取二进制。"""
-        if not self.qr_code_path:
-            return None
-        return f"/api/v1/competitions/{self.id}/qr-code"
 
 
 class CompetitionEnrollmentCreate(BaseModel):
     competition_id: int
     # team_id 为空表示“个人参赛”
     team_id: Optional[int] = None
+    division: Optional[CompetitionDivision] = Field(
+        None,
+        description="学历组别；dual 竞赛必填（由详情页隐式传入）。undergraduate / vocational",
+    )
 
     # 参赛学生信息（报名时填写）
     student_no: Optional[str] = None       # 学号
@@ -503,6 +547,10 @@ class CompetitionEnrollmentResponse(BaseModel):
     enrollment_scope: CompetitionEnrollmentScope = Field(
         ...,
         description="报名赛道：individual=个人；team=组队（可与个人赛道同时存在）",
+    )
+    division: CompetitionDivision = Field(
+        CompetitionDivision.DEFAULT,
+        description="学历组别：default / undergraduate / vocational",
     )
     is_captain: bool
 
@@ -552,6 +600,10 @@ class MyEnrollmentResponse(BaseModel):
 
 class TeamCreate(BaseModel):
     competition_id: int
+    division: Optional[CompetitionDivision] = Field(
+        None,
+        description="学历组别；dual 竞赛必填，须与详情页所选组别一致",
+    )
     # 若不传/传空则由服务端逻辑创建成员并设为队长（学生自建队通常为本人）
     initial_member_ids: Optional[List[int]] = None
     name: Optional[str] = Field(None, max_length=200, description="队名（展示用），可由队长后续修改")
@@ -565,6 +617,7 @@ class TeamResponse(BaseModel):
     id: int
     competition_id: int
     name: Optional[str] = None
+    division: CompetitionDivision = CompetitionDivision.DEFAULT
     captain_id: int
     status: TeamStatus
     created_at: UtcDatetime
@@ -696,6 +749,10 @@ class SubmissionCreate(BaseModel):
     competition_id: int
     # team_id 为空表示个人提交；不为空表示队伍提交
     team_id: Optional[int] = None
+    division: Optional[CompetitionDivision] = Field(
+        None,
+        description="学历组别；dual 竞赛必填（undergraduate / vocational），与详情页及报名一致",
+    )
     title: str
     description: Optional[str] = None
 
@@ -717,6 +774,10 @@ class SubmissionResponse(BaseModel):
     id: int
     competition_id: int
     team_id: Optional[int] = None
+    division: CompetitionDivision = Field(
+        CompetitionDivision.DEFAULT,
+        description="学历组别，与 POST 提交作品时传入并落库的 division 一致",
+    )
     student_id: int = Field(..., description="个人赛道归属：alt_auth_users.id")
     submitter_id: int = Field(..., description="提交操作者：alt_auth_users.id")
     title: str

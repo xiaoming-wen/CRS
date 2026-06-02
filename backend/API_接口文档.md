@@ -2252,8 +2252,8 @@ RAG_ENABLE_WEB_SEARCH=true
 | 角色（`role` / JWT claim） | 说明 | 赛制与运维 | 报名/组队/作品 | 查看名单与作品范围 | 评分 |
 |---------------------------|------|------------|----------------|-------------------|------|
 | **`super_admin`（管理员）** | 竞赛系统最高权限 | ✅ 创建/发布/修改/删除/锁定（停止报名） | ❌ | ✅ 可看全竞赛作品、`GET …/participants/*` | ❌ |
-| **`advisor`（指导老师）** | 与 `teacher` 并存，竞赛侧权限一致 | ❌ 无 `MANAGE_COMPETITIONS` | ✅ 可建队、拉人、`PATCH` 队名、踢队员；❌ **不能**报名、`join_team`/`leave`/`transfer`、`POST`/`upload` 作品 | ✅ 可看列表类接口（如 `GET …/teams`）；❌ **不能**看别人作品详情/下载、`GET …/participants/*`（花名册仅限管理员或为该赛指派的核验专家）、❌ **不能**看本赛全量 `GET …/submissions` | ❌ |
-| **`teacher`（教师）** | 与 `advisor` 并存，竞赛侧权限一致 | ❌ 无 `MANAGE_COMPETITIONS` | ✅ 可建队、拉人、`PATCH` 队名、踢队员；❌ **不能**报名、`join_team`/`leave`/`transfer`、`POST`/`upload` 作品 | ✅ 可看列表类接口（如 `GET …/teams`）；❌ **不能**看别人作品详情/下载、`GET …/participants/*`（花名册仅限管理员或为该赛指派的核验专家）、❌ **不能**看本赛全量 `GET …/submissions` | ❌ |
+| **`advisor`（指导老师）** | 与 `teacher` 并存，竞赛侧权限一致 | ❌ 无 `MANAGE_COMPETITIONS` | ✅ 可建队、拉人、`PATCH` 队名、踢队员；❌ **不能**报名、`join_team`/`leave`/`transfer`、`POST`/`upload` 作品 | ✅ 可看 `GET …/teams`、**只读** `GET …/participants/*`；❌ **不能**看别人作品详情/下载、本赛全量 `GET …/submissions` | ❌ |
+| **`teacher`（教师）** | 与 `advisor` 并存，竞赛侧权限一致 | ❌ 无 `MANAGE_COMPETITIONS` | ✅ 可建队、拉人、`PATCH` 队名、踢队员；❌ **不能**报名、`join_team`/`leave`/`transfer`、`POST`/`upload` 作品 | ✅ 可看 `GET …/teams`、**只读** `GET …/participants/*`；❌ **不能**看别人作品详情/下载、本赛全量 `GET …/submissions` | ❌ |
 | **`expert`（专家）** | 必须由管理员核验并指派到具体竞赛后才可批改 | ❌ | ❌ | ✅ 被指派的竞赛：**全量 submissions**、花名册、`GET`/下载；✅ **`scores/summary`、`scores/rankings`** | ✅ 仅被指派的 **`expert_verified=true`** 帐号可 `PUT`/`PATCH …/review-grade` |
 | **`student`（学生）** | — | ❌ | ✅ 报名、自建队、`join`、`transfer`、`leave`；组队提交作品 **必须由队长** 调用 `POST …/submissions*` | ✅ 仅本人个人作品或与本人相关的队伍提交；❌ participants 名册 | ❌ |
 
@@ -2499,9 +2499,28 @@ curl -X DELETE "http://localhost:8000/api/v1/competitions/1/experts/12" \
 | 类型 | Content-Type | 说明 |
 |------|----------------|------|
 | JSON | `application/json` | 与原先一致；仅文本字段 |
-| multipart | `multipart/form-data` | 文本字段同名；可选 **`qr_code_image`** 上传二维码图片 |
+| multipart | `multipart/form-data` | 文本字段同名；按组别策略上传二维码（见下表） |
 
-**二维码上传（multipart 可选）**：字段名 **`qr_code_image`**，支持 png / jpeg / gif / webp，单文件最大 **5MiB**。创建成功后可通过响应中的 **`qr_code_image_url`**（或自行拼接 `GET /api/v1/competitions/{id}/qr-code`）下载图片。
+**学历组别与二维码**：
+
+| division_mode | 含义 |
+|---------------|------|
+| `single` | 不分本科/高职（默认） |
+| `dual` | 分本科组、高职组 |
+
+| qr_layout | 适用 | 含义 |
+|-----------|------|------|
+| `shared` | `dual` 或 `single` | 共用一个二维码（`single` 时固定为此策略） |
+| `separate` | 仅 `dual` | 本科、高职各一张二维码 |
+
+**二维码上传（multipart 可选）**：支持 png / jpeg / gif / webp，单文件最大 **5MiB**。
+
+| 场景 | 文件字段 |
+|------|----------|
+| 不分组 / 双组共用 | `qr_code_image` 或 `qr_code_image_shared` |
+| 双组分开 | `qr_code_image_undergraduate`、`qr_code_image_vocational` |
+
+创建成功后响应含 **`qr_codes`**（结构化 URL）及兼容字段 **`qr_code_image_url`**（`single` 或 `dual+shared` 时）。
 
 **请求体参数**：
 | 字段 | 类型 | 必填 | 说明 |
@@ -2513,7 +2532,11 @@ curl -X DELETE "http://localhost:8000/api/v1/competitions/1/experts/12" \
 | end_at | string(datetime) | | 结束时间（ISO8601） |
 | allow_individual | bool | | 是否允许个人参赛（默认 true） |
 | allow_team | bool | | 是否允许团队参赛（默认 true） |
-| qr_code_image | file | | **仅 multipart**：二维码图片 |
+| division_mode | string | | `single`（默认）或 `dual` |
+| qr_layout | string | | `dual` 时：`shared`（默认）或 `separate` |
+| qr_code_image | file | | **仅 multipart**：共用/单组别二维码 |
+| qr_code_image_undergraduate | file | | **仅 multipart**：本科组二维码（`dual`+`separate`） |
+| qr_code_image_vocational | file | | **仅 multipart**：高职组二维码（`dual`+`separate`） |
 
 **请求示例（JSON）**：
 ```bash
@@ -2555,12 +2578,171 @@ curl -X POST "http://localhost:8000/api/v1/competitions/" \
   "status": "draft",
   "created_at": "2026-03-18T07:00:00.000000",
   "updated_at": "2026-03-18T07:00:00.000000",
-  "qr_code_path": "competition_qr_codes/comp_1_xxx.png",
-  "qr_code_image_url": "/api/v1/competitions/1/qr-code"
+  "division_mode": "dual",
+  "qr_layout": "separate",
+  "qr_code_path": null,
+  "qr_code_path_undergraduate": "competition_qr_codes/comp_1_undergraduate_xxx.png",
+  "qr_code_path_vocational": "competition_qr_codes/comp_1_vocational_xxx.png",
+  "qr_codes": {
+    "shared": null,
+    "undergraduate": {
+      "path": "competition_qr_codes/comp_1_undergraduate_xxx.png",
+      "image_url": "/api/v1/competitions/1/qr-code?division=undergraduate"
+    },
+    "vocational": {
+      "path": "competition_qr_codes/comp_1_vocational_xxx.png",
+      "image_url": "/api/v1/competitions/1/qr-code?division=vocational"
+    }
+  },
+  "qr_code_image_url": null
 }
 ```
 
-**获取竞赛二维码图片**：`GET /api/v1/competitions/{competition_id}/qr-code`（需 `VIEW_COMPETITIONS`；未上传时 404）。
+> 单条竞赛详情、列表及二维码下载见 **§8.1.1**、**§8.1.2**。
+
+#### 8.1.1 获取竞赛详情（单条）
+**端点**: `GET /api/v1/competitions/{competition_id}`
+**权限**: `VIEW_COMPETITIONS`（学生、指导老师、管理员等具备该权限的角色均可）
+
+**描述**: 按竞赛 ID 返回单场竞赛的完整信息，供**详情页**展示名称、规则、时间、是否允许个人/组队、学历组别策略及二维码下载地址等。  
+与 **`GET /api/v1/competitions/`**（列表）相比，本接口返回单条记录且包含结构化的 **`qr_codes`**，便于前端在「本科详情 / 高职详情」中只展示对应组别的二维码。
+
+**路径参数**：
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| competition_id | int | ✓ | 竞赛 ID |
+
+**Query 参数**：无（前端在 `division_mode=dual` 时通过路由/状态保存当前组别 `undergraduate` / `vocational`，从响应 `qr_codes` 中取对应项即可，无需在本接口传 `division`）。
+
+**请求示例**：
+```bash
+curl "http://localhost:8000/api/v1/competitions/1" \
+  -H "Authorization: Bearer <alt_access_token>"
+```
+
+**响应字段说明**（200，`CompetitionResponse`）：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | int | 竞赛 ID |
+| name | string | 竞赛名称 |
+| description | string/null | 简介 |
+| rules_text | string/null | 规则说明 |
+| start_at | string(datetime)/null | 开始时间 |
+| end_at | string(datetime)/null | 结束时间 |
+| allow_individual | bool | 是否允许个人赛道报名 |
+| allow_team | bool | 是否允许组队赛道报名 |
+| status | string | `draft` / `published` / `closed` |
+| division_mode | string | `single` 不分组；`dual` 分本科组与高职组 |
+| qr_layout | string | `shared` 共用一码；`separate` 两组各一码（仅 `dual` 有意义） |
+| qr_code_path | string/null | 共用二维码存储路径 |
+| qr_code_path_undergraduate | string/null | 本科组二维码路径（`dual`+`separate`） |
+| qr_code_path_vocational | string/null | 高职组二维码路径（`dual`+`separate`） |
+| qr_codes | object/null | 结构化二维码：`shared` / `undergraduate` / `vocational`，每项含 `path`、`image_url` |
+| qr_code_image_url | string/null | 兼容字段：`single` 或 `dual+shared` 时的单 URL；`dual+separate` 时为 null |
+| created_at | string(datetime) | 创建时间 |
+| updated_at | string(datetime) | 更新时间 |
+
+**响应示例（`dual` + `separate`，详情页按组别取 `qr_codes`）**：
+```json
+{
+  "id": 1,
+  "name": "2026 技能竞赛",
+  "description": "简介",
+  "rules_text": "规则全文",
+  "start_at": null,
+  "end_at": null,
+  "allow_individual": true,
+  "allow_team": true,
+  "status": "published",
+  "division_mode": "dual",
+  "qr_layout": "separate",
+  "qr_code_path": null,
+  "qr_code_path_undergraduate": "competition_qr_codes/comp_1_undergraduate_xxx.png",
+  "qr_code_path_vocational": "competition_qr_codes/comp_1_vocational_xxx.png",
+  "qr_codes": {
+    "shared": null,
+    "undergraduate": {
+      "path": "competition_qr_codes/comp_1_undergraduate_xxx.png",
+      "image_url": "/api/v1/competitions/1/qr-code?division=undergraduate"
+    },
+    "vocational": {
+      "path": "competition_qr_codes/comp_1_vocational_xxx.png",
+      "image_url": "/api/v1/competitions/1/qr-code?division=vocational"
+    }
+  },
+  "qr_code_image_url": null,
+  "created_at": "2026-03-18T07:00:00.000000",
+  "updated_at": "2026-03-18T07:00:00.000000"
+}
+```
+
+**响应示例（`single` 或 `dual` + `shared`）**：
+```json
+{
+  "id": 2,
+  "name": "通用赛",
+  "division_mode": "single",
+  "qr_layout": "shared",
+  "qr_code_path": "competition_qr_codes/comp_2_shared_xxx.png",
+  "qr_codes": {
+    "shared": {
+      "path": "competition_qr_codes/comp_2_shared_xxx.png",
+      "image_url": "/api/v1/competitions/2/qr-code"
+    },
+    "undergraduate": null,
+    "vocational": null
+  },
+  "qr_code_image_url": "/api/v1/competitions/2/qr-code",
+  "status": "published",
+  "allow_individual": true,
+  "allow_team": true
+}
+```
+
+**前端对接建议**：
+| 步骤 | 做法 |
+|------|------|
+| 列表点「查看详情」 | 若 `division_mode === 'dual'`，弹窗选本科/高职（纯前端），再进入详情页 |
+| 进入详情页 | 调用本接口拉取数据；`division` 保存在页面状态（不必作为 query 传给本接口） |
+| 展示二维码 | `separate`：本科页用 `qr_codes.undergraduate.image_url`；高职页用 `qr_codes.vocational`；`shared`/`single`：用 `qr_code_image_url` 或 `qr_codes.shared` |
+| 报名 | `POST /enroll` 或 `POST /teams` 时在 body 中带与当前详情页一致的 **`division`**（见 §8.7、§8.12） |
+
+**错误响应**：
+| 状态码 | 说明 |
+|--------|------|
+| 401 | 未登录或 Token 无效 |
+| 403 | 无 `VIEW_COMPETITIONS` 权限 |
+| 404 | `{"detail": "Competition not found"}` |
+
+**相关接口**：
+- 竞赛列表：`GET /api/v1/competitions/`（§8.1.2）
+- 二维码图片二进制：`GET /api/v1/competitions/{competition_id}/qr-code`（§8.1.2）
+- 我是否已报名及组别：`GET /api/v1/competitions/enrollments/me`（§8.6）
+
+> **组别与报名**：同一学生**不能**在同一竞赛同时报名本科组与高职组；详情页进入某组后，报名/建队须隐式携带对应 `division`（见 §8.7、§8.12）。
+
+#### 8.1.2 竞赛列表与二维码图片
+**竞赛列表**  
+**端点**: `GET /api/v1/competitions/`  
+**权限**: `VIEW_COMPETITIONS`  
+**描述**: 返回全部竞赛，按创建时间倒序；字段与 **§8.1.1** 单条响应相同（含 `division_mode`、`qr_codes`）。用于管理端列表、专家指派弹窗选赛等。
+
+**请求示例**：
+```bash
+curl "http://localhost:8000/api/v1/competitions/" \
+  -H "Authorization: Bearer <alt_access_token>"
+```
+
+**获取竞赛二维码图片（二进制）**  
+**端点**: `GET /api/v1/competitions/{competition_id}/qr-code`  
+**权限**: `VIEW_COMPETITIONS`  
+
+| 条件 | Query |
+|------|--------|
+| `division_mode=single` 或 `qr_layout=shared` | 无需参数 |
+| `division_mode=dual` 且 `qr_layout=separate` | **必填** `division=undergraduate` 或 `division=vocational` |
+
+未上传对应图片时 **404**。亦可直接使用 **§8.1.1** 响应中 `qr_codes.*.image_url` 作为图片地址（需带相同 `Authorization`）。
 
 #### 8.2 发布竞赛（管理员）
 **端点**: `PUT /api/v1/competitions/{competition_id}/publish`
@@ -2592,16 +2774,40 @@ curl -X PUT "http://localhost:8000/api/v1/competitions/1/publish" \
 **端点**: `PUT /api/v1/competitions/{competition_id}`
 **权限**: `MANAGE_COMPETITIONS`（**仅** `super_admin`）
 
-**描述**: 修改竞赛信息（名称、描述、规则、时间、参赛模式等）。只传需要修改的字段即可。
+**描述**: 修改竞赛信息（名称、描述、规则、时间、参赛模式、学历组别与二维码策略等）。**只传需要修改的字段**；未传的文本字段保持不变，未传的二维码文件不替换。
+
+**路径参数**：
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| competition_id | int | ✓ | 竞赛 ID |
 
 **请求格式**（二选一，`Content-Type` 必须与实际一致）：
 
 | 类型 | Content-Type | 说明 |
 |------|----------------|------|
-| JSON | `application/json` | 与原先一致；仅文本字段 |
-| multipart | `multipart/form-data` | 文本字段同名且**仅提交需修改项**；可选 **`qr_code_image`** 上传/替换二维码图片 |
+| JSON | `application/json` | 仅文本字段；语义同 `exclude_unset`，只更新请求体中出现的键 |
+| multipart | `multipart/form-data` | 文本字段**仅提交需修改项**；可按组别策略上传/替换二维码（规则同 **§8.1**） |
 
-**二维码上传（multipart 可选）**：字段名 **`qr_code_image`**，支持 png / jpeg / gif / webp，单文件最大 **5MiB**（与 **§8.1 创建竞赛** 相同）。上传新图后会替换原文件并更新 `qr_code_path`；未传则保留原二维码。
+**学历组别与二维码**（与 **§8.1 创建竞赛** 一致）：
+
+| division_mode | 含义 |
+|---------------|------|
+| `single` | 不分本科/高职 |
+| `dual` | 分本科组、高职组 |
+
+| qr_layout | 适用 | 含义 |
+|-----------|------|------|
+| `shared` | `dual` 或 `single` | 共用一个二维码（`single` 时服务端固定为此策略） |
+| `separate` | 仅 `dual` | 本科、高职各一张二维码 |
+
+**二维码上传（multipart 可选）**：支持 png / jpeg / gif / webp，单文件最大 **5MiB**。上传新图后替换对应路径上的旧文件；**未传的文件字段保留原图**。
+
+| 场景 | 文件字段 |
+|------|----------|
+| 不分组 / 双组共用 | `qr_code_image` 或 `qr_code_image_shared` |
+| 双组分开 | `qr_code_image_undergraduate`、`qr_code_image_vocational`（可只传其中一张以单独替换） |
+
+> 修改 `division_mode` / `qr_layout` 时，请与实际上传的二维码字段一致；`single` 时若改为 `dual+separate`，需补传两张分组码（或先改策略再分次上传）。
 
 **请求体参数**（均可选，只传需要改的）：
 | 字段 | 类型 | 必填 | 说明 |
@@ -2613,17 +2819,26 @@ curl -X PUT "http://localhost:8000/api/v1/competitions/1/publish" \
 | end_at | string(datetime) | | 结束时间（ISO8601） |
 | allow_individual | bool | | 是否允许个人参赛 |
 | allow_team | bool | | 是否允许团队参赛 |
-| qr_code_image | file | | **仅 multipart**：二维码图片 |
+| division_mode | string | | `single` 或 `dual` |
+| qr_layout | string | | `dual` 时：`shared` 或 `separate` |
+| qr_code_image | file | | **仅 multipart**：共用/单组别二维码（替换 `qr_code_path`） |
+| qr_code_image_undergraduate | file | | **仅 multipart**：本科组二维码（`dual`+`separate`） |
+| qr_code_image_vocational | file | | **仅 multipart**：高职组二维码（`dual`+`separate`） |
 
-**请求示例（JSON）**：
+**请求示例（JSON，只改文案与组别策略）**：
 ```bash
 curl -X PUT "http://localhost:8000/api/v1/competitions/1" \
   -H "Authorization: Bearer <alt_access_token>" \
   -H "Content-Type: application/json" \
-  -d '{"rules_text":"Updated rules v2","description":"New description"}'
+  -d '{
+    "rules_text":"Updated rules v2",
+    "description":"New description",
+    "division_mode":"dual",
+    "qr_layout":"shared"
+  }'
 ```
 
-**请求示例（multipart + 替换二维码）**：
+**请求示例（multipart，替换共用二维码）**：
 ```bash
 curl -X PUT "http://localhost:8000/api/v1/competitions/1" \
   -H "Authorization: Bearer <alt_access_token>" \
@@ -2631,7 +2846,14 @@ curl -X PUT "http://localhost:8000/api/v1/competitions/1" \
   -F 'qr_code_image=@/path/to/qrcode.png'
 ```
 
-**响应示例**（200）：
+**请求示例（multipart，仅替换本科组二维码）**：
+```bash
+curl -X PUT "http://localhost:8000/api/v1/competitions/1" \
+  -H "Authorization: Bearer <alt_access_token>" \
+  -F 'qr_code_image_undergraduate=@/path/ug.png'
+```
+
+**响应示例**（200；结构同 **§8.1** 创建响应）：
 ```json
 {
   "id": 1,
@@ -2643,10 +2865,29 @@ curl -X PUT "http://localhost:8000/api/v1/competitions/1" \
   "allow_individual": true,
   "allow_team": true,
   "status": "published",
+  "division_mode": "dual",
+  "qr_layout": "separate",
   "created_at": "2026-03-18T07:00:00.000000",
-  "updated_at": "2026-03-19T10:00:00.000000"
+  "updated_at": "2026-03-19T10:00:00.000000",
+  "qr_code_path": null,
+  "qr_code_path_undergraduate": "competition_qr_codes/comp_1_undergraduate_xxx.png",
+  "qr_code_path_vocational": "competition_qr_codes/comp_1_vocational_xxx.png",
+  "qr_codes": {
+    "shared": null,
+    "undergraduate": {
+      "path": "competition_qr_codes/comp_1_undergraduate_xxx.png",
+      "image_url": "/api/v1/competitions/1/qr-code?division=undergraduate"
+    },
+    "vocational": {
+      "path": "competition_qr_codes/comp_1_vocational_xxx.png",
+      "image_url": "/api/v1/competitions/1/qr-code?division=vocational"
+    }
+  },
+  "qr_code_image_url": null
 }
 ```
+
+**说明**：二维码与详情字段见 **§8.1.1**、**§8.1.2**。
 
 #### 8.4 删除竞赛（管理员）
 **端点**: `DELETE /api/v1/competitions/{competition_id}`
@@ -2757,6 +2998,7 @@ curl "http://localhost:8000/api/v1/competitions/enrollments/me" \
 |------|------|------|------|
 | competition_id | int | ✓ | 竞赛 ID |
 | team_id | int/null | | 为空=个人报名；非空=队伍报名 |
+| division | string | 条件 | `dual` 竞赛**必填**：`undergraduate` 或 `vocational`（由详情页隐式传入，无需单独选组 UI） |
 | student_no | string | | 学号 |
 | real_name | string | | 姓名 |
 | college | string | | 学院 |
@@ -2774,8 +3016,13 @@ curl "http://localhost:8000/api/v1/competitions/enrollments/me" \
 | `Already enrolled in the individual track for this competition` | 个人赛道已是 **`enrolled`**，无需重复个人报名（可与组队赛道并存）。 |
 | `Already enrolled in the team track for this competition` | 组队赛道已是 **`enrolled`**（`team_id` 报名或已在某队），无需重复。 |
 | `Enrollment failed: ...` | 数据库提交失败（如约束冲突），`detail` 后缀为具体异常信息。 |
+| `division is required (undergraduate or vocational)` | `division_mode=dual` 但未传 `division`。 |
+| `Already enrolled in division 'undergraduate'; cannot enroll in 'vocational' for the same competition` | 已在另一学历组别有效报名，不可跨组（个人+组队赛道均受此限制）。 |
+| `division must match team` | 组队报名时 `division` 与队伍所属组别不一致。 |
 
 **非 400 的常见情况**：**403** `Only students can enroll` — 当前第二套 Token 对应账号的有效角色不是 **`student`**（**指导老师 `advisor`/管理员/专家等均不可**在本接口报名）。
+
+> **双组别**：同一学生**不能**同时持有本科组与高职组的有效报名；可在同一组别内同时有个人赛道与组队赛道。
 
 **请求示例（个人）**：
 ```bash
@@ -2785,6 +3032,7 @@ curl -X POST "http://localhost:8000/api/v1/competitions/enroll" \
   -d '{
     "competition_id":1,
     "team_id":null,
+    "division":"undergraduate",
     "student_no":"2023010001",
     "real_name":"张三",
     "college":"计算机学院",
@@ -2874,7 +3122,7 @@ curl -X POST "http://localhost:8000/api/v1/competitions/1/withdraw?track=individ
 #### 8.9 查看竞赛队伍列表
 **端点**: `GET /api/v1/competitions/{competition_id}/teams`
 
-**描述**: 获取某竞赛下所有活跃队伍及其成员列表（**学生选队**、**管理员/指导老师查看队况**等均可用）。
+**描述**: 获取某竞赛下活跃队伍及其成员列表（**学生选队**、**管理员/指导老师查看队况**等）。**`division_mode=dual`** 时须按学历组别分别查询，每次只返回该组队伍。
 
 **权限**: `VIEW_COMPETITIONS`（**不**隐含作品或花名册权限；花名册须 §8.10 / §8.11）。
 
@@ -2883,9 +3131,14 @@ curl -X POST "http://localhost:8000/api/v1/competitions/1/withdraw?track=individ
 |------|------|------|------|
 | competition_id | int | ✓ | 竞赛 ID |
 
+**Query 参数**：
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| division | string | dual 时 ✓ | `undergraduate` 或 `vocational`；`single` 竞赛可省略（按 `default` 筛选） |
+
 **请求示例**：
 ```bash
-curl "http://localhost:8000/api/v1/competitions/1/teams" \
+curl "http://localhost:8000/api/v1/competitions/1/teams?division=undergraduate" \
   -H "Authorization: Bearer <alt_access_token>"
 ```
 
@@ -2922,18 +3175,24 @@ curl "http://localhost:8000/api/v1/competitions/1/teams" \
 #### 8.10 查看个人参赛者（花名册）
 
 **端点**: `GET /api/v1/competitions/{competition_id}/participants/individual`  
-**权限**: `VIEW_COMPETITIONS`，且服务端校验：**仅** **`super_admin`**，或 **`expert`** 且 **`expert_verified=true`** 且已由管理员 **指派到本竞赛**（与上表一致）。指导老师、学生及其他专家 **403**。
+**权限**: `VIEW_COMPETITIONS`，且服务端二次校验，允许：**`super_admin`**；**`expert`** 且 **`expert_verified=true`** 且已 **指派到本竞赛**；**`advisor` / `teacher`** 且具备 **`MANAGE_TEAMS`**（只读花名册）。学生及其他角色 **403**。
 
-**描述**: 列出该竞赛下 **个人赛道** 全部有效报名（`team_id` 为空且 `status=enrolled`）。**不**包含组队成员；组队请用下一节接口。响应中的 **`username` / `full_name`** 取自 **`alt_auth.db`** 的 **`alt_auth_users`**；**`student_id`** 即该表主键（与主库 `users` 无关）。
+**描述**: 列出该竞赛 **个人赛道** 有效报名（`status=enrolled`）。**不**包含组队成员；组队请用下一节。**`division_mode=dual`** 时 **必填** `division`，仅返回该组别；**`sequence_no` 在指定组别内**从 1 起编号。响应含 **`division`**（与 query 一致）。
 
 | 字段含义 | 说明 |
 |----------|------|
-| `sequence_no` | **本竞赛个人赛道内**展示序号，从 **1** 起，按报名时间升序（每场竞赛单独计数） |
+| `sequence_no` | **当前 query `division` 对应组别内**序号，从 **1** 起，按报名时间升序 |
+| `division` | 报名所属学历组别 |
 | `enrollment_id` | 报名记录在库里的主键（全局自增，与 `sequence_no` 不同） |
+
+**Query 参数**：
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| division | string | dual 时 ✓ | `undergraduate` 或 `vocational` |
 
 **请求示例**：
 ```bash
-curl "http://localhost:8000/api/v1/competitions/1/participants/individual" \
+curl "http://localhost:8000/api/v1/competitions/1/participants/individual?division=undergraduate" \
   -H "Authorization: Bearer <alt_access_token>"
 ```
 
@@ -2942,6 +3201,7 @@ curl "http://localhost:8000/api/v1/competitions/1/participants/individual" \
 [
   {
     "sequence_no": 1,
+    "division": "undergraduate",
     "enrollment_id": 31,
     "student_id": 15,
     "username": "stu1",
@@ -2960,18 +3220,24 @@ curl "http://localhost:8000/api/v1/competitions/1/participants/individual" \
 #### 8.11 查看组队参赛者（队伍 + 成员，花名册）
 
 **端点**: `GET /api/v1/competitions/{competition_id}/participants/teams`  
-**权限**: 与 **§8.10** 相同（**管理员**或 **已指派且已核验专家**）。
+**权限**: 与 **§8.10** 相同（**管理员**、**已指派且已核验专家**、或 **`advisor`/`teacher`（`MANAGE_TEAMS`）**）。
 
-**描述**: 列出该竞赛下全部 **活跃队伍** 及成员（含 **`username` / `full_name`**，均来自 **`alt_auth_users`**）。响应含队伍 **`name`**（若有）。**`captain_id` 与 `members[].user_id`** 均为 **`alt_auth_users.id`**。个人参赛者不在此列表。
+**描述**: 列出该竞赛 **活跃队伍** 及成员（含 **`username` / `full_name`**）。**`division_mode=dual`** 时 **必填** `division`，仅该组队伍；**`sequence_no` 组内**从 1 起。响应含 **`division`**。
 
 | 字段含义 | 说明 |
 |----------|------|
-| `sequence_no` | **本竞赛组队赛道内**队伍序号，从 **1** 起，按队伍创建时间升序 |
+| `sequence_no` | **当前 query `division` 对应组别内**队伍序号，从 **1** 起 |
+| `division` | 队伍所属学历组别 |
 | `id` | 队伍主键（全局）；与 `sequence_no` 不同 |
+
+**Query 参数**：
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| division | string | dual 时 ✓ | `undergraduate` 或 `vocational` |
 
 **请求示例**：
 ```bash
-curl "http://localhost:8000/api/v1/competitions/1/participants/teams" \
+curl "http://localhost:8000/api/v1/competitions/1/participants/teams?division=vocational" \
   -H "Authorization: Bearer <alt_access_token>"
 ```
 
@@ -2982,6 +3248,7 @@ curl "http://localhost:8000/api/v1/competitions/1/participants/teams" \
     "sequence_no": 1,
     "id": 10,
     "competition_id": 1,
+    "division": "vocational",
     "name": "一班代表队",
     "captain_id": 7,
     "status": "active",
@@ -3008,26 +3275,31 @@ curl "http://localhost:8000/api/v1/competitions/1/participants/teams" \
 **端点**: `GET /api/v1/competitions/{competition_id}/teams/export`  
 **权限**: `MANAGE_COMPETITIONS`（管理员）
 
-**描述**: 导出该竞赛全部活跃队伍为 `.xlsx` 文件，便于线下核对。Excel 字段至少包含：
+**描述**: 导出该竞赛活跃队伍为 `.xlsx`。**`division_mode=dual`** 时 **必填** `division`，仅导出该组；文件名含组别后缀（如 `competition_1_teams_undergraduate.xlsx`）。Excel 字段至少包含：
 
-- `序号`
+- `序号`（**组内**从 1 起）
 - `指导老师`（可能存在多名；系统内若有多个则使用 `、` 拼接）
 - `队长`
 - `队员`（可能存在多名，使用 `、` 拼接）
 - `队伍名`
 - `参加的竞赛`
 
+**Query 参数**：
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| division | string | dual 时 ✓ | `undergraduate` 或 `vocational` |
+
 **请求示例**：
 ```bash
-curl -L "http://localhost:8000/api/v1/competitions/1/teams/export" \
+curl -L "http://localhost:8000/api/v1/competitions/1/teams/export?division=undergraduate" \
   -H "Authorization: Bearer <alt_access_token>" \
-  -o teams.xlsx
+  -o teams_undergraduate.xlsx
 ```
 
 **响应说明**：
 - `200 OK`
 - `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
-- `Content-Disposition: attachment; filename="competition_<id>_teams.xlsx"`
+- `Content-Disposition: attachment; filename="competition_<id>_teams.xlsx"`（single）或 `competition_<id>_teams_<division>.xlsx`（dual）
 
 #### 8.12 创建队伍（学生自建队长 / 指导老师组班）
 
@@ -3212,11 +3484,14 @@ curl -X POST "http://localhost:8000/api/v1/competitions/teams/10/leave" \
 
 > 竞赛 `status` 为 **`published`** 或 **`closed`（锁定报名后）** 时均可提交作品；**`draft`** 不可提交。
 
+> **`division`** 与 **§8.7 报名** 一致：`division_mode=dual` 时**必填** `undergraduate` 或 `vocational`，须与当前详情页组别及本人有效报名（个人/组队）一致；`single` 竞赛勿传或传 `default`。
+
 **请求体参数**：
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | competition_id | int | ✓ | 竞赛 ID |
 | team_id | int/null | | 为空=个人；非空=队伍 |
+| division | string | 条件 | `dual` 竞赛**必填**：`undergraduate` 或 `vocational`（由详情页隐式传入） |
 | title | string | ✓ | 作品标题 |
 | description | string | | 描述 |
 | file_id | int/null | | 复用 `files` 表（可选） |
@@ -3230,11 +3505,19 @@ curl -X POST "http://localhost:8000/api/v1/competitions/submissions" \
   -d '{
     "competition_id":1,
     "team_id":10,
+    "division":"undergraduate",
     "title":"My Work",
     "description":"desc",
     "content_text":"hello"
   }'
 ```
+
+**常见 400**（与报名类似）：
+| `detail` | 含义 |
+|----------|------|
+| `division is required (undergraduate or vocational)` | 双组别竞赛未传 `division` |
+| `division must match your individual enrollment for this competition` | 个人提交组别与报名不一致 |
+| `division must match team's division for this competition` | 组队提交组别与队伍不一致 |
 
 **响应示例**（201）：
 ```json
@@ -3242,6 +3525,7 @@ curl -X POST "http://localhost:8000/api/v1/competitions/submissions" \
   "id": 2,
   "competition_id": 1,
   "team_id": 10,
+  "division": "undergraduate",
   "student_id": 7,
   "submitter_id": 7,
   "title": "My Work",
@@ -3264,6 +3548,7 @@ curl -X POST "http://localhost:8000/api/v1/competitions/submissions" \
 **表单字段**（Form）:
 - `competition_id` (int, 必填)
 - `team_id` (int, 可选)
+- `division` (string, 条件) — `dual` 竞赛必填：`undergraduate` / `vocational`（规则同 §8.16 JSON）
 - `title` (string, 必填)
 - `description` (string, 可选)
 - `content_text` (string, 可选；与 file 二选一至少一个)
@@ -3275,6 +3560,7 @@ curl -X POST "http://localhost:8000/api/v1/competitions/submissions/upload" \
   -H "Authorization: Bearer <alt_access_token>" \
   -F "competition_id=1" \
   -F "team_id=10" \
+  -F "division=undergraduate" \
   -F "title=My Work" \
   -F "description=desc" \
   -F "file=@./submission.zip"
@@ -3286,6 +3572,7 @@ curl -X POST "http://localhost:8000/api/v1/competitions/submissions/upload" \
   "id": 3,
   "competition_id": 1,
   "team_id": 10,
+  "division": "undergraduate",
   "student_id": 7,
   "submitter_id": 7,
   "title": "My Work",
@@ -3301,7 +3588,7 @@ curl -X POST "http://localhost:8000/api/v1/competitions/submissions/upload" \
 
 **端点**: `GET /api/v1/competitions/{competition_id}/submissions`
 
-**描述**: 获取某竞赛的作品提交列表。
+**描述**: 获取某竞赛的作品提交列表。每条记录的 **`division`** 来自 **提交作品时**（§8.16 JSON / §8.16.1 multipart）写入库中的值，**不是**详情页临时参数。
 
 | 视角 | 可见范围 |
 |------|----------|
@@ -3311,9 +3598,21 @@ curl -X POST "http://localhost:8000/api/v1/competitions/submissions/upload" \
 | **`advisor` 等非上表主体** | **403**（`Only super_admin, assigned experts, or enrolled students may list submissions here`） |
 
 **权限**: `VIEW_COMPETITIONS`（专家侧**不额外**要求 `REVIEW_SUBMISSIONS` 亦可拉列表）。
+
+**Query 参数**（可选）：
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| division | string | 按提交时的组别筛选：`undergraduate` / `vocational` / `default`（本科/高职详情页可只拉本组作品） |
+
+**响应字段**（`SubmissionResponse`，节选）：
+| 字段 | 说明 |
+|------|------|
+| division | 提交时写入的学历组别，与 §8.16 请求体 `division` 一致 |
+
+**请求示例**：
 ```bash
-curl "http://localhost:8000/api/v1/competitions/1/submissions" \
-  -H "Authorization: Bearer <admin_or_expert_alt_token>"
+curl "http://localhost:8000/api/v1/competitions/1/submissions?division=undergraduate" \
+  -H "Authorization: Bearer <alt_access_token>"
 ```
 
 **响应示例**（200）：
@@ -3323,6 +3622,7 @@ curl "http://localhost:8000/api/v1/competitions/1/submissions" \
     "id": 3,
     "competition_id": 1,
     "team_id": 10,
+    "division": "undergraduate",
     "student_id": 7,
     "submitter_id": 7,
     "title": "My Work",
@@ -3339,7 +3639,7 @@ curl "http://localhost:8000/api/v1/competitions/1/submissions" \
 
 **端点**: `GET /api/v1/competitions/submissions/{submission_id}`
 
-**描述**: 获取单个作品提交详情；可见范围与 **§8.16.2 列表**一致：**管理员**、**本赛已指派且已核验专家**可看任意作品；**学生**仅本人个人赛作品或所在队伍作品；**指导老师**等 **403**。
+**描述**: 获取单个作品提交详情；可见范围与 **§8.16.2 列表**一致。**`division`** 同样为提交时落库字段（只读返回，本接口无需再传 `division`）。
 
 **权限**: `VIEW_COMPETITIONS`
 
@@ -3355,6 +3655,7 @@ curl "http://localhost:8000/api/v1/competitions/submissions/3" \
   "id": 3,
   "competition_id": 1,
   "team_id": 10,
+  "division": "undergraduate",
   "student_id": 7,
   "submitter_id": 7,
   "title": "My Work",
@@ -3375,7 +3676,7 @@ curl "http://localhost:8000/api/v1/competitions/submissions/3" \
 
 **端点**: `GET /api/v1/competitions/submissions/{submission_id}/download`
 
-**描述**: 下载该作品绑定的文件（若该提交未上传文件则返回 404）。**访问边界**同 **§8.16.3**。
+**描述**: 下载该作品绑定的文件（若该提交未上传文件则返回 404）。**访问边界**同 **§8.16.3**。响应为文件流，不含 JSON；作品所属组别请通过 **§8.16.3** 的 `division` 字段获取。
 
 **权限**: `VIEW_COMPETITIONS`
 
@@ -3465,7 +3766,7 @@ curl -X PATCH "http://localhost:8000/api/v1/competitions/submissions/3/review-gr
 
 **权限**: `VIEW_COMPETITIONS`；**数据可见性**与 **§8.16.3** 一致（管理员 / 指派专家 / 相关学生）。**指导老师**若无法通过详情接口访问该作品，则本接口同样 **403**。
 
-**描述**: 返回该作品当前 `ReviewResponse`（与 §8.17 / §8.17.1 响应体一致）。作品列表 `GET .../submissions` 不含 `score`，已评分时可调用本接口或 §8.20 我的成绩。
+**描述**: 返回该作品当前 `ReviewResponse`（与 §8.17 / §8.17.1 响应体一致）。作品列表 `GET .../submissions` 含 **`division`**（提交时写入），不含 `score`；已评分时可调用本接口或 §8.20 我的成绩。
 
 **请求示例**：
 
@@ -3487,13 +3788,18 @@ curl "http://localhost:8000/api/v1/competitions/submissions/3/review-grade" \
 
 **端点**: `GET /api/v1/competitions/{competition_id}/scores/summary`
 
-**描述**: 获取竞赛评分聚合统计（总提交数、已评分数、平均分/最高分/最低分）。
+**描述**: 获取竞赛评分聚合统计（总提交数、已评分数、平均分/最高分/最低分）。统计范围为本 query **`division`** 下 **`submissions.division`** 匹配的作品。**`division_mode=dual`** 时 **必填** `division`，本科组与高职组分别统计。
 
-**权限**: `VIEW_COMPETITIONS`；且须为 **`super_admin`** 或 **已指派且已核验的本赛专家**（与 **§8.18** 相同）。
+**权限**: `VIEW_COMPETITIONS`；且须为 **`super_admin`** 或 **已指派且已核验的本赛专家**。
+
+**Query 参数**：
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| division | string | dual 时 ✓ | `undergraduate` 或 `vocational` |
 
 **请求示例**：
 ```bash
-curl "http://localhost:8000/api/v1/competitions/1/scores/summary" \
+curl "http://localhost:8000/api/v1/competitions/1/scores/summary?division=undergraduate" \
   -H "Authorization: Bearer <admin_or_expert_alt_token>"
 ```
 
@@ -3501,6 +3807,7 @@ curl "http://localhost:8000/api/v1/competitions/1/scores/summary" \
 ```json
 {
   "competition_id": 1,
+  "division": "undergraduate",
   "submissions_total": 1,
   "reviewed_total": 1,
   "avg_score": 95.0,
@@ -3513,18 +3820,19 @@ curl "http://localhost:8000/api/v1/competitions/1/scores/summary" \
 
 **端点**: `GET /api/v1/competitions/{competition_id}/scores/rankings?limit=50`
 
-**描述**: 获取竞赛排行榜。**个人参赛与组队参赛同一排名等级**：先合并「有评分作品」的所有队伍与个人，再按 `best_score` **全局**降序排序；`limit` 只限制返回条数，**不会**先在队伍榜、个人榜各取前 N 再合并（避免名次错误）。响应中 `rank` 为统一名次（同分并列同名次，下一名次跳过）。
+**描述**: 获取竞赛排行榜。在指定 **`division`** 内，**个人与组队同一排名池**：合并该组内有评分作品的队伍与个人，按 `best_score` 降序；**不在全赛跨组混排**。`limit` 只限制返回条数。响应含 **`division`**；`rank` 为组内名次（同分并列）。
 
 **权限**: `VIEW_COMPETITIONS`；且须为 **`super_admin`** 或 **已指派且已核验的本赛专家**（与 **§8.18** 相同）。
 
 **查询参数**：
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
+| division | string | dual 时 ✓ | `undergraduate` 或 `vocational` |
 | limit | int | | 默认 50 |
 
 **请求示例**：
 ```bash
-curl "http://localhost:8000/api/v1/competitions/1/scores/rankings?limit=50" \
+curl "http://localhost:8000/api/v1/competitions/1/scores/rankings?division=undergraduate&limit=50" \
   -H "Authorization: Bearer <admin_or_expert_alt_token>"
 ```
 
@@ -3532,6 +3840,7 @@ curl "http://localhost:8000/api/v1/competitions/1/scores/rankings?limit=50" \
 ```json
 {
   "competition_id": 1,
+  "division": "undergraduate",
   "items": [
     {
       "rank": 1,
@@ -3555,13 +3864,18 @@ curl "http://localhost:8000/api/v1/competitions/1/scores/rankings?limit=50" \
 
 **端点**: `GET /api/v1/competitions/{competition_id}/scores/me`
 
-**描述**: 学生查看自己在该竞赛中的提交与成绩（包含个人提交与所属队伍提交）。
+**描述**: 学生查看自己在该竞赛中的提交与成绩（包含个人提交与所属队伍提交）。每项含 **`division`**（提交作品时写入，规则同 §8.16）。
 
 **权限**: `VIEW_COMPETITIONS`（且必须为 student）
 
+**Query 参数**（可选）：
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| division | string | 按提交时的组别筛选：`undergraduate` / `vocational` / `default` |
+
 **请求示例**：
 ```bash
-curl "http://localhost:8000/api/v1/competitions/1/scores/me" \
+curl "http://localhost:8000/api/v1/competitions/1/scores/me?division=undergraduate" \
   -H "Authorization: Bearer <alt_access_token>"
 ```
 
@@ -3574,6 +3888,7 @@ curl "http://localhost:8000/api/v1/competitions/1/scores/me" \
       "id": 3,
       "competition_id": 1,
       "team_id": 10,
+      "division": "undergraduate",
       "student_id": 7,
       "submitter_id": 7,
       "title": "My Work",
@@ -3581,7 +3896,10 @@ curl "http://localhost:8000/api/v1/competitions/1/scores/me" \
       "file_id": 3,
       "content_text": null,
       "status": "approved",
-      "submitted_at": "2026-03-18T07:02:20.371980"
+      "submitted_at": "2026-03-18T07:02:20.371980",
+      "score": 92.5,
+      "feedback": "很好",
+      "reviewed_at": "2026-03-20T10:00:00.000000"
     }
   ]
 }
@@ -4077,6 +4395,9 @@ export default api;
 | 功能 | 方法 | 端点 |
 |------|------|------|
 | 创建竞赛 | POST | `/api/v1/competitions/` |
+| 竞赛列表 | GET | `/api/v1/competitions/` |
+| 获取竞赛详情 | GET | `/api/v1/competitions/{competition_id}` |
+| 下载竞赛二维码 | GET | `/api/v1/competitions/{competition_id}/qr-code` |
 | 修改竞赛信息 | PUT | `/api/v1/competitions/{competition_id}` |
 | 删除竞赛 | DELETE | `/api/v1/competitions/{competition_id}` |
 | 锁定报名 | PUT | `/api/v1/competitions/{competition_id}/lock` |
@@ -4113,6 +4434,6 @@ export default api;
 
 ---
 
-**文档版本**: v4.1.0  
-**最后更新**: 2026-05-27  
+**文档版本**: v4.2.0  
+**最后更新**: 2026-05-29  
 **服务端口**: 8000

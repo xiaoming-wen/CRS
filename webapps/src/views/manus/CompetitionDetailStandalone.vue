@@ -27,6 +27,7 @@
       ref="registrationSys"
       standalone-detail-mode
       :initial-competition-id="numericId"
+      :initial-view-division="initialViewDivision"
     />
   </div>
 </template>
@@ -113,6 +114,11 @@ export default {
       if (q == null || String(q).trim() === '') return null
       const n = Number(q)
       return Number.isFinite(n) && n > 0 ? n : null
+    },
+    initialViewDivision () {
+      const d = this.$route.query.division
+      if (d === 'undergraduate' || d === 'vocational') return d
+      return null
     },
     /** 与 CompetitionRegistrationSystem 中 isStudent 一致：竞赛独立账号按资料 role；否则主站 roles */
     isCompetitionStudentRole () {

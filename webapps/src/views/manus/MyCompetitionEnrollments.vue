@@ -50,10 +50,17 @@
 </template>
 
 <script>
-import { getMyCompetitionEnrollments, withdrawCompetition } from '@/api/competition'
+import {
+  getMyCompetitionEnrollments,
+  withdrawCompetition,
+  getCompetition
+} from '@/api/competition'
 import {
   markCompetitionWithdrawnForResubmit,
-  getEnrollmentScope
+  getEnrollmentScope,
+  resolveEnrollmentDivisionLabelForList,
+  buildEnrollmentProfileByCompetitionId,
+  mergeEnrollmentRowWithCompetitionProfile
 } from '@/utils/competitionSubmissionCycle'
 
 /** 报名记录展示：仅使用接口返回值，空则显示 "-" */
@@ -82,6 +89,9 @@ export default {
       loading: false,
       errorMsg: '',
       list: [],
+      /** §8.1.1 按 competition_id 缓存的竞赛详情（组别主用报名 division；详情仅用于 division 为空时的「不分组」） */
+      competitionDetailById: {},
+      competitionDetailsLoaded: false,
       withdrawLoading: false,
       columns: [
         { title: '竞赛', dataIndex: 'competitionName', key: 'competitionName', ellipsis: true, width: 180 },
@@ -91,12 +101,17 @@ export default {
           key: 'track_label',
           width: 72
         },
+        {
+          title: '组别',
+          dataIndex: 'division_label',
+          key: 'division_label',
+          width: 80
+        },
         { title: '竞赛状态', dataIndex: 'competitionStatus', key: 'competitionStatus', width: 82, scopedSlots: { customRender: 'competitionStatus' } },
         { title: '竞赛开始', dataIndex: 'start_at', key: 'start_at', width: 132 },
         { title: '竞赛结束', dataIndex: 'end_at', key: 'end_at', width: 132 },
         { title: '学号', dataIndex: 'student_no', key: 'student_no', width: 96 },
         { title: '姓名', dataIndex: 'real_name', key: 'real_name', width: 80 },
-        { title: '年级', dataIndex: 'grade', key: 'grade', width: 72 },
         { title: '联系方式', dataIndex: 'contact', key: 'contact', width: 118 },
         { title: '学校信息', dataIndex: 'school_info', key: 'school_info', ellipsis: true, width: 128 },
         { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 72 },
@@ -117,9 +132,19 @@ export default {
     enrollmentTableMinPx () {
       return this.columns.reduce((sum, c) => sum + (typeof c.width === 'number' ? c.width : 0), 0)
     },
+    enrollmentProfileByCompetitionId () {
+      return buildEnrollmentProfileByCompetitionId(this.list)
+    },
     tableData () {
+      const profileByCid = this.enrollmentProfileByCompetitionId
       return this.list.map((row, index) => {
-        const c = row.competition || {}
+        const cid = row.competition_id
+        const detail =
+          cid != null && cid !== ''
+            ? this.competitionDetailById[String(cid)]
+            : null
+        const c = detail || row.competition || {}
+        const profileRow = mergeEnrollmentRowWithCompetitionProfile(row, profileByCid)
 
         // team_id === null 视为个人报名：不显示队伍相关信息
         const isTeam = row.team_id !== null && row.team_id !== undefined
@@ -132,14 +157,19 @@ export default {
           competition_id: row.competition_id,
           enroll_track: enrollTrack,
           track_label: enrollTrack === 'team' ? '组队' : '个人',
+          division: row.division,
+          division_label: resolveEnrollmentDivisionLabelForList(
+            row,
+            detail,
+            this.competitionDetailsLoaded
+          ),
           competitionName: enrollmentCell(c.name || row.competition_name),
           competitionStatus: c.status,
-          /** 以下字段仅来自报名接口返回，空显示 "-" */
-          student_no: enrollmentCell(row.student_no),
-          real_name: enrollmentCell(row.real_name),
-          grade: enrollmentCell(row.grade),
-          contact: enrollmentCell(row.contact),
-          school_info: schoolInfoFromEnrollment(row),
+          /** 学号/姓名/联系方式/学校：同竞赛各赛道合并，与个人报名资料同源 */
+          student_no: enrollmentCell(profileRow.student_no),
+          real_name: enrollmentCell(profileRow.real_name),
+          contact: enrollmentCell(profileRow.contact),
+          school_info: schoolInfoFromEnrollment(profileRow),
           team_id: isTeam ? enrollmentCell(row.team_id) : '-',
           is_captain: isTeam ? !!row.is_captain : null,
           status: row.status,
@@ -221,17 +251,53 @@ export default {
       const m = { draft: 'default', published: 'green', open: 'green', closed: 'red', upcoming: 'blue' }
       return m[s] || 'default'
     },
+    async fetchCompetitionDetailsForList () {
+      const ids = [
+        ...new Set(
+          (this.list || [])
+            .map((r) => r.competition_id)
+            .filter((id) => id != null && id !== '')
+            .map((id) => String(id))
+        )
+      ]
+      if (!ids.length) {
+        this.competitionDetailById = {}
+        this.competitionDetailsLoaded = true
+        return
+      }
+      const pairs = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const detail = await getCompetition(id)
+            return [id, detail && typeof detail === 'object' ? detail : null]
+          } catch {
+            return [id, null]
+          }
+        })
+      )
+      const map = {}
+      for (const [id, detail] of pairs) {
+        if (detail) map[id] = detail
+      }
+      this.competitionDetailById = map
+      this.competitionDetailsLoaded = true
+    },
+
     async fetchList () {
       this.loading = true
       this.errorMsg = ''
+      this.competitionDetailsLoaded = false
       try {
         const res = await getMyCompetitionEnrollments()
         if (Array.isArray(res)) this.list = res
         else if (res && Array.isArray(res.items)) this.list = res.items
         else if (res && Array.isArray(res.data)) this.list = res.data
         else this.list = []
+        await this.fetchCompetitionDetailsForList()
       } catch (e) {
         this.list = []
+        this.competitionDetailById = {}
+        this.competitionDetailsLoaded = true
         this.errorMsg = (e && e.message) ? String(e.message) : '加载失败'
       } finally {
         this.loading = false

@@ -68,7 +68,7 @@
           请在表格左侧勾选一条竞赛，以便使用顶部「发布 / 修改 / 锁定 / 删除」等操作；完整管理与评阅请在「操作」列点击「查看详情」在新标签页打开。专家核验与按赛指派请使用左侧目录「专家指派」。
         </div>
         <div v-else-if="isStudent" class="muted" style="margin-top: 8px; font-size: 13px">
-          学生请在「操作」列点击「查看详情」，在新标签页中报名与提交作品。
+          学生请在「操作」列点击「查看详情」；分本科/高职的竞赛需先选择组别，再在新标签页中报名与提交作品（不可跨组报名）。
         </div>
         <div v-else-if="showAdvisorTeamPanel" class="muted" style="margin-top: 8px; font-size: 13px">
           指导老师请在「操作」列点击「查看详情」，在详情页进行组班、邀请队员与管理队名。
@@ -141,6 +141,13 @@
                   {{ getStatusText(activeCompetition.status) }}
                 </a-tag>
                 <span class="competition-hero-banner__id">ID {{ activeCompetitionId }}</span>
+                <a-tag
+                  v-if="activeDivisionLabel"
+                  class="competition-hero-banner__division-tag"
+                  color="blue"
+                >
+                  {{ activeDivisionLabel }}
+                </a-tag>
               </div>
               <p v-if="competitionHeroSubtitleEn" class="competition-hero-banner__title-en">{{ competitionHeroSubtitleEn }}</p>
               <p v-if="competitionHeroSlogan" class="competition-hero-banner__slogan">{{ competitionHeroSlogan }}</p>
@@ -185,10 +192,10 @@
                 <div class="competition-briefing__col competition-briefing__col--aside">
                   <div class="competition-briefing__aside-inner">
                     <img
-                      v-if="studentBriefingQrObjectUrl"
-                      :src="studentBriefingQrObjectUrl"
+                      v-if="studentBriefingQrSrc"
+                      :src="studentBriefingQrSrc"
                       class="competition-briefing__qr"
-                      alt="赛事交流群二维码"
+                      :alt="studentBriefingQrAlt"
                     />
                     <div v-else class="competition-briefing__qr-placeholder">暂无二维码</div>
 
@@ -233,7 +240,15 @@
         <div v-if="isStudent && !standaloneDetailMode">
           <a-card size="small" class="sub-card" :bordered="true" title="报名与组队">
             <a-alert
-              v-if="competitionEnrollPublishBlocked"
+              v-if="enrollBlockedByOtherDivision"
+              type="warning"
+              show-icon
+              message="无法在本组别报名"
+              :description="enrollBlockedByOtherDivisionDescription"
+              style="margin-bottom: 12px"
+            />
+            <a-alert
+              v-else-if="competitionEnrollPublishBlocked"
               type="warning"
               show-icon
               :message="competitionEnrollBlockedAlertTitle"
@@ -284,16 +299,6 @@
                   </a-form-item>
                 </a-col>
                 <a-col :xs="24" :sm="12">
-                  <a-form-item label="年级" :colon="false">
-                    <a-input
-                      v-model="enrollProfileForm.grade"
-                      placeholder="如 2023级，选填"
-                      :allow-clear="!enrollProfileLockedAfterSuccess"
-                      :disabled="enrollProfileLockedAfterSuccess"
-                    />
-                  </a-form-item>
-                </a-col>
-                <a-col :xs="24" :sm="12">
                   <a-form-item label="联系方式" :colon="false">
                     <a-input
                       v-model="enrollProfileForm.contact"
@@ -321,7 +326,7 @@
                 :loading="enrollLoading"
                 @click="handleEnrollIndividual"
                 v-if="enrollMode === 'individual'"
-                :disabled="competitionEnrollPublishBlocked || !allowIndividual || myEnrolledIndividual"
+                :disabled="competitionEnrollActionsDisabled || !allowIndividual || myEnrolledIndividual"
               >
                 {{ myEnrolledIndividual ? '个人已报名' : '报名个人' }}
               </a-button>
@@ -332,7 +337,7 @@
                   type="primary"
                   :loading="enrollLoading"
                   @click="handleCreateTeamOnly"
-                  :disabled="competitionEnrollPublishBlocked || !allowTeam || studentHasTeamForCurrentCompetition"
+                  :disabled="competitionEnrollActionsDisabled || !allowTeam || studentHasTeamForCurrentCompetition"
                   style="margin-right: 8px"
                 >
                   创建队伍（自动队长）
@@ -341,7 +346,7 @@
                   type="primary"
                   :loading="enrollLoading"
                   @click="handleEnrollWithTeam"
-                  :disabled="competitionEnrollPublishBlocked || !allowTeam || myEnrolledTeam || !teamEnrollmentEligible || !myTeamId || teamEnrollActionBlockedForMember"
+                  :disabled="competitionEnrollActionsDisabled || !allowTeam || myEnrolledTeam || !teamEnrollmentEligible || !myTeamId || teamEnrollActionBlockedForMember"
                 >
                   {{ myEnrolledTeam ? '队伍已报名' : '报名（队伍）' }}
                 </a-button>
@@ -369,11 +374,11 @@
                       :min="1"
                       placeholder="请输入队伍ID"
                       style="width: 180px"
-                      :disabled="competitionEnrollPublishBlocked || studentHasTeamForCurrentCompetition"
+                      :disabled="competitionEnrollActionsDisabled || studentHasTeamForCurrentCompetition"
                     />
                     <a-button
                       :loading="teamLoading"
-                      :disabled="competitionEnrollPublishBlocked || studentHasTeamForCurrentCompetition"
+                      :disabled="competitionEnrollActionsDisabled || studentHasTeamForCurrentCompetition"
                       @click="handleJoinTeam"
                     >
                       加入队伍
@@ -469,6 +474,22 @@
             title="作品提交"
             style="margin-top: 16px"
           >
+            <a-alert
+              v-if="competitionSubmissionBlocked"
+              type="warning"
+              show-icon
+              :message="competitionSubmissionBlockedTitle"
+              :description="competitionSubmissionBlockedDescription"
+              style="margin-bottom: 12px"
+            />
+            <a-alert
+              v-else-if="isActiveCompetitionDualDivision && activeViewDivision"
+              type="info"
+              show-icon
+              message="作品组别"
+              :description="`当前为${activeDivisionLabel}，提交的作品 division 将与本组别及您的报名一致。`"
+              style="margin-bottom: 12px"
+            />
             <a-form layout="vertical">
               <a-form-item label="作品标题" required>
                 <a-input v-model="submissionForm.title" placeholder="请输入作品标题" style="max-width: 520px" />
@@ -504,7 +525,12 @@
               </a-form-item>
 
               <div class="row">
-                <a-button type="primary" :loading="submitLoading" @click="handleSubmitSubmission">
+                <a-button
+                  type="primary"
+                  :loading="submitLoading"
+                  :disabled="submissionFormDisabled"
+                  @click="handleSubmitSubmission"
+                >
                   提交作品
                 </a-button>
                 <a-button style="margin-left: 8px" @click="refreshMySubmissions" :loading="submissionsLoading">
@@ -541,7 +567,14 @@
                   </a-tag>
                 </div>
                 <div class="muted" style="margin-top: 6px">
-                  提交时间：{{ formatDateTime(s.submitted_at) }}
+                  <span>提交时间：{{ formatDateTime(s.submitted_at) }}</span>
+                  <a-tag
+                    v-if="submissionDivisionLabel(s)"
+                    color="blue"
+                    style="margin-left: 8px"
+                  >
+                    {{ submissionDivisionLabel(s) }}
+                  </a-tag>
                 </div>
                 <div class="row" style="margin-top: 10px">
                   <a-button size="small" :disabled="!s.id" @click="downloadSubmission(s.id)">
@@ -558,14 +591,29 @@
         <div v-else-if="showAdvisorTeamPanel">
           <a-card size="small" class="sub-card" :bordered="true" title="组班与队务（指导老师）" style="margin-top: 16px">
             <a-alert
-              v-if="competitionTeamCreateInviteBlocked"
+              v-if="advisorTeamBlockedByOtherDivision"
+              type="warning"
+              show-icon
+              message="无法在本组别组班"
+              :description="advisorTeamBlockedByOtherDivisionDescription"
+              style="margin-bottom: 12px"
+            />
+            <a-alert
+              v-else-if="competitionTeamCreateInviteBlocked"
               type="warning"
               show-icon
               message="当前不可新建队伍或邀请队员"
               :description="competitionTeamCreateInviteBlockedDescription"
               style="margin-bottom: 12px"
             />
-            
+            <a-alert
+              v-if="isActiveCompetitionDualDivision && activeViewDivision && !advisorTeamBlockedByOtherDivision"
+              type="info"
+              show-icon
+              message="组别说明"
+              :description="`当前为${activeDivisionLabel}详情页；建队与邀请队员仅限本组别学生，不可跨本科/高职混组。`"
+              style="margin-bottom: 12px"
+            />
 
             <a-divider orientation="left">创建队伍</a-divider>
             <a-form layout="vertical" style="max-width: 720px">
@@ -575,7 +623,7 @@
                     <a-input
                       v-model="advisorCreateForm.name"
                       placeholder="如：一班代表队"
-                      :disabled="competitionTeamCreateInviteBlocked || !allowTeam"
+                      :disabled="advisorTeamActionsDisabled || !allowTeam"
                     />
                   </a-form-item>
                 </a-col>
@@ -586,7 +634,7 @@
                       :min="1"
                       placeholder="默认同队员列表首人"
                       style="width: 100%"
-                      :disabled="competitionTeamCreateInviteBlocked || !allowTeam"
+                      :disabled="advisorTeamActionsDisabled || !allowTeam"
                     />
                   </a-form-item>
                 </a-col>
@@ -595,7 +643,7 @@
                     <a-input
                       v-model="advisorCreateForm.initial_member_ids_text"
                       placeholder="如：7,8,9"
-                      :disabled="competitionTeamCreateInviteBlocked || !allowTeam"
+                      :disabled="advisorTeamActionsDisabled || !allowTeam"
                     />
                   </a-form-item>
                 </a-col>
@@ -603,7 +651,7 @@
               <a-button
                 type="primary"
                 :loading="advisorCreateLoading"
-                :disabled="competitionTeamCreateInviteBlocked || !allowTeam || !activeCompetitionId"
+                :disabled="advisorTeamActionsDisabled || !allowTeam || !activeCompetitionId"
                 @click="handleAdvisorCreateTeam"
               >
                 创建队伍并拉入队员
@@ -620,7 +668,10 @@
                 刷新队伍列表
               </a-button>
             </div>
-            <a-empty v-if="!advisorTeamsLoading && advisorTeams.length === 0" description="暂无队伍，请先创建或刷新" />
+            <a-empty
+              v-if="!advisorTeamsLoading && advisorTeamsForCurrentView.length === 0"
+              :description="advisorTeamBlockedByOtherDivision ? '您已在另一组别组班，请从对应组别详情页管理队伍' : '暂无本组别队伍，请先创建或刷新'"
+            />
             <a-table
               v-else
               class="advisor-teams-table"
@@ -689,14 +740,14 @@
                       :min="1"
                       placeholder=""
                       style="width: 180px"
-                      :disabled="!canOperateAdvisorSelectedTeam || competitionTeamCreateInviteBlocked"
+                      :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled"
                     />
                   </a-form-item>
                   <a-form-item>
                     <a-button
                       type="primary"
                       :loading="advisorTeamOpLoading"
-                      :disabled="!canOperateAdvisorSelectedTeam || competitionTeamCreateInviteBlocked || !advisorInviteStudentId"
+                      :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled || !advisorInviteStudentId"
                       @click="handleAdvisorInviteMember"
                     >
                       邀请入队
@@ -732,6 +783,13 @@
                 当前队伍非您创建且您无队务权限，仅可查看；改队名、邀请队员需由建队老师或队长操作。
               </p>
               <p
+                v-else-if="advisorTeamBlockedByOtherDivision"
+                class="muted advisor-manage-team-hint"
+                style="margin: 8px 0 0; font-size: 13px"
+              >
+                {{ advisorTeamBlockedByOtherDivisionDescription }}
+              </p>
+              <p
                 v-else-if="competitionTeamCreateInviteBlocked"
                 class="muted advisor-manage-team-hint"
                 style="margin: 8px 0 0; font-size: 13px"
@@ -765,12 +823,12 @@
             size="small"
             class="sub-card"
             :bordered="true"
-            title="作品列表（竞赛维度）"
+            :title="adminSubmissionsPanelTitle"
             style="margin-top: 16px"
           >
             <div style="display: flex; justify-content: flex-end; margin-bottom: 8px">
               <a-button :loading="adminSubmissionsLoading" :disabled="!activeCompetitionId" @click="refreshAdminSubmissions">
-                刷新该竞赛全部作品
+                {{ adminSubmissionsRefreshLabel }}
               </a-button>
             </div>
             <p
@@ -797,6 +855,13 @@
                 </div>
                 <div class="submission-meta muted" style="margin-top: 6px">
                   <span>提交ID：{{ s.id }}</span>
+                  <a-tag
+                    v-if="submissionDivisionLabel(s)"
+                    color="blue"
+                    style="margin-left: 8px"
+                  >
+                    {{ submissionDivisionLabel(s) }}
+                  </a-tag>
                   <span style="margin-left: 12px">队伍ID：{{ s.team_id != null ? s.team_id : '-' }}</span>
                   <span style="margin-left: 12px">学生ID：{{ s.student_id != null ? s.student_id : '-' }}</span>
                   <span style="margin-left: 12px">提交人ID：{{ s.submitter_id != null ? s.submitter_id : '-' }}</span>
@@ -949,7 +1014,15 @@
     >
       <div class="standalone-modal-scroll">
         <a-alert
-          v-if="competitionEnrollPublishBlocked"
+          v-if="enrollBlockedByOtherDivision"
+          type="warning"
+          show-icon
+          message="无法在本组别报名"
+          :description="enrollBlockedByOtherDivisionDescription"
+          style="margin-bottom: 12px"
+        />
+        <a-alert
+          v-else-if="competitionEnrollPublishBlocked"
           type="warning"
           show-icon
           :message="competitionEnrollBlockedAlertTitle"
@@ -958,7 +1031,7 @@
         />
         <a-form layout="inline" :style="{ marginBottom: '12px' }">
           <a-form-item label="参赛方式">
-            <a-radio-group v-model="enrollMode">
+            <a-radio-group v-model="enrollMode" :disabled="enrollBlockedByOtherDivision">
               <a-radio-button value="individual" :disabled="!allowIndividual">个人参赛</a-radio-button>
               <a-radio-button value="team" :disabled="!allowTeam">队伍参赛</a-radio-button>
             </a-radio-group>
@@ -999,16 +1072,6 @@
               </a-form-item>
             </a-col>
             <a-col :xs="24" :sm="12">
-              <a-form-item label="年级" :colon="false">
-                <a-input
-                  v-model="enrollProfileForm.grade"
-                  placeholder="如 2023级，选填"
-                  :allow-clear="!enrollProfileLockedAfterSuccess"
-                  :disabled="enrollProfileLockedAfterSuccess"
-                />
-              </a-form-item>
-            </a-col>
-            <a-col :xs="24" :sm="12">
               <a-form-item label="联系方式" :colon="false">
                 <a-input
                   v-model="enrollProfileForm.contact"
@@ -1036,7 +1099,7 @@
             :loading="enrollLoading"
             @click="handleEnrollIndividual"
             v-if="enrollMode === 'individual'"
-            :disabled="competitionEnrollPublishBlocked || !allowIndividual || myEnrolledIndividual"
+            :disabled="competitionEnrollActionsDisabled || !allowIndividual || myEnrolledIndividual"
           >
             {{ myEnrolledIndividual ? '个人已报名' : '报名个人' }}
           </a-button>
@@ -1047,7 +1110,7 @@
               type="primary"
               :loading="enrollLoading"
               @click="handleCreateTeamOnly"
-              :disabled="competitionEnrollPublishBlocked || !allowTeam || studentHasTeamForCurrentCompetition"
+              :disabled="competitionEnrollActionsDisabled || !allowTeam || studentHasTeamForCurrentCompetition"
               style="margin-right: 8px"
             >
               创建队伍（自动队长）
@@ -1056,7 +1119,7 @@
               type="primary"
               :loading="enrollLoading"
               @click="handleEnrollWithTeam"
-              :disabled="competitionEnrollPublishBlocked || !allowTeam || myEnrolledTeam || !teamEnrollmentEligible || !myTeamId || teamEnrollActionBlockedForMember"
+              :disabled="competitionEnrollActionsDisabled || !allowTeam || myEnrolledTeam || !teamEnrollmentEligible || !myTeamId || teamEnrollActionBlockedForMember"
             >
               {{ myEnrolledTeam ? '队伍已报名' : '报名（队伍）' }}
             </a-button>
@@ -1085,11 +1148,11 @@
                   :min="1"
                   placeholder="请输入队伍ID"
                   style="width: 180px"
-                  :disabled="competitionEnrollPublishBlocked || studentHasTeamForCurrentCompetition"
+                  :disabled="competitionEnrollActionsDisabled || studentHasTeamForCurrentCompetition"
                 />
                 <a-button
                   :loading="teamLoading"
-                  :disabled="competitionEnrollPublishBlocked || studentHasTeamForCurrentCompetition"
+                  :disabled="competitionEnrollActionsDisabled || studentHasTeamForCurrentCompetition"
                   @click="handleJoinTeam"
                 >
                   加入队伍
@@ -1179,6 +1242,14 @@
         <template v-if="hasAnyEnrollment && showSubmissionPanelInEnrollView">
           <a-divider />
           <h4 class="standalone-modal-section-title">作品提交</h4>
+          <a-alert
+            v-if="competitionSubmissionBlocked"
+            type="warning"
+            show-icon
+            :message="competitionSubmissionBlockedTitle"
+            :description="competitionSubmissionBlockedDescription"
+            style="margin-bottom: 12px"
+          />
           <p v-if="enrollModalSubmissionLocked" class="muted" style="margin: 0 0 12px; font-size: 13px">
             当前{{ submissionMode === 'team' ? '队伍' : '个人' }}赛道在本报名周期已提交作品，无法再次提交。退赛后重新报名须提交新作品；可在「作品」弹窗查看历史记录。
           </p>
@@ -1191,7 +1262,7 @@
                 v-model="submissionForm.title"
                 placeholder="请输入作品标题"
                 style="max-width: 520px"
-                :disabled="enrollModalSubmissionLocked"
+                :disabled="submissionFormDisabled"
               />
             </a-form-item>
             <a-form-item label="作品描述">
@@ -1200,7 +1271,7 @@
                 :rows="3"
                 placeholder="选填"
                 style="max-width: 520px"
-                :disabled="enrollModalSubmissionLocked"
+                :disabled="submissionFormDisabled"
               />
             </a-form-item>
             <a-form-item label="文本内容（选填，与文件二选一至少一个）">
@@ -1209,11 +1280,11 @@
                 :rows="4"
                 placeholder="选填"
                 style="max-width: 520px"
-                :disabled="enrollModalSubmissionLocked"
+                :disabled="submissionFormDisabled"
               />
             </a-form-item>
             <a-form-item label="文件（选填，支持上传；与文本至少一个）">
-              <input type="file" :disabled="enrollModalSubmissionLocked" @change="handleFileChange" />
+              <input type="file" :disabled="submissionFormDisabled" @change="handleFileChange" />
               <div v-if="submissionForm.file" class="muted" style="margin-top: 6px">
                 已选择：{{ submissionForm.file.name }}
               </div>
@@ -1222,7 +1293,7 @@
             <a-form-item label="提交类型">
               <a-radio-group
                 v-model="submissionMode"
-                :disabled="enrollModalSubmissionLocked"
+                :disabled="submissionFormDisabled"
                 @change="onSubmissionModeChange"
               >
                 <a-radio-button value="individual" :disabled="!myEnrolledIndividual || !allowIndividual">个人提交</a-radio-button>
@@ -1234,7 +1305,7 @@
               <a-button
                 type="primary"
                 :loading="submitLoading"
-                :disabled="enrollModalSubmissionLocked"
+                :disabled="submissionFormDisabled"
                 @click="handleSubmitSubmission"
               >
                 提交作品
@@ -1243,7 +1314,7 @@
           </a-form>
         </template>
         <a-alert
-          v-else-if="myEnrolledTeam && enrollMode === 'team' && !isCurrentTeamCaptain"
+          v-else-if="!enrollBlockedByOtherDivision && myEnrolledTeam && enrollMode === 'team' && !isCurrentTeamCaptain"
           type="info"
           show-icon
           message="当前账号为队员，只有队长可以提交队伍作品"
@@ -1290,7 +1361,14 @@
               </a-tag>
             </div>
             <div class="muted" style="margin-top: 6px">
-              提交时间：{{ formatDateTime(s.submitted_at) }}
+              <span>提交时间：{{ formatDateTime(s.submitted_at) }}</span>
+              <a-tag
+                v-if="submissionDivisionLabel(s)"
+                color="blue"
+                style="margin-left: 8px"
+              >
+                {{ submissionDivisionLabel(s) }}
+              </a-tag>
             </div>
             <div class="row" style="margin-top: 10px">
               <a-button size="small" :disabled="!s.id" @click="downloadSubmission(s.id)">
@@ -1325,7 +1403,29 @@
         <a-form-item label="规则说明" required>
           <a-textarea v-model="createCompetitionForm.rules_text" :rows="4" placeholder="必填" />
         </a-form-item>
+        <a-form-item label="学历组别">
+          <a-radio-group
+            v-model="createCompetitionForm.division_mode"
+            @change="onCreateDivisionModeChange"
+          >
+            <a-radio value="single">不分本科/高职（默认）</a-radio>
+            <a-radio value="dual">分本科组、高职组</a-radio>
+          </a-radio-group>
+        </a-form-item>
         <a-form-item
+          v-if="createCompetitionForm.division_mode === 'dual'"
+          label="二维码策略"
+        >
+          <a-radio-group
+            v-model="createCompetitionForm.qr_layout"
+            @change="onCreateQrLayoutChange"
+          >
+            <a-radio value="shared">本科与高职共用一张</a-radio>
+            <a-radio value="separate">本科、高职各一张</a-radio>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item
+          v-if="createCompetitionNeedsSharedQr"
           label="竞赛二维码"
           required
           extra="必填；png / jpeg / gif / webp，单张不超过 5MB。将检测图片中是否包含可读二维码。"
@@ -1346,6 +1446,50 @@
             </div>
           </a-upload>
         </a-form-item>
+        <template v-if="createCompetitionNeedsSeparateQr">
+          <a-form-item
+            label="本科组二维码"
+            required
+            extra="必填；png / jpeg / gif / webp，单张不超过 5MB。"
+          >
+            <a-upload
+              list-type="picture-card"
+              class="create-competition-qr-upload"
+              accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,.png,.jpg,.jpeg,.gif,.webp"
+              :file-list="qrCodeUndergraduateFileList"
+              :before-upload="beforeQrCodeUndergraduateUpload"
+              :disabled="qrCodeUndergraduateValidating"
+              :show-upload-list="{ showPreviewIcon: true, showRemoveIcon: true }"
+              @remove="handleQrCodeUndergraduateRemove"
+            >
+              <div v-if="qrCodeUndergraduateFileList.length < 1">
+                <a-icon :type="qrCodeUndergraduateValidating ? 'loading' : 'plus'" />
+                <div class="ant-upload-text">{{ qrCodeUndergraduateValidating ? '校验中…' : '上传本科组' }}</div>
+              </div>
+            </a-upload>
+          </a-form-item>
+          <a-form-item
+            label="高职组二维码"
+            required
+            extra="必填；png / jpeg / gif / webp，单张不超过 5MB。"
+          >
+            <a-upload
+              list-type="picture-card"
+              class="create-competition-qr-upload"
+              accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,.png,.jpg,.jpeg,.gif,.webp"
+              :file-list="qrCodeVocationalFileList"
+              :before-upload="beforeQrCodeVocationalUpload"
+              :disabled="qrCodeVocationalValidating"
+              :show-upload-list="{ showPreviewIcon: true, showRemoveIcon: true }"
+              @remove="handleQrCodeVocationalRemove"
+            >
+              <div v-if="qrCodeVocationalFileList.length < 1">
+                <a-icon :type="qrCodeVocationalValidating ? 'loading' : 'plus'" />
+                <div class="ant-upload-text">{{ qrCodeVocationalValidating ? '校验中…' : '上传高职组' }}</div>
+              </div>
+            </a-upload>
+          </a-form-item>
+        </template>
         <a-form-item label="开始时间">
           <a-input type="datetime-local" v-model="createCompetitionForm.start_at" />
         </a-form-item>
@@ -1374,7 +1518,7 @@
         <a-alert
           type="info"
           show-icon
-          message="仅提交有变化的文本字段；不上传新二维码则保留当前二维码。"
+          message="仅提交有变化的文本字段；未上传的二维码文件不替换。修改学历组别/二维码策略时请与实际上传的二维码字段一致。"
           style="margin-bottom: 16px"
         />
         <a-form-item label="竞赛ID">
@@ -1393,36 +1537,110 @@
           <a-textarea v-model="editCompetitionForm.rules_text" :rows="4" placeholder="修改后保存；与当前一致则不提交" />
         </a-form-item>
 
+        <a-form-item label="学历组别">
+          <a-radio-group
+            v-model="editCompetitionForm.division_mode"
+            @change="onEditDivisionModeChange"
+          >
+            <a-radio value="single">不分本科/高职</a-radio>
+            <a-radio value="dual">分本科组、高职组</a-radio>
+          </a-radio-group>
+        </a-form-item>
         <a-form-item
-          label="竞赛二维码"
-          extra="上传新图将替换当前二维码。png / jpeg / gif / webp，单张不超过 5MB，须包含可识别二维码（与创建竞赛相同校验）。"
+          v-if="editCompetitionForm.division_mode === 'dual'"
+          label="二维码策略"
         >
+          <a-radio-group
+            v-model="editCompetitionForm.qr_layout"
+            @change="onEditQrLayoutChange"
+          >
+            <a-radio value="shared">本科与高职共用一张</a-radio>
+            <a-radio value="separate">本科、高职各一张</a-radio>
+          </a-radio-group>
+        </a-form-item>
+
+        <a-form-item label="当前二维码">
           <a-spin :spinning="editCurrentQrLoading" size="small">
-            <div v-if="editCurrentQrObjectUrl" class="edit-competition-current-qr">
-              <div class="edit-competition-qr-label">当前竞赛二维码</div>
-              <img :src="editCurrentQrObjectUrl" alt="当前竞赛二维码" class="edit-competition-current-qr__img" />
+            <div
+              v-for="p in editCurrentQrPreviews"
+              :key="p.key"
+              class="edit-competition-current-qr"
+            >
+              <div class="edit-competition-qr-label">{{ p.label }}</div>
+              <img :src="p.url" :alt="p.label" class="edit-competition-current-qr__img" />
             </div>
-            <div v-else-if="!editCurrentQrLoading" class="muted edit-competition-qr-empty">暂无二维码图片</div>
+            <div
+              v-if="!editCurrentQrLoading && editCurrentQrPreviews.length === 0"
+              class="muted edit-competition-qr-empty"
+            >
+              暂无二维码图片
+            </div>
           </a-spin>
-          <div class="edit-competition-qr-replace">
-            <div class="edit-competition-qr-label">上传新二维码（选填）</div>
+        </a-form-item>
+
+        <a-form-item
+          v-if="editCompetitionNeedsSharedQr"
+          label="上传共用二维码（选填）"
+          extra="上传新图将替换当前共用二维码。png / jpeg / gif / webp，单张不超过 5MB，须包含可识别二维码。"
+        >
+          <a-upload
+            list-type="picture-card"
+            class="create-competition-qr-upload"
+            accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,.png,.jpg,.jpeg,.gif,.webp"
+            :file-list="editQrCodeFileList"
+            :before-upload="beforeEditQrCodeUpload"
+            :disabled="editQrCodeValidating"
+            :show-upload-list="{ showPreviewIcon: true, showRemoveIcon: true }"
+            @remove="handleEditQrCodeRemove"
+          >
+            <div v-if="editQrCodeFileList.length < 1">
+              <a-icon :type="editQrCodeValidating ? 'loading' : 'plus'" />
+              <div class="ant-upload-text">{{ editQrCodeValidating ? '校验中…' : '选择图片' }}</div>
+            </div>
+          </a-upload>
+        </a-form-item>
+        <template v-if="editCompetitionNeedsSeparateQr">
+          <a-form-item
+            label="上传本科组二维码（选填）"
+            extra="可只传其中一张以单独替换。png / jpeg / gif / webp，单张不超过 5MB。"
+          >
             <a-upload
               list-type="picture-card"
               class="create-competition-qr-upload"
               accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,.png,.jpg,.jpeg,.gif,.webp"
-              :file-list="editQrCodeFileList"
-              :before-upload="beforeEditQrCodeUpload"
-              :disabled="editQrCodeValidating"
+              :file-list="editQrCodeUndergraduateFileList"
+              :before-upload="beforeEditQrCodeUndergraduateUpload"
+              :disabled="editQrCodeUndergraduateValidating"
               :show-upload-list="{ showPreviewIcon: true, showRemoveIcon: true }"
-              @remove="handleEditQrCodeRemove"
+              @remove="handleEditQrCodeUndergraduateRemove"
             >
-              <div v-if="editQrCodeFileList.length < 1">
-                <a-icon :type="editQrCodeValidating ? 'loading' : 'plus'" />
-                <div class="ant-upload-text">{{ editQrCodeValidating ? '校验中…' : '选择图片' }}</div>
+              <div v-if="editQrCodeUndergraduateFileList.length < 1">
+                <a-icon :type="editQrCodeUndergraduateValidating ? 'loading' : 'plus'" />
+                <div class="ant-upload-text">{{ editQrCodeUndergraduateValidating ? '校验中…' : '本科组' }}</div>
               </div>
             </a-upload>
-          </div>
-        </a-form-item>
+          </a-form-item>
+          <a-form-item
+            label="上传高职组二维码（选填）"
+            extra="可只传其中一张以单独替换。png / jpeg / gif / webp，单张不超过 5MB。"
+          >
+            <a-upload
+              list-type="picture-card"
+              class="create-competition-qr-upload"
+              accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,.png,.jpg,.jpeg,.gif,.webp"
+              :file-list="editQrCodeVocationalFileList"
+              :before-upload="beforeEditQrCodeVocationalUpload"
+              :disabled="editQrCodeVocationalValidating"
+              :show-upload-list="{ showPreviewIcon: true, showRemoveIcon: true }"
+              @remove="handleEditQrCodeVocationalRemove"
+            >
+              <div v-if="editQrCodeVocationalFileList.length < 1">
+                <a-icon :type="editQrCodeVocationalValidating ? 'loading' : 'plus'" />
+                <div class="ant-upload-text">{{ editQrCodeVocationalValidating ? '校验中…' : '高职组' }}</div>
+              </div>
+            </a-upload>
+          </a-form-item>
+        </template>
 
         <a-form-item label="开始时间">
           <a-input type="datetime-local" v-model="editCompetitionForm.start_at" />
@@ -1556,12 +1774,38 @@
         bordered
       />
     </a-modal>
+
+    <!-- 双组别竞赛：选择本科组 / 高职组后进入对应详情（§8.7 division 由详情页隐式带入报名） -->
+    <a-modal
+      :visible="showDivisionPickModal"
+      title="选择组别查看详情"
+      :footer="null"
+      :maskClosable="!standaloneDetailMode"
+      :closable="!standaloneDetailMode"
+      :keyboard="!standaloneDetailMode"
+      :get-container="divisionPickModalGetContainer"
+      width="420px"
+      @cancel="onDivisionPickModalCancel"
+    >
+      <p class="division-pick-modal__hint">
+        竞赛「{{ divisionPickCompetitionName }}」分<strong>本科组</strong>与<strong>高职组</strong>，请选择要查看的组别。报名与作品提交均在该组别下进行，且不可跨组重复报名。
+      </p>
+      <div class="division-pick-modal__actions">
+        <a-button type="primary" size="large" block @click="confirmDivisionPick('undergraduate')">
+          本科组 · 查看详情
+        </a-button>
+        <a-button type="primary" size="large" block class="division-pick-modal__btn-second" @click="confirmDivisionPick('vocational')">
+          高职组 · 查看详情
+        </a-button>
+      </div>
+    </a-modal>
   </div>
 </template>
 
 <script>
 import {
   getCompetitions,
+  getCompetition,
   createCompetitionMultipart,
   publishCompetition,
   updateCompetition,
@@ -1598,6 +1842,14 @@ import {
 import { validateImageContainsQrCode } from '@/utils/qrImageValidate'
 import {
   markCompetitionWithdrawnForResubmit,
+  saveCompetitionEnrollmentDivision,
+  resolveEnrollmentDivision,
+  resolveTeamDivision,
+  getCompetitionEnrollmentDivision,
+  saveCompetitionTeamDivision,
+  getCompetitionTeamDivision,
+  divisionToLabel,
+  getEnrollmentScope as getEnrollmentScopeUtil,
   getCompetitionWithdrawSubmissionCutoff,
   clearCompetitionWithdrawSubmissionCutoff,
   isWithdrawnOrSupersededSubmission as isWithdrawnSubmissionRow,
@@ -1605,6 +1857,7 @@ import {
   splitEnrollmentsByTrack,
   filterAdminSubmissionsByActiveEnrollments,
   filterSubmissionsForEnrollmentTrack,
+  filterSubmissionsByViewDivision,
   normalizeCompetitionApiList,
   saveSubmissionReviewGradeCache,
   getSubmissionReviewGradeCache
@@ -1635,6 +1888,11 @@ export default {
     initialCompetitionId: {
       type: [Number, String],
       default: null
+    },
+    /** dual 竞赛详情：undergraduate | vocational（来自路由 query，报名接口隐式携带） */
+    initialViewDivision: {
+      type: String,
+      default: null
     }
   },
   data () {
@@ -1663,7 +1921,6 @@ export default {
         student_no: '',
         real_name: '',
         college: '',
-        grade: '',
         contact: ''
       },
 
@@ -1688,6 +1945,8 @@ export default {
       myEnrolledIndividual: false,
       myEnrolledTeam: false,
       activeCompetitionEnrollmentRows: { individual: null, team: null },
+      /** 本竞赛已有效报名所属的学历组别（undergraduate | vocational），跨组详情页禁止再报名 */
+      activeCompetitionEnrolledDivision: null,
       /** 退赛后忽略此前作品的时间戳（接口未带 enrollment_id 时用于区分旧作品） */
       ignoreSubmissionsBeforeReenrollAt: null,
       withdrawLoading: false,
@@ -1708,6 +1967,11 @@ export default {
       advisorInviteStudentId: null,
       /** 本会话内由当前老师创建的队伍 ID（列表未带 created_by_advisor_id 时仍可管理） */
       advisorCreatedTeamIds: [],
+      /** 本竞赛下当前老师已组班所属的学历组别（dual 时跨组禁止再建队/邀请） */
+      activeCompetitionAdvisorTeamDivision: null,
+      /** 参赛者 user_id → division（邀请队员时校验同组别） */
+      studentDivisionByUserId: null,
+      studentDivisionIndexCompetitionId: null,
 
       submissionMode: 'individual',
       submissionForm: {
@@ -1728,8 +1992,14 @@ export default {
       showStandaloneEnrollModal: false,
       showStandaloneMyWorksModal: false,
 
-      /** 学生独立详情「赛题说明」侧栏二维码（Blob URL，须 beforeDestroy revoke） */
+      /** 学生独立详情「赛题说明」侧栏二维码（远程 URL 或 Blob URL） */
+      studentBriefingQrRemoteUrl: '',
       studentBriefingQrObjectUrl: null,
+
+      /** dual 竞赛：当前详情页所属组别（undergraduate | vocational） */
+      activeViewDivision: null,
+      showDivisionPickModal: false,
+      divisionPickTarget: null,
 
       // 教师/管理员
       adminCreateLoading: false,
@@ -1741,12 +2011,22 @@ export default {
         start_at: '',
         end_at: '',
         allow_individual: true,
-        allow_team: true
+        allow_team: true,
+        division_mode: 'single',
+        qr_layout: 'shared'
       },
       createCompetitionQrFile: null,
+      createCompetitionQrUndergraduateFile: null,
+      createCompetitionQrVocationalFile: null,
       qrCodeFileList: [],
+      qrCodeUndergraduateFileList: [],
+      qrCodeVocationalFileList: [],
       qrCodeValidating: false,
+      qrCodeUndergraduateValidating: false,
+      qrCodeVocationalValidating: false,
       createQrBlobUrl: null,
+      createQrUndergraduateBlobUrl: null,
+      createQrVocationalBlobUrl: null,
       publishCompetitionId: null,
       publishLoading: false,
 
@@ -1761,14 +2041,24 @@ export default {
         start_at: '',
         end_at: '',
         allow_individual: false,
-        allow_team: false
+        allow_team: false,
+        division_mode: 'single',
+        qr_layout: 'shared'
       },
       editCompetitionOriginal: null,
       editCompetitionQrFile: null,
+      editCompetitionQrUndergraduateFile: null,
+      editCompetitionQrVocationalFile: null,
       editQrCodeFileList: [],
+      editQrCodeUndergraduateFileList: [],
+      editQrCodeVocationalFileList: [],
       editQrCodeValidating: false,
+      editQrCodeUndergraduateValidating: false,
+      editQrCodeVocationalValidating: false,
       editQrBlobUrl: null,
-      editCurrentQrObjectUrl: null,
+      editQrUndergraduateBlobUrl: null,
+      editQrVocationalBlobUrl: null,
+      editCurrentQrPreviews: [],
       editCurrentQrLoading: false,
 
       adminDeleteLoading: false,
@@ -1786,6 +2076,7 @@ export default {
 
       participantsIndividualTableColumns: [
         { title: '序号', dataIndex: 'sequence_no', key: 'sequence_no', width: 80 },
+        { title: '组别', dataIndex: 'division_label', key: 'division_label', width: 88 },
         { title: '报名ID', dataIndex: 'enrollment_id', key: 'enrollment_id', width: 110 },
         { title: '学号', dataIndex: 'student_no', key: 'student_no', width: 120 },
         { title: '姓名', dataIndex: 'full_name', key: 'full_name', width: 110, ellipsis: true },
@@ -1798,6 +2089,7 @@ export default {
 
       participantsTeamsTableColumns: [
         { title: '队伍序号', dataIndex: 'sequence_no', key: 'sequence_no', width: 100 },
+        { title: '组别', dataIndex: 'division_label', key: 'division_label', width: 88 },
         { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 90 },
         { title: '队长', dataIndex: 'captain_name', key: 'captain_name', width: 140, ellipsis: true },
         { title: '成员', dataIndex: 'members_summary', key: 'members_summary', ellipsis: true },
@@ -1941,6 +2233,28 @@ export default {
       const roles = this.$store.getters.roles || []
       return roles.includes('super_admin')
     },
+    createCompetitionNeedsSharedQr () {
+      const mode = this.createCompetitionForm.division_mode || 'single'
+      if (mode !== 'dual') return true
+      return (this.createCompetitionForm.qr_layout || 'shared') === 'shared'
+    },
+    createCompetitionNeedsSeparateQr () {
+      return (
+        this.createCompetitionForm.division_mode === 'dual' &&
+        this.createCompetitionForm.qr_layout === 'separate'
+      )
+    },
+    editCompetitionNeedsSharedQr () {
+      const mode = this.editCompetitionForm.division_mode || 'single'
+      if (mode !== 'dual') return true
+      return (this.editCompetitionForm.qr_layout || 'shared') === 'shared'
+    },
+    editCompetitionNeedsSeparateQr () {
+      return (
+        this.editCompetitionForm.division_mode === 'dual' &&
+        this.editCompetitionForm.qr_layout === 'separate'
+      )
+    },
     canViewCompetitionSubmissions () {
       if (this.isUsingAltIdentity) {
         if (this.isSuperAdmin) return true
@@ -1960,7 +2274,9 @@ export default {
     },
     canViewParticipantsRoster () {
       if (this.isUsingAltIdentity) {
-        return this.isSuperAdmin
+        if (this.isSuperAdmin) return true
+        if (this.isAdvisorOrTeacher && hasAltPermission('MANAGE_TEAMS')) return true
+        return this.isExpertAssignedToActiveCompetition
       }
       const roles = this.$store.getters.roles || []
       return roles.includes('super_admin')
@@ -2082,6 +2398,7 @@ export default {
       return this.studentCreatedTeamInCurrentCompetition || this.isCurrentTeamCaptain
     },
     showSubmissionPanelInEnrollView () {
+      if (this.enrollBlockedByOtherDivision) return false
       const enrolledForCurrentMode = this.enrollMode === 'team'
         ? this.myEnrolledTeam
         : this.myEnrolledIndividual
@@ -2113,9 +2430,24 @@ export default {
       if (!this.hasAnyEnrollment) return false
       return this.mySubmissionsForCurrentEnrollment.length > 0
     },
+    adminSubmissionsPanelTitle () {
+      if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
+        return `作品列表（${this.activeDivisionLabel}）`
+      }
+      return '作品列表（竞赛维度）'
+    },
+    adminSubmissionsRefreshLabel () {
+      if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
+        return `刷新${this.activeDivisionLabel}作品`
+      }
+      return '刷新该竞赛全部作品'
+    },
     adminSubmissionsEmptyDescription () {
       if (this.adminSubmissionsHiddenByWithdrawCount > 0) {
         return `当前无有效作品（已隐藏 ${this.adminSubmissionsHiddenByWithdrawCount} 条退赛前的作品，仅展示重新报名后提交的作品）`
+      }
+      if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
+        return `暂无${this.activeDivisionLabel}作品，请点击「${this.adminSubmissionsRefreshLabel}」`
       }
       return '暂无作品数据，请先选择竞赛并点击「刷新该竞赛全部作品」'
     },
@@ -2165,6 +2497,67 @@ export default {
       if (p == null || String(p).trim() === '') return ''
       return String(p).trim()
     },
+    divisionPickCompetitionName () {
+      const c = this.divisionPickTarget || this.activeCompetition
+      return (c && c.name) ? c.name : '该竞赛'
+    },
+    isActiveCompetitionDualDivision () {
+      return this.isCompetitionDualDivision(this.activeCompetition)
+    },
+    activeDivisionLabel () {
+      if (!this.activeViewDivision) return ''
+      return this.activeViewDivision === 'vocational' ? '高职组' : '本科组'
+    },
+    enrollDivisionForApi () {
+      if (!this.isActiveCompetitionDualDivision) return null
+      return this.activeViewDivision
+    },
+    /** 已在另一学历组别报名，当前详情页组别下禁止报名（个人/组队均不可） */
+    enrollBlockedByOtherDivision () {
+      if (!this.isActiveCompetitionDualDivision || !this.activeViewDivision) return false
+      if (!this.activeCompetitionEnrolledDivision) return false
+      return this.activeCompetitionEnrolledDivision !== this.activeViewDivision
+    },
+    enrollBlockedByOtherDivisionLabel () {
+      return divisionToLabel(this.activeCompetitionEnrolledDivision) || '另一组别'
+    },
+    enrollBlockedByOtherDivisionDescription () {
+      const enrolled = this.enrollBlockedByOtherDivisionLabel
+      const current = this.activeDivisionLabel || '当前组别'
+      return `您已在${enrolled}完成报名，不能跨组参加${current}。请从竞赛列表或「我报名的竞赛」进入${enrolled}详情继续操作。`
+    },
+    competitionEnrollActionsDisabled () {
+      return this.competitionEnrollPublishBlocked || this.enrollBlockedByOtherDivision
+    },
+    /** 老师已在另一学历组别组班，当前组别详情页禁止建队/邀请 */
+    advisorTeamBlockedByOtherDivision () {
+      if (!this.isActiveCompetitionDualDivision || !this.activeViewDivision) return false
+      if (!this.activeCompetitionAdvisorTeamDivision) return false
+      return this.activeCompetitionAdvisorTeamDivision !== this.activeViewDivision
+    },
+    advisorTeamBlockedByOtherDivisionLabel () {
+      return divisionToLabel(this.activeCompetitionAdvisorTeamDivision) || '另一组别'
+    },
+    advisorTeamBlockedByOtherDivisionDescription () {
+      const enrolled = this.advisorTeamBlockedByOtherDivisionLabel
+      const current = this.activeDivisionLabel || '当前组别'
+      return `您已在${enrolled}完成组班，不能跨组在${current}建队或邀请队员。请从竞赛列表进入${enrolled}详情继续队务操作。`
+    },
+    advisorTeamActionsDisabled () {
+      return this.competitionTeamCreateInviteBlocked || this.advisorTeamBlockedByOtherDivision
+    },
+    advisorTeamsForCurrentView () {
+      const list = this.advisorTeams || []
+      if (!this.isActiveCompetitionDualDivision || !this.activeViewDivision) return list
+      return list.filter(t => this.teamMatchesActiveViewDivision(t))
+    },
+    studentBriefingQrSrc () {
+      return this.studentBriefingQrRemoteUrl || this.studentBriefingQrObjectUrl || ''
+    },
+    studentBriefingQrAlt () {
+      const base = '赛事交流群二维码'
+      return this.activeDivisionLabel ? `${base}（${this.activeDivisionLabel}）` : base
+    },
     allowIndividual () {
       if (!this.activeCompetition) return true
       if (this.activeCompetition.allow_individual === false) return false
@@ -2195,6 +2588,27 @@ export default {
     },
     competitionEnrollBlockedAlertDescription () {
       return '暂无法报名；主办方发布竞赛或重新开放报名后即可重新报名。'
+    },
+    /** §8.16：draft 不可提交；published / closed（锁定报名后）可提交 */
+    competitionSubmissionBlocked () {
+      const c = this.activeCompetition
+      if (!c) return false
+      const s = c.status != null ? String(c.status).toLowerCase() : ''
+      if (s === 'draft') return true
+      if (s === 'published' || s === 'closed' || s === 'open') return false
+      return true
+    },
+    competitionSubmissionBlockedTitle () {
+      const c = this.activeCompetition
+      const s = c && c.status != null ? String(c.status).toLowerCase() : ''
+      return s === 'draft' ? '当前竞赛为草稿，无法提交作品' : '竞赛尚未发布，无法提交作品'
+    },
+    competitionSubmissionBlockedDescription () {
+      return '作品提交须在竞赛发布后进行；锁定报名（closed）后仍可提交作品。'
+    },
+    /** 报名弹窗/内联作品表单禁用（已提交锁定或竞赛不可提交） */
+    submissionFormDisabled () {
+      return this.enrollModalSubmissionLocked || this.competitionSubmissionBlocked
     },
     /** 停止报名：closed 或已过 end_at（与 §8.5 一致；退赛等仍可进行） */
     competitionEnrollmentClosed () {
@@ -2235,7 +2649,7 @@ export default {
       return ''
     },
     advisorTeamsTableData () {
-      return (this.advisorTeams || []).map(t => ({
+      return this.advisorTeamsForCurrentView.map(t => ({
         id: t.id,
         name: t.name != null && String(t.name).trim() !== '' ? String(t.name) : '—',
         captain_id: t.captain_id != null ? t.captain_id : '-',
@@ -2247,7 +2661,7 @@ export default {
     },
     advisorSelectedTeam () {
       if (this.advisorSelectedTeamId == null) return null
-      return (this.advisorTeams || []).find(t => Number(t.id) === Number(this.advisorSelectedTeamId)) || null
+      return this.advisorTeamsForCurrentView.find(t => Number(t.id) === Number(this.advisorSelectedTeamId)) || null
     },
     advisorSelectedTeamMembers () {
       const t = this.advisorSelectedTeam
@@ -2359,6 +2773,10 @@ export default {
       this.myEnrolledIndividual = false
       this.myEnrolledTeam = false
       this.activeCompetitionEnrollmentRows = { individual: null, team: null }
+      this.activeCompetitionEnrolledDivision = null
+      this.activeCompetitionAdvisorTeamDivision = null
+      this.studentDivisionByUserId = null
+      this.studentDivisionIndexCompetitionId = null
       this.ignoreSubmissionsBeforeReenrollAt = null
       if (this.enrollMode === 'individual') this.submissionMode = 'individual'
       if (this.enrollMode === 'team') this.submissionMode = 'team'
@@ -2384,8 +2802,31 @@ export default {
         this.adminSubmissions = []
       }
 
+      if (this.standaloneDetailMode) {
+        this.applyActiveViewDivisionFromRoute()
+        if (newId !== null && newId !== undefined && newId !== '') {
+          void this.ensureCompetitionDetail(newId).then(() => {
+            if (String(this.activeCompetitionId) !== String(newId)) return
+            this.syncDualDivisionContextAfterCompetitionSelect()
+            if (this.isStudent) void this.fetchStudentBriefingQr()
+          })
+        }
+      } else if (!this.isCompetitionDualDivision(this.activeCompetition)) {
+        this.activeViewDivision = null
+        this.$nextTick(() => this.syncDualDivisionContextAfterCompetitionSelect())
+      } else {
+        this.$nextTick(() => this.syncDualDivisionContextAfterCompetitionSelect())
+      }
+
       this.revokeStudentBriefingQrObjectUrl()
-      if (newId !== null && newId !== undefined && newId !== '' && this.isStudent && this.standaloneDetailMode) {
+      if (
+        newId !== null &&
+        newId !== undefined &&
+        newId !== '' &&
+        this.isStudent &&
+        this.standaloneDetailMode &&
+        !this.isCompetitionDualDivision(this.activeCompetition)
+      ) {
         void this.fetchStudentBriefingQr()
       }
 
@@ -2420,6 +2861,31 @@ export default {
       if (visible && this.standaloneDetailMode) {
         this.$nextTick(() => this.syncEnrollProfileDefaults())
       }
+    },
+    initialViewDivision (val) {
+      const div = this.normalizeViewDivision(val)
+      if (div === this.activeViewDivision) return
+      this.activeViewDivision = div
+      if (this.standaloneDetailMode && this.activeCompetitionId) {
+        void this.fetchStudentBriefingQr()
+        void this.refreshActiveCompetitionMyEnrollKind()
+      }
+      if (this.showAdvisorTeamPanel && this.activeCompetitionId) {
+        this.advisorSelectedTeamId = null
+        this.advisorRenameName = ''
+        this.advisorInviteStudentId = null
+        void this.refreshAdvisorTeams()
+      }
+      if (this.activeCompetitionId) {
+        if (this.isStudent) void this.refreshMySubmissions()
+        if (this.canViewCompetitionSubmissions) void this.refreshAdminSubmissions()
+        if (this.canViewScoreAnalytics && this.scoresSummary) {
+          void this.refreshScoresSummary(false)
+        }
+        if (this.canViewScoreAnalytics && this.showScoresRankingsModal) {
+          void this.refreshRankings()
+        }
+      }
     }
   },
   mounted () {
@@ -2434,6 +2900,10 @@ export default {
   beforeDestroy () {
     window.removeEventListener('alt-identity-changed', this.onAltIdentityChanged)
     this.revokeStudentBriefingQrObjectUrl()
+    this.revokeCreateQrPreviewUrls()
+    this.revokeEditCurrentQrPreviews()
+    this.clearEditSharedQrUpload()
+    this.clearEditSeparateQrUploads()
   },
   methods: {
     /** 与表格 row-key 一致，供勾选 selectedRowKeys 使用 */
@@ -2454,16 +2924,322 @@ export default {
       return String(record.id) === String(this.activeCompetitionId) ? 'competition-table-row-active' : ''
     },
 
-    openCompetitionDetailInNewTab (id) {
+    normalizeViewDivision (value) {
+      if (value === 'undergraduate' || value === 'vocational') return value
+      return null
+    },
+
+    findCompetitionById (id) {
+      if (id == null || id === '') return null
+      const sid = String(id)
+      return (
+        (this.competitions || []).find(c => String(c.id) === sid) ||
+        this.filteredCompetitions.find(c => String(c.id) === sid) ||
+        null
+      )
+    },
+
+    mergeCompetitionIntoList (detail) {
+      if (!detail || detail.id == null) return
+      const sid = String(detail.id)
+      const idx = (this.competitions || []).findIndex(c => String(c.id) === sid)
+      if (idx >= 0) {
+        this.$set(this.competitions, idx, { ...this.competitions[idx], ...detail })
+      } else {
+        this.competitions = [...(this.competitions || []), detail]
+      }
+    },
+
+    /** §8.1.1：是否弹「本科/高职」选择框，以详情接口 division_mode === 'dual' 为准 */
+    isCompetitionDualDivision (comp) {
+      if (!comp || typeof comp !== 'object') return false
+      const mode = comp.division_mode != null ? comp.division_mode : comp.divisionMode
+      return String(mode).toLowerCase() === 'dual'
+    },
+
+    divisionPickModalGetContainer () {
+      return document.body
+    },
+
+    /** GET /v1/competitions/{id}（§8.1.1），合并进列表缓存后返回 */
+    async ensureCompetitionDetail (competitionId) {
+      if (competitionId == null || competitionId === '') return null
+      try {
+        const detail = await getCompetition(competitionId)
+        if (detail && typeof detail === 'object') {
+          this.mergeCompetitionIntoList(detail)
+          return this.findCompetitionById(competitionId) || detail
+        }
+      } catch (e) {
+        /* 无权限或接口不可用时退回列表项 */
+      }
+      return this.findCompetitionById(competitionId)
+    },
+
+    resolveCompetitionQrAbsoluteUrl (url) {
+      if (!url) return null
+      const s = String(url).trim()
+      if (!s) return null
+      if (/^https?:\/\//i.test(s)) return s
+      if (s.startsWith('/')) {
+        const base = (process.env.VUE_APP_API_BASE_URL || '/api').replace(/\/$/, '')
+        return base + s
+      }
+      return s
+    },
+
+    getCompetitionQrUrlForView (comp, division) {
+      if (!comp) return null
+      const urls = this.resolveCompetitionQrUrls(comp)
+      if (!this.isCompetitionDualDivision(comp)) {
+        return this.resolveCompetitionQrAbsoluteUrl(urls.shared)
+      }
+      const layout = comp.qr_layout || 'shared'
+      if (layout === 'shared' || !division) {
+        return this.resolveCompetitionQrAbsoluteUrl(urls.shared)
+      }
+      if (division === 'undergraduate') {
+        return this.resolveCompetitionQrAbsoluteUrl(urls.undergraduate) ||
+          this.resolveCompetitionQrAbsoluteUrl(urls.shared)
+      }
+      if (division === 'vocational') {
+        return this.resolveCompetitionQrAbsoluteUrl(urls.vocational) ||
+          this.resolveCompetitionQrAbsoluteUrl(urls.shared)
+      }
+      return this.resolveCompetitionQrAbsoluteUrl(urls.shared)
+    },
+
+    enrollmentMatchesActiveViewDivision (row) {
+      if (!this.activeViewDivision) return true
+      if (!row || typeof row !== 'object') return false
+      const d = row.division
+      if (d == null || String(d).trim() === '') return true
+      return String(d) === this.activeViewDivision
+    },
+
+    resolveTeamDivisionWithCache (team) {
+      if (!team || typeof team !== 'object') return null
+      const fromTeam = resolveTeamDivision(team)
+      if (fromTeam) return fromTeam
+      const cid = this.activeCompetitionId
+      const tid = team.id != null ? team.id : team.team_id
+      if (cid && tid != null) return getCompetitionTeamDivision(cid, tid)
+      return null
+    },
+
+    teamMatchesActiveViewDivision (team) {
+      if (!this.isActiveCompetitionDualDivision || !this.activeViewDivision) return true
+      const d = this.resolveTeamDivisionWithCache(team)
+      if (!d) return true
+      return d === this.activeViewDivision
+    },
+
+    syncActiveCompetitionAdvisorTeamDivision (teams) {
+      if (!this.isActiveCompetitionDualDivision) {
+        this.activeCompetitionAdvisorTeamDivision = null
+        return
+      }
+      let division = null
+      for (const team of teams || []) {
+        if (!this.canAdvisorOperateTeam(team)) continue
+        const d = this.resolveTeamDivisionWithCache(team)
+        if (d === 'undergraduate' || d === 'vocational') {
+          division = d
+          break
+        }
+      }
+      this.activeCompetitionAdvisorTeamDivision = division
+    },
+
+    assertAdvisorNotBlockedByOtherDivision (showToast = true) {
+      if (!this.advisorTeamBlockedByOtherDivision) return true
+      if (showToast) this.$message.warning(this.advisorTeamBlockedByOtherDivisionDescription)
+      return false
+    },
+
+    assertSelectedAdvisorTeamMatchesView (showToast = true) {
+      const team = this.advisorSelectedTeam
+      if (!team || !this.isActiveCompetitionDualDivision || !this.activeViewDivision) return true
+      if (this.teamMatchesActiveViewDivision(team)) return true
+      if (showToast) {
+        this.$message.warning(`当前队伍不属于${this.activeDivisionLabel || '本组别'}，请切换到对应组别详情页后再操作`)
+      }
+      return false
+    },
+
+    async ensureStudentDivisionIndex () {
+      const cid = this.activeCompetitionId
+      if (!cid || !this.isActiveCompetitionDualDivision) return
+      if (!this.canViewParticipantsRoster) return
+      if (!this.assertCompetitionDivisionQueryContext(false)) return
+      if (
+        this.studentDivisionIndexCompetitionId === cid &&
+        this.studentDivisionByUserId &&
+        typeof this.studentDivisionByUserId === 'object'
+      ) {
+        return
+      }
+      const map = {}
+      try {
+        const divOpts = this.buildCompetitionDivisionQueryOptions()
+        const [indRes, teamRes] = await Promise.all([
+          getCompetitionParticipantsIndividual(cid, divOpts),
+          getCompetitionParticipantsTeams(cid, divOpts)
+        ])
+        for (const row of normalizeCompetitionApiList(indRes)) {
+          const uid = row.student_id != null ? row.student_id : row.user_id
+          const div = resolveEnrollmentDivision(row)
+          if (uid != null && div) map[Number(uid)] = div
+        }
+        for (const t of normalizeCompetitionApiList(teamRes)) {
+          const tdiv =
+            resolveTeamDivision(t) ||
+            getCompetitionTeamDivision(cid, t.id != null ? t.id : t.team_id)
+          if (Array.isArray(t.members)) {
+            for (const m of t.members) {
+              const uid = m.user_id
+              const div = resolveEnrollmentDivision(m) || tdiv
+              if (uid != null && div) map[Number(uid)] = div
+            }
+          }
+        }
+      } catch (_) {
+        /* 无参赛者列表权限时仅依赖后端邀请校验 */
+      }
+      this.studentDivisionByUserId = map
+      this.studentDivisionIndexCompetitionId = cid
+    },
+
+    async assertInviteeSameDivisionAsView (studentId, showToast = true) {
+      if (!this.isActiveCompetitionDualDivision || !this.activeViewDivision) return true
+      const sid = Number(studentId)
+      if (!Number.isFinite(sid) || sid <= 0) return true
+      await this.ensureStudentDivisionIndex()
+      const map = this.studentDivisionByUserId
+      const div = map && map[sid]
+      if (!div) return true
+      if (div === this.activeViewDivision) return true
+      const label = divisionToLabel(div) || '另一组别'
+      const current = this.activeDivisionLabel || '当前组别'
+      if (showToast) {
+        this.$message.warning(`该学生属于${label}，不能邀请至${current}队伍`)
+      }
+      return false
+    },
+
+    async assertStudentsSameDivisionAsView (studentIds, showToast = true) {
+      if (!this.isActiveCompetitionDualDivision || !this.activeViewDivision) return true
+      const ids = [...new Set((studentIds || []).map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0))]
+      if (!ids.length) return true
+      await this.ensureStudentDivisionIndex()
+      const map = this.studentDivisionByUserId || {}
+      for (const sid of ids) {
+        const div = map[sid]
+        if (!div) continue
+        if (div !== this.activeViewDivision) {
+          const label = divisionToLabel(div) || '另一组别'
+          const current = this.activeDivisionLabel || '当前组别'
+          if (showToast) {
+            this.$message.warning(`学生 ID ${sid} 属于${label}，不能加入${current}队伍`)
+          }
+          return false
+        }
+      }
+      return true
+    },
+
+    mapTeamInviteDetailToUserMessage (detailText) {
+      const t = (detailText || '').toLowerCase()
+      if (t.includes('division must match') || t.includes('division mismatch')) {
+        return '邀请学生与队伍/详情页组别不一致，请确认学生与本页面为同一组别（本科组或高职组）'
+      }
+      if (t.includes('already enrolled in division')) {
+        return '该学生已在另一学历组别报名，不能跨组入队'
+      }
+      return null
+    },
+
+    applyActiveViewDivisionFromRoute () {
+      const div = this.normalizeViewDivision(this.initialViewDivision)
+      this.activeViewDivision = div
+    },
+
+    syncDualDivisionContextAfterCompetitionSelect () {
+      const comp = this.activeCompetition
+      if (!this.isCompetitionDualDivision(comp)) {
+        this.activeViewDivision = null
+        this.showDivisionPickModal = false
+        this.divisionPickTarget = null
+        return
+      }
+      if (this.activeViewDivision) return
+      if (this.standaloneDetailMode) {
+        this.divisionPickTarget = comp
+        this.showDivisionPickModal = true
+      }
+    },
+
+    async openCompetitionDetailInNewTab (id) {
+      if (id == null) return
+      const hideLoading = this.$message.loading('正在加载竞赛信息…', 0)
+      try {
+        const comp = await this.ensureCompetitionDetail(id)
+        if (this.isCompetitionDualDivision(comp)) {
+          this.divisionPickTarget = comp || { id, name: `竞赛 #${id}` }
+          this.showDivisionPickModal = true
+          return
+        }
+        this.navigateCompetitionDetailInNewTab(id, null)
+      } catch (e) {
+        this.$message.error('加载竞赛详情失败：' + (e && e.message ? e.message : '未知错误'))
+      } finally {
+        if (typeof hideLoading === 'function') hideLoading()
+      }
+    },
+
+    navigateCompetitionDetailInNewTab (id, division) {
       if (id == null) return
       try {
+        const query = { id: String(id) }
+        const div = this.normalizeViewDivision(division)
+        if (div) query.division = div
         const r = this.$router.resolve({
           name: 'ManuCompetitionDetail',
-          query: { id: String(id) }
+          query
         })
         if (r && r.href) window.open(r.href, '_blank')
       } catch (e) {
         this.$message.error('无法打开竞赛详情页')
+      }
+    },
+
+    confirmDivisionPick (division) {
+      const div = this.normalizeViewDivision(division)
+      if (!div) return
+      const comp = this.divisionPickTarget || this.activeCompetition
+      const id = comp && comp.id != null ? comp.id : this.activeCompetitionId
+      if (!id) return
+      this.showDivisionPickModal = false
+      this.divisionPickTarget = null
+      if (this.standaloneDetailMode) {
+        this.activeViewDivision = div
+        try {
+          this.$router.replace({
+            name: 'ManuCompetitionDetail',
+            query: { id: String(id), division: div }
+          }).catch(() => {})
+        } catch (e) { /* noop */ }
+        void this.fetchStudentBriefingQr()
+        void this.refreshActiveCompetitionMyEnrollKind()
+        return
+      }
+      this.navigateCompetitionDetailInNewTab(id, div)
+    },
+
+    onDivisionPickModalCancel () {
+      this.showDivisionPickModal = false
+      if (!this.standaloneDetailMode) {
+        this.divisionPickTarget = null
       }
     },
 
@@ -2487,29 +3263,38 @@ export default {
     },
     async bootstrapStandaloneDetail () {
       this.manualCompetitionId = null
+      this.applyActiveViewDivisionFromRoute()
       await this.refreshAltExpertProfile()
       await this.fetchCompetitions()
       const raw = this.initialCompetitionId
       if (raw != null && String(raw).trim() !== '') {
         this.selectCompetition(raw)
+        await this.ensureCompetitionDetail(raw)
       }
+      this.$nextTick(() => this.syncDualDivisionContextAfterCompetitionSelect())
     },
 
     /** 竞赛详情独立页顶部「报名」：打开报名与组队弹窗（供父组件 ref 调用） */
-    openStandaloneEnrollModal () {
+    async openStandaloneEnrollModal () {
       if (!this.standaloneDetailMode) return
       if (!this.isStudent) {
         this.$message.warning('仅学生身份可使用报名功能')
         return
       }
-      void this.refreshActiveCompetitionMyEnrollKind()
-        .then(() => {
-          this.applyStoredWithdrawSubmissionCutoff()
-          return this.refreshMySubmissions()
-        })
-        .then(() => {
-          if (this.activeCompetitionMyEnrollKind) this.syncIgnoreSubmissionsAfterEnrollRefresh()
-        })
+      if (this.isActiveCompetitionDualDivision && !this.activeViewDivision) {
+        this.$message.warning('请先选择本科组或高职组后再报名')
+        this.syncDualDivisionContextAfterCompetitionSelect()
+        return
+      }
+      try {
+        await this.refreshActiveCompetitionMyEnrollKind()
+        this.applyStoredWithdrawSubmissionCutoff()
+        await this.refreshMySubmissions()
+        if (this.activeCompetitionMyEnrollKind) this.syncIgnoreSubmissionsAfterEnrollRefresh()
+      } catch (_) {
+        /* 仍打开弹窗，由禁用态与提示兜底 */
+      }
+      this.notifyEnrollBlockChanged()
       this.showStandaloneEnrollModal = true
     },
     /** 竞赛详情独立页顶部「作品」：打开我的作品弹窗 */
@@ -2533,27 +3318,22 @@ export default {
         }
         this.studentBriefingQrObjectUrl = null
       }
+      this.studentBriefingQrRemoteUrl = ''
     },
     async fetchStudentBriefingQr () {
       this.revokeStudentBriefingQrObjectUrl()
       if (!this.activeCompetitionId || !this.isStudent || !this.standaloneDetailMode) return
-      try {
-        const blob = await getCompetitionQrCode(this.activeCompetitionId)
-        if (blob && typeof blob.size === 'number' && blob.size > 0) {
-          const t = (blob.type || '').toLowerCase()
-          if (t.startsWith('image/')) {
-            this.studentBriefingQrObjectUrl = URL.createObjectURL(blob)
-          } else if (
-            t === 'application/octet-stream' ||
-            t === '' ||
-            t === 'binary/octet-stream'
-          ) {
-            this.studentBriefingQrObjectUrl = URL.createObjectURL(blob)
-          }
-        }
-      } catch (e) {
-        /* 无二维码或未开放接口 */
+      let comp = this.activeCompetition
+      if (!comp || comp.division_mode == null) {
+        comp = await this.ensureCompetitionDetail(this.activeCompetitionId) || comp
       }
+      if (this.isCompetitionDualDivision(comp) && !this.activeViewDivision) return
+      const objectUrl = await this.loadCompetitionQrForCurrentView(
+        this.activeCompetitionId,
+        comp,
+        this.activeViewDivision
+      )
+      if (objectUrl) this.studentBriefingQrObjectUrl = objectUrl
     },
 
     getApiErrorMessage (error, fallback = '操作失败') {
@@ -2753,7 +3533,6 @@ export default {
         student_no: p.student_id,
         real_name: p.full_name,
         college: p.college != null ? p.college : p.school,
-        grade: p.grade,
         contact: p.email != null ? p.email : (p.contact != null ? p.contact : p.phone)
       }
       const f = this.enrollProfileForm || {}
@@ -2767,12 +3546,72 @@ export default {
     buildEnrollExtraFields () {
       const f = this.enrollProfileForm || {}
       const out = {}
-      const keys = ['student_no', 'real_name', 'college', 'grade', 'contact']
+      const keys = ['student_no', 'real_name', 'college', 'contact']
       for (const k of keys) {
         const s = f[k] != null ? String(f[k]).trim() : ''
         if (s) out[k] = s
       }
+      const division = this.enrollDivisionForApi
+      if (division) out.division = division
       return out
+    },
+
+    /** enrollments/me 未带 division 时，用 POST enroll 响应或详情页上下文写入本机缓存 */
+    persistEnrollmentDivisionAfterSuccess (track, enrollResponse) {
+      const cid = this.activeCompetitionId
+      if (!cid) return
+      const fromRes = resolveEnrollmentDivision(enrollResponse || {})
+      const division = fromRes || this.enrollDivisionForApi
+      if (division) {
+        saveCompetitionEnrollmentDivision(cid, track, division)
+        if (this.isActiveCompetitionDualDivision) {
+          this.activeCompetitionEnrolledDivision = division
+          this.notifyEnrollBlockChanged()
+        }
+      }
+    },
+
+    notifyEnrollBlockChanged () {
+      this.$emit('enroll-block-changed', this.enrollBlockedByOtherDivision)
+    },
+
+    syncActiveCompetitionEnrolledDivision (enrolledRows) {
+      if (!this.isActiveCompetitionDualDivision) {
+        this.activeCompetitionEnrolledDivision = null
+        this.notifyEnrollBlockChanged()
+        return
+      }
+      const cid = this.activeCompetitionId
+      let division = null
+      for (const row of enrolledRows || []) {
+        let d = resolveEnrollmentDivision(row)
+        if (!d && cid) {
+          const track = getEnrollmentScopeUtil(row) === 'team' ? 'team' : 'individual'
+          d = getCompetitionEnrollmentDivision(cid, track)
+        }
+        if (d === 'undergraduate' || d === 'vocational') {
+          division = d
+          break
+        }
+      }
+      this.activeCompetitionEnrolledDivision = division
+      this.notifyEnrollBlockChanged()
+    },
+
+    assertNotEnrolledInOtherDivision (showToast = true) {
+      if (!this.enrollBlockedByOtherDivision) return true
+      if (showToast) this.$message.warning(this.enrollBlockedByOtherDivisionDescription)
+      return false
+    },
+
+    assertEnrollDivisionContext (showToast = true) {
+      if (!this.isActiveCompetitionDualDivision) return true
+      if (this.activeViewDivision) return true
+      if (showToast) {
+        this.$message.warning('该竞赛分本科组与高职组，请从对应组别详情页进入后再报名')
+        if (this.standaloneDetailMode) this.syncDualDivisionContextAfterCompetitionSelect()
+      }
+      return false
     },
 
     filterSubmissionsForCurrentEnrollment (list) {
@@ -2949,13 +3788,19 @@ export default {
         this.myEnrolledIndividual = false
         this.myEnrolledTeam = false
         this.activeCompetitionEnrollmentRows = { individual: null, team: null }
+        this.activeCompetitionEnrolledDivision = null
+        this.notifyEnrollBlockChanged()
         return
       }
       try {
         const res = await getMyCompetitionEnrollments()
         const list = Array.isArray(res) ? res : (res && Array.isArray(res.items) ? res.items : (res && Array.isArray(res.data) ? res.data : []))
         const cid = Number(this.activeCompetitionId)
-        const enrolledRows = list.filter(r => Number(r.competition_id) === cid && r.status === 'enrolled')
+        const allEnrolledRows = list.filter(
+          r => Number(r.competition_id) === cid && r.status === 'enrolled'
+        )
+        this.syncActiveCompetitionEnrolledDivision(allEnrolledRows)
+        const enrolledRows = allEnrolledRows.filter(r => this.enrollmentMatchesActiveViewDivision(r))
         const { individual: individualRow, team: teamRow } = splitEnrollmentsByTrack(enrolledRows)
         this.activeCompetitionEnrollmentRows = { individual: individualRow, team: teamRow }
         this.applyEnrollmentContextFromRows()
@@ -2965,11 +3810,15 @@ export default {
         this.myEnrolledIndividual = false
         this.myEnrolledTeam = false
         this.activeCompetitionEnrollmentRows = { individual: null, team: null }
+        this.activeCompetitionEnrolledDivision = null
+        this.notifyEnrollBlockChanged()
       }
     },
 
     async handleEnrollIndividual () {
       if (!this.activeCompetitionId) return
+      if (!this.assertEnrollDivisionContext()) return
+      if (!this.assertNotEnrolledInOtherDivision()) return
       if (!this.assertCompetitionPublishedForEnroll()) return
       if (this.myEnrolledIndividual) {
         this.$message.info('您已完成个人报名，无需重复操作')
@@ -2981,11 +3830,12 @@ export default {
       }
       this.enrollLoading = true
       try {
-        await enrollCompetition({
+        const enrollRes = await enrollCompetition({
           competition_id: this.activeCompetitionId,
           team_id: null,
           ...this.buildEnrollExtraFields()
         })
+        this.persistEnrollmentDivisionAfterSuccess('individual', enrollRes)
         this.$message.success('个人报名成功')
         this.enrollMode = 'individual'
         await this.refreshActiveCompetitionMyEnrollKind()
@@ -3029,6 +3879,20 @@ export default {
       return /already enrolled|已报名|重复报名|赛道已报名/i.test(msg)
     },
 
+    mapEnrollDetailToUserMessage (detailText) {
+      const t = (detailText || '').toLowerCase()
+      if (t.includes('division is required')) {
+        return '该竞赛分本科组与高职组，请从对应组别详情页进入后再报名'
+      }
+      if (t.includes('already enrolled in division')) {
+        return '您已在另一学历组别报名，不可跨组报名；请返回列表选择已报名的组别查看详情'
+      }
+      if (t.includes('division must match team')) {
+        return '队伍所属组别与当前详情页组别不一致，请切换到对应组别详情页后再报名'
+      }
+      return null
+    },
+
     async handleEnrollApiError (error, track) {
       if (this.isAlreadyEnrolledInTrack(error, track)) {
         const label = track === 'team' ? '队伍' : '个人'
@@ -3039,12 +3903,19 @@ export default {
         await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
         return true
       }
+      const mapped = this.mapEnrollDetailToUserMessage(this.getEnrollDetailRaw(error))
+      if (mapped) {
+        this.$message.warning(mapped)
+        return true
+      }
       this.$message.error('报名失败：' + this.getApiErrorMessage(error, '未知错误'))
       return false
     },
 
     async handleEnrollWithTeam () {
       if (!this.activeCompetitionId) return
+      if (!this.assertEnrollDivisionContext()) return
+      if (!this.assertNotEnrolledInOtherDivision()) return
       if (!this.assertCompetitionPublishedForEnroll()) return
       if (this.myEnrolledTeam) {
         this.$message.info('您已完成队伍报名，无需重复操作')
@@ -3060,11 +3931,12 @@ export default {
       }
       this.enrollLoading = true
       try {
-        await enrollCompetition({
+        const enrollRes = await enrollCompetition({
           competition_id: this.activeCompetitionId,
           team_id: this.myTeamId,
           ...this.buildEnrollExtraFields()
         })
+        this.persistEnrollmentDivisionAfterSuccess('team', enrollRes)
         this.submissionTeamId = this.myTeamId
         this.$message.success('队伍报名成功')
         await this.refreshActiveCompetitionMyEnrollKind()
@@ -3087,6 +3959,8 @@ export default {
 
     async handleCreateTeamOnly () {
       if (!this.activeCompetitionId) return
+      if (!this.assertEnrollDivisionContext()) return
+      if (!this.assertNotEnrolledInOtherDivision()) return
       if (this.studentTeamEnrolledAsMember) {
         this.$message.info('您已是队伍报名队员，无法创建新队伍')
         return
@@ -3102,9 +3976,13 @@ export default {
       }
       this.enrollLoading = true
       try {
-        const team = await createCompetitionTeam({ competition_id: this.activeCompetitionId, initial_member_ids: null })
+        const teamPayload = { competition_id: this.activeCompetitionId, initial_member_ids: null }
+        if (this.enrollDivisionForApi) teamPayload.division = this.enrollDivisionForApi
+        const team = await createCompetitionTeam(teamPayload)
         const teamId = team && (team.id || team.team_id)
         if (!teamId) throw new Error('创建队伍返回缺少 id')
+        const teamDiv = resolveTeamDivision(team) || this.enrollDivisionForApi
+        if (teamDiv) saveCompetitionTeamDivision(this.activeCompetitionId, teamId, teamDiv)
         this.myTeamId = teamId
         this.submissionTeamId = teamId
         this.studentCreatedTeamInCurrentCompetition = true
@@ -3138,11 +4016,18 @@ export default {
 
     async validateJoinTeamBelongsToActiveCompetition () {
       if (!this.activeCompetitionId || !this.joinTeamId) return true
+      if (!this.assertCompetitionDivisionQueryContext(false)) return true
       try {
-        const res = await getCompetitionParticipantsTeams(this.activeCompetitionId)
-        const list = Array.isArray(res) ? res : (res && Array.isArray(res.items) ? res.items : (res && Array.isArray(res.data) ? res.data : []))
+        const res = await getCompetitionTeams(
+          this.activeCompetitionId,
+          this.buildCompetitionDivisionQueryOptions()
+        )
+        const list = normalizeCompetitionApiList(res)
         if (!Array.isArray(list) || !list.length) return true
-        const found = list.find(r => Number(r.team_id) === Number(this.joinTeamId))
+        const found = list.find(r => {
+          const tid = r.id != null ? r.id : r.team_id
+          return Number(tid) === Number(this.joinTeamId)
+        })
         if (found) return true
         const currentName = (this.activeCompetition && this.activeCompetition.name) ? this.activeCompetition.name : '-'
         this.$message.warning(`队伍ID ${this.joinTeamId} 不属于当前竞赛（${this.activeCompetitionId} - ${currentName}），请确认后再加入`)
@@ -3154,6 +4039,8 @@ export default {
     },
 
     async handleJoinTeam () {
+      if (!this.assertEnrollDivisionContext()) return
+      if (!this.assertNotEnrolledInOtherDivision()) return
       if (this.studentTeamEnrolledAsMember) {
         this.$message.info('您已完成队伍报名且为队员，无法再加入其他队伍')
         return
@@ -3235,20 +4122,25 @@ export default {
         this.$message.warning('请先确认队伍ID')
         return
       }
+      if (!this.assertEnrollDivisionContext()) return
+      if (!this.assertNotEnrolledInOtherDivision()) return
       if (!this.assertCompetitionOpenForTeamCreateOrInvite()) return
       const studentId = Number(this.studentTeamInviteId)
       if (!Number.isFinite(studentId) || studentId <= 0) {
         this.$message.warning('请填写有效的学生用户ID')
         return
       }
+      if (!(await this.assertInviteeSameDivisionAsView(studentId))) return
       this.teamLoading = true
       try {
         await inviteCompetitionTeamMember(this.myTeamId, studentId)
         this.$message.success('邀请成功，学生已入队')
         this.studentTeamInviteId = null
+        this.studentDivisionIndexCompetitionId = null
         await this.refreshActiveCompetitionMyEnrollKind()
       } catch (e) {
-        this.$message.error('邀请失败：' + this.getApiErrorMessage(e, '未知错误'))
+        const mapped = this.mapTeamInviteDetailToUserMessage(this.getEnrollDetailRaw(e))
+        this.$message.error(mapped || ('邀请失败：' + this.getApiErrorMessage(e, '未知错误')))
       } finally {
         this.teamLoading = false
       }
@@ -3341,17 +4233,25 @@ export default {
       if (!this.showAdvisorTeamPanel || !this.activeCompetitionId) return
       this.advisorTeamsLoading = true
       try {
-        const res = await getCompetitionTeams(this.activeCompetitionId)
+        if (!this.assertCompetitionDivisionQueryContext()) return
+        const res = await getCompetitionTeams(
+          this.activeCompetitionId,
+          this.buildCompetitionDivisionQueryOptions()
+        )
         this.advisorTeams = this.normalizeCompetitionTeamsList(res)
+        this.syncActiveCompetitionAdvisorTeamDivision(this.advisorTeams)
+        const visible = this.advisorTeamsForCurrentView
         if (
           this.advisorSelectedTeamId != null &&
-          !this.advisorTeams.some(t => Number(t.id) === Number(this.advisorSelectedTeamId))
+          !visible.some(t => Number(t.id) === Number(this.advisorSelectedTeamId))
         ) {
           this.advisorSelectedTeamId = null
           this.advisorRenameName = ''
+          this.advisorInviteStudentId = null
         }
       } catch (e) {
         this.advisorTeams = []
+        this.activeCompetitionAdvisorTeamDivision = null
         this.$message.error('获取队伍列表失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {
         this.advisorTeamsLoading = false
@@ -3367,6 +4267,8 @@ export default {
 
     async handleAdvisorCreateTeam () {
       if (!this.activeCompetitionId) return
+      if (!this.assertEnrollDivisionContext()) return
+      if (!this.assertAdvisorNotBlockedByOtherDivision()) return
       if (!this.assertCompetitionOpenForTeamCreateOrInvite()) return
       if (!this.allowTeam) {
         this.$message.error('该竞赛不允许团队参赛')
@@ -3388,6 +4290,7 @@ export default {
         this.$message.warning('队长 ID 必须在队员 ID 列表中')
         return
       }
+      if (!(await this.assertStudentsSameDivisionAsView(uniqueIds))) return
       const payload = {
         competition_id: Number(this.activeCompetitionId),
         initial_member_ids: uniqueIds,
@@ -3395,6 +4298,7 @@ export default {
       }
       const teamName = (this.advisorCreateForm.name || '').trim()
       if (teamName) payload.name = teamName
+      if (this.enrollDivisionForApi) payload.division = this.enrollDivisionForApi
 
       this.advisorCreateLoading = true
       try {
@@ -3405,13 +4309,23 @@ export default {
           if (Number.isFinite(tid) && !this.advisorCreatedTeamIds.includes(tid)) {
             this.advisorCreatedTeamIds.push(tid)
           }
+          const div =
+            resolveTeamDivision(team) ||
+            this.enrollDivisionForApi
+          if (div) {
+            saveCompetitionTeamDivision(this.activeCompetitionId, teamId, div)
+            if (this.isActiveCompetitionDualDivision) {
+              this.activeCompetitionAdvisorTeamDivision = div
+            }
+          }
         }
         this.$message.success('队伍创建成功' + (teamId ? `，队伍 ID：${teamId}` : ''))
         this.advisorCreateForm = { name: '', captain_student_id: null, initial_member_ids_text: '' }
         await this.refreshAdvisorTeams()
         if (teamId) this.selectAdvisorTeam(teamId)
       } catch (e) {
-        this.$message.error('创建队伍失败：' + this.getApiErrorMessage(e, '未知错误'))
+        const mapped = this.mapTeamInviteDetailToUserMessage(this.getEnrollDetailRaw(e))
+        this.$message.error(mapped || ('创建队伍失败：' + this.getApiErrorMessage(e, '未知错误')))
       } finally {
         this.advisorCreateLoading = false
       }
@@ -3437,21 +4351,27 @@ export default {
     async handleAdvisorInviteMember () {
       const team = this.advisorSelectedTeam
       if (!team || !this.canOperateAdvisorSelectedTeam) return
+      if (!this.assertEnrollDivisionContext()) return
+      if (!this.assertAdvisorNotBlockedByOtherDivision()) return
+      if (!this.assertSelectedAdvisorTeamMatchesView()) return
       if (!this.assertCompetitionOpenForTeamCreateOrInvite()) return
       const studentId = Number(this.advisorInviteStudentId)
       if (!Number.isFinite(studentId) || studentId <= 0) {
         this.$message.warning('请填写有效的学生 ID')
         return
       }
+      if (!(await this.assertInviteeSameDivisionAsView(studentId))) return
       this.advisorTeamOpLoading = true
       try {
         await inviteCompetitionTeamMember(team.id, studentId)
         this.$message.success('邀请成功，学生已入队并完成报名')
         this.advisorInviteStudentId = null
+        this.studentDivisionIndexCompetitionId = null
         await this.refreshAdvisorTeams()
         this.selectAdvisorTeam(team.id)
       } catch (e) {
-        this.$message.error('邀请失败：' + this.getApiErrorMessage(e, '未知错误'))
+        const mapped = this.mapTeamInviteDetailToUserMessage(this.getEnrollDetailRaw(e))
+        this.$message.error(mapped || ('邀请失败：' + this.getApiErrorMessage(e, '未知错误')))
       } finally {
         this.advisorTeamOpLoading = false
       }
@@ -3506,8 +4426,90 @@ export default {
       return null
     },
 
+    /** §8.9 / §8.10–11 / §8.16.2 / §8.18–19：dual 竞赛按详情页组别传 query division */
+    buildCompetitionDivisionQueryOptions () {
+      const division = this.enrollDivisionForApi
+      return division ? { division } : {}
+    },
+
+    assertCompetitionDivisionQueryContext (showToast = true) {
+      if (!this.isActiveCompetitionDualDivision) return true
+      if (this.activeViewDivision) return true
+      if (showToast) {
+        this.$message.warning('该竞赛分本科组与高职组，请先选择组别后再查看队伍、花名册或评分统计')
+        if (this.standaloneDetailMode) this.syncDualDivisionContextAfterCompetitionSelect()
+      }
+      return false
+    },
+
+    normalizeSubmissionsListResponse (res) {
+      const list = normalizeCompetitionApiList(res)
+      return filterSubmissionsByViewDivision(list, this.activeViewDivision)
+    },
+
+    submissionDivisionLabel (submission) {
+      const d = resolveEnrollmentDivision(submission || {})
+      return divisionToLabel(d) || ''
+    },
+
+    buildSubmissionRequestBody (title, contentText) {
+      const body = {
+        competition_id: Number(this.activeCompetitionId),
+        title,
+        description: (this.submissionForm.description || '').trim() || null,
+        content_text: contentText || null
+      }
+      if (this.submissionMode === 'team') {
+        body.team_id = Number(this.buildSubmissionTeamId())
+      } else {
+        body.team_id = null
+      }
+      const division = this.enrollDivisionForApi
+      if (division) body.division = division
+      return body
+    },
+
+    appendSubmissionFieldsToFormData (formData, body) {
+      formData.append('competition_id', body.competition_id)
+      if (body.team_id != null && body.team_id !== '') {
+        formData.append('team_id', body.team_id)
+      }
+      if (body.division) formData.append('division', body.division)
+      formData.append('title', body.title)
+      if (body.description) formData.append('description', body.description)
+      if (body.content_text) formData.append('content_text', body.content_text)
+    },
+
+    assertCompetitionOpenForSubmission (showToast = true) {
+      if (!this.competitionSubmissionBlocked) return true
+      if (showToast) {
+        this.$message.warning(this.competitionSubmissionBlockedTitle)
+      }
+      return false
+    },
+
+    mapSubmissionDetailToUserMessage (detailText) {
+      const t = (detailText || '').toLowerCase()
+      if (t.includes('division is required')) {
+        return '该竞赛分本科组与高职组，请从对应组别详情页进入后再提交作品'
+      }
+      if (t.includes('division must match your individual enrollment')) {
+        return '作品组别须与个人报名组别一致，请切换到已报名的组别详情页'
+      }
+      if (t.includes('division must match team')) {
+        return '作品组别须与队伍组别一致，请切换到对应组别详情页后再提交'
+      }
+      if (t.includes('only team captain may submit')) {
+        return '只有队长可以提交队伍作品'
+      }
+      return null
+    },
+
     async handleSubmitSubmission () {
       if (!this.activeCompetitionId) return
+      if (!this.assertEnrollDivisionContext()) return
+      if (!this.assertNotEnrolledInOtherDivision()) return
+      if (!this.assertCompetitionOpenForSubmission()) return
       if (this.enrollModalSubmissionLocked) {
         const trackLabel = this.submissionMode === 'team' ? '队伍' : '个人'
         this.$message.warning(`本报名周期${trackLabel}赛道已提交作品，无法再次提交；退赛后重新报名可提交新作品`)
@@ -3553,25 +4555,17 @@ export default {
         return
       }
 
+      const requestBody = this.buildSubmissionRequestBody(title, contentText)
+
       this.submitLoading = true
       try {
         if (file) {
           const formData = new FormData()
-          formData.append('competition_id', this.activeCompetitionId)
-          if (teamId) formData.append('team_id', teamId)
-          formData.append('title', title)
-          if (this.submissionForm.description) formData.append('description', this.submissionForm.description)
-          if (contentText) formData.append('content_text', contentText)
+          this.appendSubmissionFieldsToFormData(formData, requestBody)
           formData.append('file', file)
           await uploadCompetitionSubmission(formData)
         } else {
-          await submitCompetitionSubmission({
-            competition_id: this.activeCompetitionId,
-            team_id: this.submissionMode === 'team' ? teamId : null,
-            title: title,
-            description: this.submissionForm.description || null,
-            content_text: contentText
-          })
+          await submitCompetitionSubmission(requestBody)
         }
 
         this.$message.success('提交成功')
@@ -3582,7 +4576,8 @@ export default {
         this.syncIgnoreSubmissionsAfterEnrollRefresh()
         await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
       } catch (e) {
-        this.$message.error('提交失败：' + (e && e.message ? e.message : '未知错误'))
+        const mapped = this.mapSubmissionDetailToUserMessage(this.getEnrollDetailRaw(e))
+        this.$message.error(mapped || ('提交失败：' + this.getApiErrorMessage(e, '未知错误')))
       } finally {
         this.submitLoading = false
       }
@@ -3592,10 +4587,11 @@ export default {
       if (!this.activeCompetitionId) return
       this.submissionsLoading = true
       try {
-        const res = await getCompetitionSubmissions(this.activeCompetitionId)
-        if (Array.isArray(res)) this.mySubmissions = res
-        else if (res && Array.isArray(res.items)) this.mySubmissions = res.items
-        else this.mySubmissions = []
+        const res = await getCompetitionSubmissions(
+          this.activeCompetitionId,
+          this.buildCompetitionDivisionQueryOptions()
+        )
+        this.mySubmissions = this.normalizeSubmissionsListResponse(res)
       } catch (e) {
         this.mySubmissions = []
         this.$message.error('获取作品列表失败：' + (e && e.message ? e.message : '未知错误'))
@@ -3839,20 +4835,216 @@ export default {
       }
     },
 
-    revokeCreateQrPreviewUrl () {
-      if (this.createQrBlobUrl) {
+    resolveCompetitionQrUrlValue (v) {
+      if (!v) return null
+      if (typeof v === 'string') return v
+      if (typeof v === 'object') {
+        if (v.image_url != null && String(v.image_url).trim()) return String(v.image_url).trim()
+        if (v.url != null && String(v.url).trim()) return String(v.url).trim()
+      }
+      return null
+    },
+
+    /** 竞赛二维码下载接口需鉴权，不可作为 <img src> 直连（浏览器不会带 Authorization） */
+    isCompetitionQrProtectedUrl (url) {
+      if (url == null || String(url).trim() === '') return false
+      const s = String(url).trim().toLowerCase()
+      if (s.includes('/qr-code')) return true
+      if (s.includes('/competitions/') && (s.includes('qr') || s.endsWith('/qr-code'))) return true
+      if (s.startsWith('/api/') || s.startsWith('/v1/competitions/')) return true
+      return false
+    },
+
+    canUseQrAsDirectImgSrc (url) {
+      if (!url || this.isCompetitionQrProtectedUrl(url)) return false
+      return /^https?:\/\//i.test(String(url).trim())
+    },
+
+    isQrImageBlob (blob) {
+      if (!blob || typeof blob.size !== 'number' || blob.size <= 0) return false
+      const t = (blob.type || '').toLowerCase()
+      if (t.includes('json') || t.includes('html') || t.includes('text/plain')) return false
+      return (
+        t.startsWith('image/') ||
+        t === 'application/octet-stream' ||
+        t === '' ||
+        t === 'binary/octet-stream'
+      )
+    },
+
+    async loadCompetitionQrObjectUrl (competitionId, options = {}) {
+      if (!competitionId) return null
+      try {
+        const blob = await getCompetitionQrCode(competitionId, options)
+        if (!this.isQrImageBlob(blob)) return null
+        return URL.createObjectURL(blob)
+      } catch (e) {
+        return null
+      }
+    },
+
+    /** 按 §8.1.1 qr_codes + 当前组别拉取可展示的二维码（走鉴权 blob，不用 image_url 直连） */
+    buildCompetitionQrFetchOptions (comp, division) {
+      const opts = {}
+      if (!comp || !this.isCompetitionDualDivision(comp)) return opts
+      const layout = String(comp.qr_layout || 'shared').toLowerCase()
+      if (layout === 'separate') {
+        const div = division === 'undergraduate' || division === 'vocational' ? division : null
+        if (div) opts.division = div
+      }
+      return opts
+    },
+
+    async loadCompetitionQrForCurrentView (competitionId, comp, division) {
+      const opts = this.buildCompetitionQrFetchOptions(comp, division)
+      return this.loadCompetitionQrObjectUrl(competitionId, opts)
+    },
+
+    resolveCompetitionQrUrls (comp) {
+      const out = { shared: null, undergraduate: null, vocational: null }
+      if (!comp || typeof comp !== 'object') return out
+      const codes = comp.qr_codes
+      if (codes && typeof codes === 'object') {
+        out.shared = this.resolveCompetitionQrUrlValue(codes.shared)
+        out.undergraduate = this.resolveCompetitionQrUrlValue(codes.undergraduate)
+        out.vocational = this.resolveCompetitionQrUrlValue(codes.vocational)
+      }
+      if (comp.qr_code_image_url) {
+        out.shared = out.shared || String(comp.qr_code_image_url)
+      }
+      return out
+    },
+
+    appendCompetitionDivisionFields (fd, form) {
+      const mode = (form && form.division_mode) || 'single'
+      fd.append('division_mode', mode)
+      if (mode === 'dual') {
+        fd.append('qr_layout', (form && form.qr_layout) || 'shared')
+      }
+    },
+
+    appendCreateCompetitionQrFiles (fd) {
+      if (this.createCompetitionNeedsSharedQr && this.createCompetitionQrFile) {
+        fd.append('qr_code_image', this.createCompetitionQrFile, this.createCompetitionQrFile.name)
+      }
+      if (this.createCompetitionNeedsSeparateQr) {
+        if (this.createCompetitionQrUndergraduateFile) {
+          fd.append(
+            'qr_code_image_undergraduate',
+            this.createCompetitionQrUndergraduateFile,
+            this.createCompetitionQrUndergraduateFile.name
+          )
+        }
+        if (this.createCompetitionQrVocationalFile) {
+          fd.append(
+            'qr_code_image_vocational',
+            this.createCompetitionQrVocationalFile,
+            this.createCompetitionQrVocationalFile.name
+          )
+        }
+      }
+    },
+
+    appendEditCompetitionQrFiles (fd) {
+      if (this.editCompetitionNeedsSharedQr && this.editCompetitionQrFile) {
+        fd.append('qr_code_image', this.editCompetitionQrFile, this.editCompetitionQrFile.name)
+      }
+      if (this.editCompetitionNeedsSeparateQr) {
+        if (this.editCompetitionQrUndergraduateFile) {
+          fd.append(
+            'qr_code_image_undergraduate',
+            this.editCompetitionQrUndergraduateFile,
+            this.editCompetitionQrUndergraduateFile.name
+          )
+        }
+        if (this.editCompetitionQrVocationalFile) {
+          fd.append(
+            'qr_code_image_vocational',
+            this.editCompetitionQrVocationalFile,
+            this.editCompetitionQrVocationalFile.name
+          )
+        }
+      }
+    },
+
+    hasEditCompetitionQrUploads () {
+      return !!(
+        this.editCompetitionQrFile ||
+        this.editCompetitionQrUndergraduateFile ||
+        this.editCompetitionQrVocationalFile
+      )
+    },
+
+    revokeBlobUrl (refKey) {
+      const url = this[refKey]
+      if (url) {
         try {
-          URL.revokeObjectURL(this.createQrBlobUrl)
+          URL.revokeObjectURL(url)
         } catch (e) { /* noop */ }
-        this.createQrBlobUrl = null
+        this[refKey] = null
+      }
+    },
+
+    revokeCreateQrPreviewUrls () {
+      this.revokeBlobUrl('createQrBlobUrl')
+      this.revokeBlobUrl('createQrUndergraduateBlobUrl')
+      this.revokeBlobUrl('createQrVocationalBlobUrl')
+    },
+
+    clearCreateSharedQrFiles () {
+      this.revokeBlobUrl('createQrBlobUrl')
+      this.createCompetitionQrFile = null
+      this.qrCodeFileList = []
+      this.qrCodeValidating = false
+    },
+
+    clearCreateSeparateQrFiles () {
+      this.revokeBlobUrl('createQrUndergraduateBlobUrl')
+      this.revokeBlobUrl('createQrVocationalBlobUrl')
+      this.createCompetitionQrUndergraduateFile = null
+      this.createCompetitionQrVocationalFile = null
+      this.qrCodeUndergraduateFileList = []
+      this.qrCodeVocationalFileList = []
+      this.qrCodeUndergraduateValidating = false
+      this.qrCodeVocationalValidating = false
+    },
+
+    onCreateDivisionModeChange (e) {
+      const v = e && e.target ? e.target.value : this.createCompetitionForm.division_mode
+      if (v === 'single') {
+        this.createCompetitionForm.qr_layout = 'shared'
+        this.clearCreateSeparateQrFiles()
+      }
+    },
+
+    onCreateQrLayoutChange () {
+      if (this.createCompetitionForm.qr_layout === 'shared') {
+        this.clearCreateSeparateQrFiles()
+      } else {
+        this.clearCreateSharedQrFiles()
+      }
+    },
+
+    onEditDivisionModeChange (e) {
+      const v = e && e.target ? e.target.value : this.editCompetitionForm.division_mode
+      if (v === 'single') {
+        this.editCompetitionForm.qr_layout = 'shared'
+        this.clearEditSeparateQrUploads()
+      }
+    },
+
+    onEditQrLayoutChange () {
+      if (this.editCompetitionForm.qr_layout === 'shared') {
+        this.clearEditSeparateQrUploads()
+      } else {
+        this.clearEditSharedQrUpload()
       }
     },
 
     resetCreateCompetitionForm () {
-      this.revokeCreateQrPreviewUrl()
-      this.createCompetitionQrFile = null
-      this.qrCodeFileList = []
-      this.qrCodeValidating = false
+      this.revokeCreateQrPreviewUrls()
+      this.clearCreateSharedQrFiles()
+      this.clearCreateSeparateQrFiles()
       this.createCompetitionForm = {
         name: '',
         description: '',
@@ -3860,14 +5052,28 @@ export default {
         start_at: '',
         end_at: '',
         allow_individual: true,
-        allow_team: true
+        allow_team: true,
+        division_mode: 'single',
+        qr_layout: 'shared'
       }
     },
 
     handleQrCodeRemove () {
-      this.revokeCreateQrPreviewUrl()
-      this.createCompetitionQrFile = null
-      this.qrCodeFileList = []
+      this.clearCreateSharedQrFiles()
+      return true
+    },
+
+    handleQrCodeUndergraduateRemove () {
+      this.revokeBlobUrl('createQrUndergraduateBlobUrl')
+      this.createCompetitionQrUndergraduateFile = null
+      this.qrCodeUndergraduateFileList = []
+      return true
+    },
+
+    handleQrCodeVocationalRemove () {
+      this.revokeBlobUrl('createQrVocationalBlobUrl')
+      this.createCompetitionQrVocationalFile = null
+      this.qrCodeVocationalFileList = []
       return true
     },
 
@@ -3901,13 +5107,45 @@ export default {
       try {
         const ok = await this.validateCompetitionQrImageFile(file)
         if (!ok) return false
-        this.revokeCreateQrPreviewUrl()
+        this.revokeBlobUrl('createQrBlobUrl')
         const url = URL.createObjectURL(file)
         this.createQrBlobUrl = url
         this.createCompetitionQrFile = file
         this.qrCodeFileList = [{ uid: 'qr-1', name: file.name, status: 'done', url }]
       } finally {
         this.qrCodeValidating = false
+      }
+      return false
+    },
+
+    async beforeQrCodeUndergraduateUpload (file) {
+      this.qrCodeUndergraduateValidating = true
+      try {
+        const ok = await this.validateCompetitionQrImageFile(file)
+        if (!ok) return false
+        this.revokeBlobUrl('createQrUndergraduateBlobUrl')
+        const url = URL.createObjectURL(file)
+        this.createQrUndergraduateBlobUrl = url
+        this.createCompetitionQrUndergraduateFile = file
+        this.qrCodeUndergraduateFileList = [{ uid: 'qr-ug', name: file.name, status: 'done', url }]
+      } finally {
+        this.qrCodeUndergraduateValidating = false
+      }
+      return false
+    },
+
+    async beforeQrCodeVocationalUpload (file) {
+      this.qrCodeVocationalValidating = true
+      try {
+        const ok = await this.validateCompetitionQrImageFile(file)
+        if (!ok) return false
+        this.revokeBlobUrl('createQrVocationalBlobUrl')
+        const url = URL.createObjectURL(file)
+        this.createQrVocationalBlobUrl = url
+        this.createCompetitionQrVocationalFile = file
+        this.qrCodeVocationalFileList = [{ uid: 'qr-voc', name: file.name, status: 'done', url }]
+      } finally {
+        this.qrCodeVocationalValidating = false
       }
       return false
     },
@@ -3935,9 +5173,19 @@ export default {
         this.$message.warning('请填写规则说明')
         return
       }
-      if (!this.createCompetitionQrFile) {
+      if (this.createCompetitionNeedsSharedQr && !this.createCompetitionQrFile) {
         this.$message.warning('请上传竞赛二维码图片')
         return
+      }
+      if (this.createCompetitionNeedsSeparateQr) {
+        if (!this.createCompetitionQrUndergraduateFile) {
+          this.$message.warning('请上传本科组二维码图片')
+          return
+        }
+        if (!this.createCompetitionQrVocationalFile) {
+          this.$message.warning('请上传高职组二维码图片')
+          return
+        }
       }
 
       this.adminCreateLoading = true
@@ -3952,7 +5200,8 @@ export default {
         if (endAt) fd.append('end_at', endAt)
         fd.append('allow_individual', this.createCompetitionForm.allow_individual ? 'true' : 'false')
         fd.append('allow_team', this.createCompetitionForm.allow_team ? 'true' : 'false')
-        fd.append('qr_code_image', this.createCompetitionQrFile, this.createCompetitionQrFile.name)
+        this.appendCompetitionDivisionFields(fd, this.createCompetitionForm)
+        this.appendCreateCompetitionQrFiles(fd)
 
         const res = await createCompetitionMultipart(fd)
         this.$message.success('创建成功，竞赛ID：' + (res && res.id ? res.id : '未知'))
@@ -3996,38 +5245,58 @@ export default {
       return d.toISOString().slice(0, 16)
     },
 
-    revokeEditCurrentQrObjectUrl () {
-      if (this.editCurrentQrObjectUrl) {
-        try {
-          URL.revokeObjectURL(this.editCurrentQrObjectUrl)
-        } catch (e) { /* noop */ }
-        this.editCurrentQrObjectUrl = null
+    revokeEditCurrentQrPreviews () {
+      for (const p of this.editCurrentQrPreviews || []) {
+        if (p && p.isBlob && p.url) {
+          try {
+            URL.revokeObjectURL(p.url)
+          } catch (e) { /* noop */ }
+        }
       }
+      this.editCurrentQrPreviews = []
     },
 
-    resetEditCompetitionQrState () {
-      if (this.editQrBlobUrl) {
-        try {
-          URL.revokeObjectURL(this.editQrBlobUrl)
-        } catch (e) { /* noop */ }
-        this.editQrBlobUrl = null
-      }
+    clearEditSharedQrUpload () {
+      this.revokeBlobUrl('editQrBlobUrl')
       this.editCompetitionQrFile = null
       this.editQrCodeFileList = []
       this.editQrCodeValidating = false
-      this.revokeEditCurrentQrObjectUrl()
+    },
+
+    clearEditSeparateQrUploads () {
+      this.revokeBlobUrl('editQrUndergraduateBlobUrl')
+      this.revokeBlobUrl('editQrVocationalBlobUrl')
+      this.editCompetitionQrUndergraduateFile = null
+      this.editCompetitionQrVocationalFile = null
+      this.editQrCodeUndergraduateFileList = []
+      this.editQrCodeVocationalFileList = []
+      this.editQrCodeUndergraduateValidating = false
+      this.editQrCodeVocationalValidating = false
+    },
+
+    resetEditCompetitionQrState () {
+      this.clearEditSharedQrUpload()
+      this.clearEditSeparateQrUploads()
+      this.revokeEditCurrentQrPreviews()
       this.editCurrentQrLoading = false
     },
 
     handleEditQrCodeRemove () {
-      if (this.editQrBlobUrl) {
-        try {
-          URL.revokeObjectURL(this.editQrBlobUrl)
-        } catch (e) { /* noop */ }
-        this.editQrBlobUrl = null
-      }
-      this.editCompetitionQrFile = null
-      this.editQrCodeFileList = []
+      this.clearEditSharedQrUpload()
+      return true
+    },
+
+    handleEditQrCodeUndergraduateRemove () {
+      this.revokeBlobUrl('editQrUndergraduateBlobUrl')
+      this.editCompetitionQrUndergraduateFile = null
+      this.editQrCodeUndergraduateFileList = []
+      return true
+    },
+
+    handleEditQrCodeVocationalRemove () {
+      this.revokeBlobUrl('editQrVocationalBlobUrl')
+      this.editCompetitionQrVocationalFile = null
+      this.editQrCodeVocationalFileList = []
       return true
     },
 
@@ -4036,11 +5305,7 @@ export default {
       try {
         const ok = await this.validateCompetitionQrImageFile(file)
         if (!ok) return false
-        if (this.editQrBlobUrl) {
-          try {
-            URL.revokeObjectURL(this.editQrBlobUrl)
-          } catch (e) { /* noop */ }
-        }
+        this.revokeBlobUrl('editQrBlobUrl')
         const url = URL.createObjectURL(file)
         this.editQrBlobUrl = url
         this.editCompetitionQrFile = file
@@ -4051,25 +5316,61 @@ export default {
       return false
     },
 
-    async fetchEditCompetitionCurrentQr (competitionId) {
-      this.revokeEditCurrentQrObjectUrl()
+    async beforeEditQrCodeUndergraduateUpload (file) {
+      this.editQrCodeUndergraduateValidating = true
+      try {
+        const ok = await this.validateCompetitionQrImageFile(file)
+        if (!ok) return false
+        this.revokeBlobUrl('editQrUndergraduateBlobUrl')
+        const url = URL.createObjectURL(file)
+        this.editQrUndergraduateBlobUrl = url
+        this.editCompetitionQrUndergraduateFile = file
+        this.editQrCodeUndergraduateFileList = [{ uid: 'edit-qr-ug', name: file.name, status: 'done', url }]
+      } finally {
+        this.editQrCodeUndergraduateValidating = false
+      }
+      return false
+    },
+
+    async beforeEditQrCodeVocationalUpload (file) {
+      this.editQrCodeVocationalValidating = true
+      try {
+        const ok = await this.validateCompetitionQrImageFile(file)
+        if (!ok) return false
+        this.revokeBlobUrl('editQrVocationalBlobUrl')
+        const url = URL.createObjectURL(file)
+        this.editQrVocationalBlobUrl = url
+        this.editCompetitionQrVocationalFile = file
+        this.editQrCodeVocationalFileList = [{ uid: 'edit-qr-voc', name: file.name, status: 'done', url }]
+      } finally {
+        this.editQrCodeVocationalValidating = false
+      }
+      return false
+    },
+
+    async fetchEditCompetitionCurrentQr (competitionId, comp) {
+      this.revokeEditCurrentQrPreviews()
       if (!competitionId) return
       this.editCurrentQrLoading = true
+      const previews = []
+      const pushBlobPreview = async (key, label, division) => {
+        const objectUrl = await this.loadCompetitionQrForCurrentView(competitionId, comp, division)
+        if (!objectUrl) return
+        previews.push({ key, label, url: objectUrl, isBlob: true })
+      }
       try {
-        const blob = await getCompetitionQrCode(competitionId)
-        if (blob && typeof blob.size === 'number' && blob.size > 0) {
-          const t = (blob.type || '').toLowerCase()
-          if (
-            t.startsWith('image/') ||
-            t === 'application/octet-stream' ||
-            t === '' ||
-            t === 'binary/octet-stream'
-          ) {
-            this.editCurrentQrObjectUrl = URL.createObjectURL(blob)
-          }
+        if (!comp || comp.division_mode == null) {
+          comp = await this.ensureCompetitionDetail(competitionId) || comp
         }
-      } catch (e) {
-        /* 无二维码或未配置 */
+        const mode = (comp && comp.division_mode) || 'single'
+        const layout = (comp && comp.qr_layout) || 'shared'
+        if (mode === 'dual' && layout === 'separate') {
+          await pushBlobPreview('undergraduate', '当前 · 本科组', 'undergraduate')
+          await pushBlobPreview('vocational', '当前 · 高职组', 'vocational')
+        } else {
+          await pushBlobPreview('shared', '当前 · 竞赛二维码', null)
+        }
+        this.editCurrentQrPreviews = previews
       } finally {
         this.editCurrentQrLoading = false
       }
@@ -4098,6 +5399,13 @@ export default {
 
         if (!!form.allow_individual !== o.allow_individual) changes.allow_individual = !!form.allow_individual
         if (!!form.allow_team !== o.allow_team) changes.allow_team = !!form.allow_team
+
+        const divisionMode = form.division_mode || 'single'
+        if (divisionMode !== (o.division_mode || 'single')) changes.division_mode = divisionMode
+        if (divisionMode === 'dual') {
+          const qrLayout = form.qr_layout || 'shared'
+          if (qrLayout !== (o.qr_layout || 'shared')) changes.qr_layout = qrLayout
+        }
       } else {
         const name = (form.name || '').trim()
         if (name) changes.name = name
@@ -4111,6 +5419,10 @@ export default {
 
         changes.allow_individual = !!form.allow_individual
         changes.allow_team = !!form.allow_team
+        changes.division_mode = form.division_mode || 'single'
+        if (changes.division_mode === 'dual') {
+          changes.qr_layout = form.qr_layout || 'shared'
+        }
       }
 
       return changes
@@ -4129,7 +5441,7 @@ export default {
       })
     },
 
-    openEditCompetitionModal () {
+    async openEditCompetitionModal () {
       if (!this.canManageCompetitions) return
       const id = this.selectedCompetitionId || this.activeCompetitionId || this.publishCompetitionId
       if (!id) {
@@ -4137,7 +5449,7 @@ export default {
         return
       }
       const comp =
-        (this.competitions || []).find(c => Number(c.id) === Number(id)) ||
+        (await this.ensureCompetitionDetail(id)) ||
         this.activeCompetition ||
         null
 
@@ -4145,7 +5457,7 @@ export default {
       this.editCompetitionId = id
       this.adminEditLoading = false
       this.showEditCompetitionModal = true
-      void this.fetchEditCompetitionCurrentQr(id)
+      void this.fetchEditCompetitionCurrentQr(id, comp)
 
       const original = comp
         ? {
@@ -4155,7 +5467,9 @@ export default {
           start_at: comp.start_at ? (new Date(comp.start_at)).toISOString() : null,
           end_at: comp.end_at ? (new Date(comp.end_at)).toISOString() : null,
           allow_individual: !!comp.allow_individual,
-          allow_team: !!comp.allow_team
+          allow_team: !!comp.allow_team,
+          division_mode: comp.division_mode || 'single',
+          qr_layout: comp.qr_layout || 'shared'
         }
         : null
 
@@ -4167,7 +5481,9 @@ export default {
         start_at: (comp && this.toDateTimeLocalValue(comp.start_at)) || '',
         end_at: (comp && this.toDateTimeLocalValue(comp.end_at)) || '',
         allow_individual: comp ? !!comp.allow_individual : false,
-        allow_team: comp ? !!comp.allow_team : false
+        allow_team: comp ? !!comp.allow_team : false,
+        division_mode: comp ? (comp.division_mode || 'single') : 'single',
+        qr_layout: comp ? (comp.qr_layout || 'shared') : 'shared'
       }
     },
 
@@ -4176,7 +5492,7 @@ export default {
       if (!this.editCompetitionId) return
 
       const changes = this.buildEditCompetitionChanges()
-      const hasQr = !!this.editCompetitionQrFile
+      const hasQr = this.hasEditCompetitionQrUploads()
 
       if (changes.name !== undefined && !changes.name) {
         this.$message.warning('竞赛名称不能为空')
@@ -4193,7 +5509,7 @@ export default {
         if (hasQr) {
           const fd = new FormData()
           this.appendEditCompetitionChangesToFormData(fd, changes)
-          fd.append('qr_code_image', this.editCompetitionQrFile, this.editCompetitionQrFile.name)
+          this.appendEditCompetitionQrFiles(fd)
           await updateCompetitionMultipart(this.editCompetitionId, fd)
         } else {
           await updateCompetition(this.editCompetitionId, changes)
@@ -4395,15 +5711,19 @@ export default {
     async refreshAdminSubmissions () {
       if (!this.canViewCompetitionSubmissions) return
       if (!this.activeCompetitionId) return
+      if (!this.assertCompetitionDivisionQueryContext()) return
       this.adminSubmissionsLoading = true
       try {
         const cid = this.activeCompetitionId
+        const divOpts = this.buildCompetitionDivisionQueryOptions()
         const [subRes, indRes, teamRes] = await Promise.all([
-          getCompetitionSubmissions(cid),
-          getCompetitionParticipantsIndividual(cid).catch(() => []),
-          getCompetitionParticipantsTeams(cid).catch(() => [])
+          getCompetitionSubmissions(cid, divOpts),
+          getCompetitionParticipantsIndividual(cid, divOpts).catch(() => []),
+          getCompetitionParticipantsTeams(cid, divOpts).catch(() => [])
         ])
-        const raw = normalizeCompetitionApiList(subRes).map(item => this.normalizeAdminSubmissionRow(item))
+        const raw = this.normalizeSubmissionsListResponse(subRes).map(item =>
+          this.normalizeAdminSubmissionRow(item)
+        )
         const enrollIndex = buildEnrollmentVisibilityIndex(
           normalizeCompetitionApiList(indRes),
           normalizeCompetitionApiList(teamRes)
@@ -4425,9 +5745,13 @@ export default {
     async refreshScoresSummary (openModal = true) {
       if (!this.canViewScoreAnalytics) return
       if (!this.activeCompetitionId) return
+      if (!this.assertCompetitionDivisionQueryContext()) return
       this.summaryLoading = true
       try {
-        const res = await getCompetitionScoresSummary(this.activeCompetitionId)
+        const res = await getCompetitionScoresSummary(
+          this.activeCompetitionId,
+          this.buildCompetitionDivisionQueryOptions()
+        )
         this.scoresSummary = res
         if (openModal) this.showScoresSummaryModal = true
       } catch (e) {
@@ -4449,10 +5773,15 @@ export default {
     async refreshRankings () {
       if (!this.canViewScoreAnalytics) return
       if (!this.activeCompetitionId) return
+      if (!this.assertCompetitionDivisionQueryContext()) return
       this.rankingsLoading = true
       try {
         const limit = this.rankingsLimit != null && this.rankingsLimit !== '' ? this.rankingsLimit : 50
-        const res = await getCompetitionRankings(this.activeCompetitionId, limit)
+        const res = await getCompetitionRankings(
+          this.activeCompetitionId,
+          limit,
+          this.buildCompetitionDivisionQueryOptions()
+        )
         this.scoresRankings = res
       } catch (e) {
         this.scoresRankings = null
@@ -4475,12 +5804,17 @@ export default {
     async refreshParticipantsIndividual () {
       if (!this.canViewParticipantsRoster) return
       if (!this.activeCompetitionId) return
+      if (!this.assertCompetitionDivisionQueryContext()) return
       this.participantsIndividualLoading = true
       try {
-        const res = await getCompetitionParticipantsIndividual(this.activeCompetitionId)
+        const res = await getCompetitionParticipantsIndividual(
+          this.activeCompetitionId,
+          this.buildCompetitionDivisionQueryOptions()
+        )
         const list = Array.isArray(res) ? res : (res && Array.isArray(res.items) ? res.items : [])
         this.participantsIndividual = list.map(item => ({
           sequence_no: item.sequence_no != null ? item.sequence_no : '-',
+          division_label: divisionToLabel(resolveEnrollmentDivision(item)) || '-',
           enrollment_id: item.enrollment_id,
           student_no: item.student_no || '-',
           full_name: item.full_name || item.real_name || item.username || '-',
@@ -4503,9 +5837,13 @@ export default {
     async refreshParticipantsTeams () {
       if (!this.canViewParticipantsRoster) return
       if (!this.activeCompetitionId) return
+      if (!this.assertCompetitionDivisionQueryContext()) return
       this.participantsTeamsLoading = true
       try {
-        const res = await getCompetitionParticipantsTeams(this.activeCompetitionId)
+        const res = await getCompetitionParticipantsTeams(
+          this.activeCompetitionId,
+          this.buildCompetitionDivisionQueryOptions()
+        )
         const list = Array.isArray(res) ? res : (res && Array.isArray(res.items) ? res.items : [])
         this.participantsTeams = list.map(item => {
           const members = Array.isArray(item.members) ? item.members : []
@@ -4516,6 +5854,7 @@ export default {
 
           return {
             sequence_no: item.sequence_no != null ? item.sequence_no : '-',
+            division_label: divisionToLabel(resolveEnrollmentDivision(item)) || '-',
             team_id: item.id,
             captain_id: item.captain_id,
             captain_name: captain ? (captain.full_name || captain.username || captain.user_id || '-') : '-',
@@ -4540,13 +5879,18 @@ export default {
         this.$message.warning('请先选择竞赛')
         return
       }
+      if (!this.assertCompetitionDivisionQueryContext()) return
       this.participantsTeamsExportLoading = true
       try {
-        const blob = await exportCompetitionTeamsExcel(this.activeCompetitionId)
+        const divOpts = this.buildCompetitionDivisionQueryOptions()
+        const blob = await exportCompetitionTeamsExcel(this.activeCompetitionId, divOpts)
         if (!blob || (typeof blob.size === 'number' && blob.size <= 0)) {
           throw new Error('导出结果为空')
         }
-        const filename = `competition_${this.activeCompetitionId}_teams.xlsx`
+        const div = divOpts.division
+        const filename = div
+          ? `competition_${this.activeCompetitionId}_teams_${div}.xlsx`
+          : `competition_${this.activeCompetitionId}_teams.xlsx`
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
@@ -5372,6 +6716,26 @@ export default {
 
 .edit-competition-qr-replace {
   margin-top: 12px;
+}
+
+.division-pick-modal__hint {
+  margin-bottom: 20px;
+  color: rgba(0, 0, 0, 0.65);
+  line-height: 1.6;
+}
+
+.division-pick-modal__actions {
+  display: flex;
+  flex-direction: column;
+}
+
+.division-pick-modal__btn-second {
+  margin-top: 12px;
+}
+
+.competition-hero-banner__division-tag {
+  margin-left: 8px;
+  vertical-align: middle;
 }
 </style>
 

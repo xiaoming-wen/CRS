@@ -1,6 +1,6 @@
 /**
- * 摘自 gpt-free/webapps/src/config/router.config.js（竞赛报名全屏路由）
- * 集成到独立项目时，将下列路由加入 asyncRouterMap 或等价路由表。
+ * 自 gpt-free/webapps/src/config/router.config.js 摘录的竞赛报名路由（2026-05-29）
+ * 合并到独立工程的 asyncRouterMap 时使用。
  */
 export const competitionRoutesExtract = [
   {

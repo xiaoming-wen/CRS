@@ -11,6 +11,25 @@ class CompetitionStatus(str):
     CLOSED = "closed"
 
 
+class CompetitionDivisionMode(str):
+    """是否分本科/高职组别。"""
+    SINGLE = "single"
+    DUAL = "dual"
+
+
+class CompetitionQrLayout(str):
+    """双组别时的二维码策略。"""
+    SHARED = "shared"
+    SEPARATE = "separate"
+
+
+class CompetitionDivision(str):
+    """学历组别（报名/组队归属）。"""
+    DEFAULT = "default"
+    UNDERGRADUATE = "undergraduate"
+    VOCATIONAL = "vocational"
+
+
 class Competition(Base):
     __tablename__ = "competitions"
 
@@ -26,7 +45,20 @@ class Competition(Base):
     allow_individual = Column(Boolean, default=True, nullable=False)
     allow_team = Column(Boolean, default=True, nullable=False)
 
+    division_mode = Column(
+        String(20),
+        default=CompetitionDivisionMode.SINGLE,
+        nullable=False,
+    )
+    qr_layout = Column(
+        String(20),
+        default=CompetitionQrLayout.SHARED,
+        nullable=False,
+    )
+
     qr_code_path = Column(String(512), nullable=True)
+    qr_code_path_undergraduate = Column(String(512), nullable=True)
+    qr_code_path_vocational = Column(String(512), nullable=True)
 
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
@@ -74,6 +106,12 @@ class CompetitionEnrollment(Base):
         default=CompetitionEnrollmentScope.INDIVIDUAL,
         nullable=False,
     )
+    division = Column(
+        String(20),
+        default=CompetitionDivision.DEFAULT,
+        nullable=False,
+        comment="学历组别：default / undergraduate / vocational",
+    )
 
     is_captain = Column(Boolean, default=False, nullable=False)
 
@@ -109,6 +147,13 @@ class Team(Base):
 
     # 指导老师代为建队时记录其 alt_auth_users.id（普通学生自建队则为空）
     created_by_advisor_id = Column(Integer, nullable=True, index=True)
+
+    division = Column(
+        String(20),
+        default=CompetitionDivision.DEFAULT,
+        nullable=False,
+        comment="队伍所属学历组别",
+    )
 
     status = Column(String(30), default=TeamStatus.ACTIVE, nullable=False)
     created_at = Column(DateTime, default=utc_now)
@@ -162,6 +207,13 @@ class Submission(Base):
 
     file_id = Column(Integer, ForeignKey("files.id"), nullable=True)
     content_text = Column(Text, nullable=True)
+
+    division = Column(
+        String(20),
+        default=CompetitionDivision.DEFAULT,
+        nullable=False,
+        comment="作品所属学历组别，与报名 division 一致",
+    )
 
     status = Column(String(30), default=SubmissionStatus.SUBMITTED, nullable=False)
     submitted_at = Column(DateTime, default=utc_now)

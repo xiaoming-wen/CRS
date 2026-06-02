@@ -9,7 +9,7 @@ import { axios } from '@/utils/request'
  * URL 以 `/v1/competitions/...` 书写；开发环境经 devServer 代理到 `/api`。
  */
 
-// 8.1 创建竞赛（仅 super_admin）JSON
+// 8.1 创建竞赛（仅 super_admin）JSON — 仅文本字段；division_mode / qr_layout 等同 JSON 体
 export function createCompetition (payload) {
   return axios({
     url: '/v1/competitions/',
@@ -21,7 +21,8 @@ export function createCompetition (payload) {
   })
 }
 
-// 8.1 创建竞赛 multipart（含 qr_code_image 等字段，勿手动设 Content-Type）
+// 8.1 创建竞赛 multipart — 文本字段 + 二维码（qr_code_image / qr_code_image_shared 共用；
+// dual+separate 时用 qr_code_image_undergraduate、qr_code_image_vocational）；勿手动设 Content-Type
 export function createCompetitionMultipart (formData) {
   return axios({
     url: '/v1/competitions/',
@@ -41,9 +42,8 @@ export function publishCompetition (competitionId) {
   })
 }
 
-// 8.3 修改竞赛（仅 super_admin）JSON
+// 8.3 修改竞赛（仅 super_admin）JSON — 只传需改的文本字段（含 division_mode / qr_layout）
 export function updateCompetition (competitionId, payload) {
-  // payload: 只传需要修改的字段（name/description/rules_text/start_at/end_at/allow_individual/allow_team）
   return axios({
     url: `/v1/competitions/${competitionId}`,
     method: 'put',
@@ -54,7 +54,7 @@ export function updateCompetition (competitionId, payload) {
   })
 }
 
-// 8.3 修改竞赛 multipart（含 qr_code_image；勿手动设 Content-Type）
+// 8.3 修改竞赛 multipart — 仅提交需改的文本字段；二维码字段规则同 §8.1（未传文件不替换）
 export function updateCompetitionMultipart (competitionId, formData) {
   return axios({
     url: `/v1/competitions/${competitionId}`,
@@ -90,11 +90,25 @@ export function getCompetitions () {
   })
 }
 
-/** 竞赛二维码图（GET，一般为 image/png） */
-export function getCompetitionQrCode (competitionId) {
+// 8.1.1 获取竞赛详情（单条；含 division_mode / qr_layout / qr_codes，供详情页与组别弹窗判断）
+export function getCompetition (competitionId) {
+  return axios({
+    url: `/v1/competitions/${encodeURIComponent(competitionId)}`,
+    method: 'get'
+  })
+}
+
+/** 竞赛二维码图（GET，一般为 image/png）；dual 分开展示时可传 division */
+export function getCompetitionQrCode (competitionId, options = {}) {
+  const params = {}
+  const div = options && options.division
+  if (div === 'undergraduate' || div === 'vocational') {
+    params.division = div
+  }
   return axios({
     url: `/v1/competitions/${encodeURIComponent(competitionId)}/qr-code`,
     method: 'get',
+    params,
     responseType: 'blob'
   })
 }
@@ -107,27 +121,30 @@ export function getMyCompetitionEnrollments () {
   })
 }
 
-// 8.10 查看个人参赛者（含 username/full_name 来自 alt_auth_users；student_id 即 alt_auth_users.id）
-export function getCompetitionParticipantsIndividual (competitionId) {
+// 8.10 查看个人参赛者花名册（dual 须传 division）
+export function getCompetitionParticipantsIndividual (competitionId, options = {}) {
   return axios({
     url: `/v1/competitions/${competitionId}/participants/individual`,
-    method: 'get'
+    method: 'get',
+    params: buildCompetitionDivisionParams(options)
   })
 }
 
-// 8.11 查看组队参赛者（captain_id / members[].user_id 均为 alt_auth_users.id）
-export function getCompetitionParticipantsTeams (competitionId) {
+// 8.11 查看组队参赛者花名册（dual 须传 division）
+export function getCompetitionParticipantsTeams (competitionId, options = {}) {
   return axios({
     url: `/v1/competitions/${competitionId}/participants/teams`,
-    method: 'get'
+    method: 'get',
+    params: buildCompetitionDivisionParams(options)
   })
 }
 
-// 8.11.1 导出队伍信息 Excel（管理员；MANAGE_COMPETITIONS）
-export function exportCompetitionTeamsExcel (competitionId) {
+// 8.11.1 导出队伍信息 Excel（dual 须传 division）
+export function exportCompetitionTeamsExcel (competitionId, options = {}) {
   return axios({
     url: `/v1/competitions/${competitionId}/teams/export`,
     method: 'get',
+    params: buildCompetitionDivisionParams(options),
     responseType: 'blob'
   })
 }
@@ -137,7 +154,18 @@ function trimStr (v) {
   return String(v).trim()
 }
 
-// 8.7 报名参赛（学生：个人/队伍；team_id=null 为个人赛道，非空为队伍赛道，双赛道可并存）
+/** dual 竞赛 Query：undergraduate | vocational；single 可省略 */
+function buildCompetitionDivisionParams (options = {}) {
+  const params = {}
+  const div = options && options.division
+  const s = div != null ? String(div).trim().toLowerCase() : ''
+  if (s === 'undergraduate' || s === 'vocational' || s === 'default') {
+    params.division = s
+  }
+  return params
+}
+
+// 8.7 报名参赛（学生：个人/队伍；dual 竞赛须传 division: undergraduate | vocational）
 export function enrollCompetition (payload) {
   const raw = payload || {}
   const competitionId = Number(raw.competition_id)
@@ -154,6 +182,10 @@ export function enrollCompetition (payload) {
     }
   } else if (hasTeamIdKey && (teamRaw == null || teamRaw === '')) {
     body.team_id = null
+  }
+  const division = trimStr(raw.division)
+  if (division === 'undergraduate' || division === 'vocational') {
+    body.division = division
   }
   const optionalKeys = ['student_no', 'real_name', 'college', 'grade', 'contact']
   for (const k of optionalKeys) {
@@ -185,11 +217,12 @@ export function withdrawCompetition (competitionId, options = {}) {
   })
 }
 
-// 8.9 查看竞赛队伍列表（学生选队 / 指导老师查看队况；权限 VIEW_COMPETITIONS）
-export function getCompetitionTeams (competitionId) {
+// 8.9 查看竞赛队伍列表（dual 须传 division，每次只返回该组队伍）
+export function getCompetitionTeams (competitionId, options = {}) {
   return axios({
     url: `/v1/competitions/${competitionId}/teams`,
-    method: 'get'
+    method: 'get',
+    params: buildCompetitionDivisionParams(options)
   })
 }
 
@@ -271,23 +304,58 @@ export function leaveTeam (teamId) {
   })
 }
 
-// 8.16 提交作品 JSON（须 application/json；支持根级或 { payload: {...} }；权限 SUBMIT_SUBMISSIONS）
+// 8.16 提交作品 JSON（须 application/json，勿用 multipart；权限 SUBMIT_SUBMISSIONS）
+// 字段：competition_id, team_id(null=个人), division(dual 必填), title, description?, file_id?, content_text?
+// 请求体支持扁平对象或 { payload: { ... } }，此处使用扁平结构
 export function submitCompetitionSubmission (payload) {
-  // payload: { competition_id, team_id: int|null, title, description?, file_id?, content_text? }
-  // 后端要求请求体必须包含根级 key "payload"，所有字段放在 payload 对象内
+  const raw = payload || {}
+  const competitionId = Number(raw.competition_id)
+  if (!Number.isFinite(competitionId) || competitionId <= 0) {
+    return Promise.reject(new Error('竞赛 ID 无效'))
+  }
+  const title = trimStr(raw.title)
+  if (!title) {
+    return Promise.reject(new Error('作品标题不能为空'))
+  }
+  const body = {
+    competition_id: competitionId,
+    title
+  }
+  const teamRaw = raw.team_id
+  if (teamRaw != null && teamRaw !== '') {
+    const teamId = Number(teamRaw)
+    if (Number.isFinite(teamId) && teamId > 0) body.team_id = teamId
+  } else if (Object.prototype.hasOwnProperty.call(raw, 'team_id')) {
+    body.team_id = null
+  }
+  const division = trimStr(raw.division)
+  if (division === 'undergraduate' || division === 'vocational') {
+    body.division = division
+  }
+  const desc = trimStr(raw.description)
+  if (desc) body.description = desc
+  const contentText = raw.content_text
+  if (contentText != null && String(contentText).trim() !== '') {
+    body.content_text = String(contentText).trim()
+  } else if (Object.prototype.hasOwnProperty.call(raw, 'content_text')) {
+    body.content_text = null
+  }
+  if (raw.file_id != null && raw.file_id !== '') {
+    const fileId = Number(raw.file_id)
+    if (Number.isFinite(fileId) && fileId > 0) body.file_id = fileId
+  }
   return axios({
     url: '/v1/competitions/submissions',
     method: 'post',
-    data: { payload: payload || {} },
+    data: body,
     headers: {
       'Content-Type': 'application/json'
     }
   })
 }
 
-// 8.16.1 提交作品 multipart
+// 8.16.1 提交作品 multipart（有文件时用；Form 含 competition_id / team_id / division / title 等）
 export function uploadCompetitionSubmission (formData) {
-  // formData: multipart/form-data
   return axios({
     url: '/v1/competitions/submissions/upload',
     method: 'post',
@@ -296,11 +364,12 @@ export function uploadCompetitionSubmission (formData) {
   })
 }
 
-// 8.16.2 查看作品列表
-export function getCompetitionSubmissions (competitionId) {
+// 8.16.2 查看作品列表（dual 按提交时落库的 division 筛选）
+export function getCompetitionSubmissions (competitionId, options = {}) {
   return axios({
     url: `/v1/competitions/${competitionId}/submissions`,
-    method: 'get'
+    method: 'get',
+    params: buildCompetitionDivisionParams(options)
   })
 }
 
@@ -355,20 +424,23 @@ export function getCompetitionSubmissionReviewGrade (submissionId) {
   })
 }
 
-// 8.18 评分汇总（竞赛维度；VIEW_COMPETITIONS + REVIEW_SUBMISSIONS）
-export function getCompetitionScoresSummary (competitionId) {
+// 8.18 评分汇总（dual 须传 division，仅统计该组作品）
+export function getCompetitionScoresSummary (competitionId, options = {}) {
   return axios({
     url: `/v1/competitions/${competitionId}/scores/summary`,
-    method: 'get'
+    method: 'get',
+    params: buildCompetitionDivisionParams(options)
   })
 }
 
-// 8.19 排行榜（竞赛维度）
-export function getCompetitionRankings (competitionId, limit = 50) {
+// 8.19 排行榜（dual 须传 division，组内排名）
+export function getCompetitionRankings (competitionId, limit = 50, options = {}) {
+  const params = buildCompetitionDivisionParams(options)
+  if (limit != null && limit !== '') params.limit = limit
   return axios({
     url: `/v1/competitions/${competitionId}/scores/rankings`,
     method: 'get',
-    params: { limit }
+    params
   })
 }
 

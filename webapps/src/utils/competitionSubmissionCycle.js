@@ -56,6 +56,232 @@ export function clearCompetitionWithdrawSubmissionCutoff (competitionId) {
   writeMap(map)
 }
 
+/** dual 竞赛报名组别：enrollments/me 未返回 division 时，用本机缓存补全（报名成功时写入） */
+const ENROLL_DIVISION_STORAGE_KEY = 'competition_enroll_division_v1'
+
+function readEnrollDivisionMap () {
+  try {
+    const raw = localStorage.getItem(ENROLL_DIVISION_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch (_) {
+    return {}
+  }
+}
+
+function writeEnrollDivisionMap (map) {
+  try {
+    localStorage.setItem(ENROLL_DIVISION_STORAGE_KEY, JSON.stringify(map || {}))
+  } catch (_) {
+    /* ignore quota */
+  }
+}
+
+function enrollDivisionStorageKey (competitionId, track) {
+  const cid = normalizeCompetitionId(competitionId)
+  if (!cid) return null
+  const t = track === 'team' ? 'team' : 'individual'
+  return `${cid}:${t}`
+}
+
+/** 从报名记录或 POST enroll 响应解析 division */
+export function resolveEnrollmentDivision (row) {
+  if (!row || typeof row !== 'object') return null
+  const candidates = [row.division, row.enrollment_division, row.education_division]
+  for (const c of candidates) {
+    if (c == null || String(c).trim() === '') continue
+    const s = String(c).trim().toLowerCase()
+    if (s === 'undergraduate' || s === 'vocational') return s
+  }
+  return null
+}
+
+export function divisionToLabel (division) {
+  const s = division != null ? String(division).trim().toLowerCase() : ''
+  if (s === 'undergraduate') return '本科组'
+  if (s === 'vocational') return '高职组'
+  return null
+}
+
+export function saveCompetitionEnrollmentDivision (competitionId, track, division) {
+  const storageKey = enrollDivisionStorageKey(competitionId, track)
+  if (!storageKey) return
+  const s = division != null ? String(division).trim().toLowerCase() : ''
+  if (s !== 'undergraduate' && s !== 'vocational') return
+  const map = readEnrollDivisionMap()
+  map[storageKey] = s
+  writeEnrollDivisionMap(map)
+}
+
+export function getCompetitionEnrollmentDivision (competitionId, track) {
+  const storageKey = enrollDivisionStorageKey(competitionId, track)
+  if (!storageKey) return null
+  const v = readEnrollDivisionMap()[storageKey]
+  if (v === 'undergraduate' || v === 'vocational') return v
+  return null
+}
+
+/**
+ * 本竞赛任一条报名赛道缓存的 division（dual 下学生仅属一个组别，个人/组队应一致）
+ */
+export function getCompetitionEnrollmentDivisionAnyTrack (competitionId) {
+  return (
+    getCompetitionEnrollmentDivision(competitionId, 'individual') ||
+    getCompetitionEnrollmentDivision(competitionId, 'team')
+  )
+}
+
+/**
+ * 「我报名的竞赛」等列表：组别解析顺序与赛道无关（个人/组队同源）
+ */
+export function resolveEnrollmentDivisionLabelForList (row, competitionDetail, detailLoaded) {
+  if (!row || typeof row !== 'object') return '-'
+
+  const fromApi = resolveEnrollmentDivision(row)
+  if (fromApi) {
+    const label = divisionToLabel(fromApi)
+    if (label) return label
+  }
+
+  const cid = row.competition_id
+  let cached = getCompetitionEnrollmentDivisionAnyTrack(cid)
+  if (!cached && cid && row.team_id != null && row.team_id !== '') {
+    cached = getCompetitionTeamDivision(cid, row.team_id)
+  }
+  if (cached) {
+    const label = divisionToLabel(cached)
+    if (label) return label
+  }
+
+  const comp = competitionDetail || row.competition || {}
+  const mode = String(comp.division_mode || comp.divisionMode || 'single').toLowerCase()
+  if (mode !== 'dual') return '不分组'
+
+  if (!detailLoaded) return '…'
+  return '-'
+}
+
+/** 报名资料字段：同一竞赛下个人/组队赛道共用（优先 enrollments/me 非空值） */
+const ENROLLMENT_PROFILE_FIELD_KEYS = [
+  'student_no',
+  'real_name',
+  'contact',
+  'school_info',
+  'school',
+  'college'
+]
+
+function enrollmentProfileFieldPresent (v) {
+  return v != null && String(v).trim() !== ''
+}
+
+/**
+ * 按 competition_id 合并各赛道报名记录中的学生资料（学号/姓名/联系方式/学校等）
+ * @param {Array<object>} enrollments
+ * @returns {Record<string, object>}
+ */
+export function buildEnrollmentProfileByCompetitionId (enrollments) {
+  const map = {}
+  for (const row of enrollments || []) {
+    if (!row || typeof row !== 'object') continue
+    const cid = row.competition_id
+    if (cid == null || cid === '') continue
+    const key = String(cid)
+    if (!map[key]) map[key] = {}
+    const bucket = map[key]
+    for (const field of ENROLLMENT_PROFILE_FIELD_KEYS) {
+      const v = row[field]
+      if (enrollmentProfileFieldPresent(v) && !enrollmentProfileFieldPresent(bucket[field])) {
+        bucket[field] = v
+      }
+    }
+  }
+  return map
+}
+
+/** 当前行资料为空时，用同竞赛另一条赛道（通常为个人报名）已填写的资料补全 */
+export function mergeEnrollmentRowWithCompetitionProfile (row, profileByCompetitionId) {
+  if (!row || typeof row !== 'object') return row
+  const cid = row.competition_id
+  if (cid == null || cid === '') return row
+  const shared = profileByCompetitionId && profileByCompetitionId[String(cid)]
+  if (!shared) return row
+  const merged = { ...row }
+  for (const field of ENROLLMENT_PROFILE_FIELD_KEYS) {
+    if (!enrollmentProfileFieldPresent(merged[field]) && enrollmentProfileFieldPresent(shared[field])) {
+      merged[field] = shared[field]
+    }
+  }
+  return merged
+}
+
+/** 从队伍对象解析 division（字段与报名记录一致） */
+export function resolveTeamDivision (team) {
+  return resolveEnrollmentDivision(team)
+}
+
+const TEAM_DIVISION_STORAGE_KEY = 'competition_team_division_v1'
+
+function readTeamDivisionMap () {
+  try {
+    const raw = localStorage.getItem(TEAM_DIVISION_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch (_) {
+    return {}
+  }
+}
+
+function writeTeamDivisionMap (map) {
+  try {
+    localStorage.setItem(TEAM_DIVISION_STORAGE_KEY, JSON.stringify(map || {}))
+  } catch (_) {
+    /* ignore quota */
+  }
+}
+
+function teamDivisionStorageKey (competitionId, teamId) {
+  const cid = normalizeCompetitionId(competitionId)
+  const tid = teamId != null && teamId !== '' ? String(teamId) : ''
+  if (!cid || !tid) return null
+  return `${cid}:${tid}`
+}
+
+/** 建队成功且接口未返回 division 时，按详情页组别写入本机缓存 */
+export function saveCompetitionTeamDivision (competitionId, teamId, division) {
+  const storageKey = teamDivisionStorageKey(competitionId, teamId)
+  if (!storageKey) return
+  const s = division != null ? String(division).trim().toLowerCase() : ''
+  if (s !== 'undergraduate' && s !== 'vocational') return
+  const map = readTeamDivisionMap()
+  map[storageKey] = s
+  writeTeamDivisionMap(map)
+}
+
+export function getCompetitionTeamDivision (competitionId, teamId) {
+  const storageKey = teamDivisionStorageKey(competitionId, teamId)
+  if (!storageKey) return null
+  const v = readTeamDivisionMap()[storageKey]
+  if (v === 'undergraduate' || v === 'vocational') return v
+  return null
+}
+
+/** §8.16.2 列表项 division 与当前详情页组别一致（接口未筛时前端兜底） */
+export function filterSubmissionsByViewDivision (list, viewDivision) {
+  const div =
+    viewDivision != null ? String(viewDivision).trim().toLowerCase() : ''
+  if (div !== 'undergraduate' && div !== 'vocational') {
+    return Array.isArray(list) ? list : []
+  }
+  return (list || []).filter((row) => {
+    const d = resolveEnrollmentDivision(row)
+    if (!d) return true
+    return d === div
+  })
+}
+
 export function normalizeCompetitionApiList (res) {
   if (Array.isArray(res)) return res
   if (res && Array.isArray(res.items)) return res.items
