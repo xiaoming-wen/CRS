@@ -900,6 +900,20 @@
                 </div>
               </a-card>
             </div>
+            <div v-if="adminSubmissionsTotal > 0" style="display: flex; justify-content: flex-end; margin-top: 12px">
+              <a-pagination
+                :current="adminSubmissionsPage"
+                :page-size="adminSubmissionsPageSize"
+                :total="adminSubmissionsTotal"
+                :page-size-options="adminSubmissionsPageSizeOptions"
+                :show-size-changer="true"
+                :show-quick-jumper="true"
+                :show-total="(total) => `共 ${total} 条`"
+                size="small"
+                @change="handleAdminSubmissionsPageChange"
+                @showSizeChange="handleAdminSubmissionsPageChange"
+              />
+            </div>
           </a-card>
 
           <a-card
@@ -2109,6 +2123,10 @@ export default {
 
       adminSubmissionsLoading: false,
       adminSubmissions: [],
+      adminSubmissionsPage: 1,
+      adminSubmissionsPageSize: 20,
+      adminSubmissionsTotal: 0,
+      adminSubmissionsPageSizeOptions: ['10', '20', '50', '100'],
       /** 因退赛/非当前报名周期而从教师作品列表中隐藏的数量 */
       adminSubmissionsHiddenByWithdrawCount: 0,
 
@@ -2759,6 +2777,12 @@ export default {
     }
   },
   watch: {
+    '$route.query.page' () {
+      this.applyAdminSubmissionsPaginationFromRoute(false)
+    },
+    '$route.query.page_size' () {
+      this.applyAdminSubmissionsPaginationFromRoute(false)
+    },
     activeCompetitionId (newId) {
       this.advisorCreatedTeamIds = []
       this.studentCreatedTeamInCurrentCompetition = false
@@ -2793,6 +2817,7 @@ export default {
       }
 
       if (newId !== null && newId !== undefined && newId !== '' && this.canViewCompetitionSubmissions) {
+        this.resetAdminSubmissionsPagination()
         if (this.standaloneDetailMode) {
           this.refreshAdminSubmissions()
         } else {
@@ -2800,6 +2825,7 @@ export default {
         }
       } else {
         this.adminSubmissions = []
+        this.adminSubmissionsTotal = 0
       }
 
       if (this.standaloneDetailMode) {
@@ -2878,7 +2904,10 @@ export default {
       }
       if (this.activeCompetitionId) {
         if (this.isStudent) void this.refreshMySubmissions()
-        if (this.canViewCompetitionSubmissions) void this.refreshAdminSubmissions()
+        if (this.canViewCompetitionSubmissions) {
+          this.resetAdminSubmissionsPagination()
+          void this.refreshAdminSubmissions()
+        }
         if (this.canViewScoreAnalytics && this.scoresSummary) {
           void this.refreshScoresSummary(false)
         }
@@ -2889,6 +2918,7 @@ export default {
     }
   },
   mounted () {
+    this.applyAdminSubmissionsPaginationFromRoute(true)
     window.addEventListener('alt-identity-changed', this.onAltIdentityChanged)
     if (this.standaloneDetailMode && this.initialCompetitionId != null && String(this.initialCompetitionId).trim() !== '') {
       void this.bootstrapStandaloneDetail()
@@ -4432,6 +4462,63 @@ export default {
       return division ? { division } : {}
     },
 
+    buildAdminSubmissionsQueryOptions () {
+      return {
+        ...this.buildCompetitionDivisionQueryOptions(),
+        page: this.adminSubmissionsPage,
+        page_size: this.adminSubmissionsPageSize
+      }
+    },
+
+    resetAdminSubmissionsPagination () {
+      this.adminSubmissionsPage = 1
+      this.adminSubmissionsTotal = 0
+      this.syncAdminSubmissionsPaginationToRoute()
+    },
+
+    applyAdminSubmissionsPaginationFromRoute (syncWhenInvalid = false) {
+      const routeQuery = (this.$route && this.$route.query) ? this.$route.query : {}
+      const nextPage = Number(routeQuery.page)
+      const nextPageSize = Number(routeQuery.page_size)
+      const normalizedPage = Number.isFinite(nextPage) && nextPage >= 1 ? Math.floor(nextPage) : 1
+      const normalizedPageSize = Number.isFinite(nextPageSize) && nextPageSize >= 1
+        ? Math.min(100, Math.floor(nextPageSize))
+        : 20
+      const changed = normalizedPage !== this.adminSubmissionsPage || normalizedPageSize !== this.adminSubmissionsPageSize
+      this.adminSubmissionsPage = normalizedPage
+      this.adminSubmissionsPageSize = normalizedPageSize
+      if (syncWhenInvalid && (!Number.isFinite(nextPage) || !Number.isFinite(nextPageSize) || nextPage < 1 || nextPageSize < 1)) {
+        this.syncAdminSubmissionsPaginationToRoute()
+      }
+      if (changed && this.activeCompetitionId && this.canViewCompetitionSubmissions) {
+        void this.refreshAdminSubmissions()
+      }
+    },
+
+    syncAdminSubmissionsPaginationToRoute () {
+      if (!this.$router || !this.$route) return
+      const query = {
+        ...(this.$route.query || {}),
+        page: String(this.adminSubmissionsPage),
+        page_size: String(this.adminSubmissionsPageSize)
+      }
+      const currentPage = this.$route.query && this.$route.query.page != null ? String(this.$route.query.page) : ''
+      const currentPageSize = this.$route.query && this.$route.query.page_size != null ? String(this.$route.query.page_size) : ''
+      if (currentPage === query.page && currentPageSize === query.page_size) return
+      this.$router.replace({ query }).catch(() => {})
+    },
+
+    handleAdminSubmissionsPageChange (page, pageSize) {
+      const nextPage = Number(page)
+      const nextPageSize = Number(pageSize)
+      this.adminSubmissionsPage = Number.isFinite(nextPage) && nextPage >= 1 ? Math.floor(nextPage) : 1
+      if (Number.isFinite(nextPageSize) && nextPageSize >= 1 && nextPageSize !== this.adminSubmissionsPageSize) {
+        this.adminSubmissionsPageSize = Math.floor(nextPageSize)
+      }
+      this.syncAdminSubmissionsPaginationToRoute()
+      void this.refreshAdminSubmissions()
+    },
+
     assertCompetitionDivisionQueryContext (showToast = true) {
       if (!this.isActiveCompetitionDualDivision) return true
       if (this.activeViewDivision) return true
@@ -5716,8 +5803,9 @@ export default {
       try {
         const cid = this.activeCompetitionId
         const divOpts = this.buildCompetitionDivisionQueryOptions()
+        const submissionOpts = this.buildAdminSubmissionsQueryOptions()
         const [subRes, indRes, teamRes] = await Promise.all([
-          getCompetitionSubmissions(cid, divOpts),
+          getCompetitionSubmissions(cid, submissionOpts),
           getCompetitionParticipantsIndividual(cid, divOpts).catch(() => []),
           getCompetitionParticipantsTeams(cid, divOpts).catch(() => [])
         ])
@@ -5731,9 +5819,12 @@ export default {
         const visible = filterAdminSubmissionsByActiveEnrollments(raw, enrollIndex)
         this.adminSubmissionsHiddenByWithdrawCount = Math.max(0, raw.length - visible.length)
         this.adminSubmissions = visible
+        const total = Number(subRes && subRes.total)
+        this.adminSubmissionsTotal = Number.isFinite(total) && total >= 0 ? total : visible.length
         await this.enrichAdminSubmissionsScores()
       } catch (e) {
         this.adminSubmissions = []
+        this.adminSubmissionsTotal = 0
         this.adminSubmissionsHiddenByWithdrawCount = 0
         this.$message.error('获取作品列表失败：' + (e && e.message ? e.message : '未知错误'))
       } finally {

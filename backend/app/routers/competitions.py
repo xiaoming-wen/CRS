@@ -61,6 +61,7 @@ from app.schemas import (
     SubmissionCreate,
     SubmissionCreateWrapped,
     SubmissionResponse,
+    SubmissionListResponse,
     ReviewGrade,
     ReviewResponse,
     CompetitionScoreSummaryResponse,
@@ -2359,19 +2360,22 @@ async def create_submission_upload(
     return submission
 
 
-@router.get("/{competition_id}/submissions", response_model=List[SubmissionResponse])
+@router.get("/{competition_id}/submissions", response_model=SubmissionListResponse)
 async def list_submissions(
     competition_id: int,
     division: Optional[str] = Query(
         None,
         description="按提交时的学历组别过滤：undergraduate / vocational / default",
     ),
+    page: int = Query(1, ge=1, description="页码，从 1 开始"),
+    page_size: int = Query(20, ge=1, le=100, description="每页条数，默认 20，最大 100"),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
     作品列表。响应含 `division`（与提交作品时写入一致）。
     可选 query `division` 按组别筛选（如本科详情页只拉 undergraduate）。
+    支持分页：`page`/`page_size`。
     """
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
     _get_competition(db, competition_id)
@@ -2379,7 +2383,14 @@ async def list_submissions(
     if _can_view_all_competition_submissions(db, competition_id, identity):
         q = db.query(Submission).filter(Submission.competition_id == competition_id)
         q = _apply_submission_division_query(q, division)
-        return q.order_by(Submission.submitted_at.desc()).all()
+        total = q.count()
+        rows = (
+            q.order_by(Submission.submitted_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        return SubmissionListResponse(page=page, page_size=page_size, total=total, items=rows)
 
     if _effective_alt_role(identity.role) != "student":
         raise HTTPException(
@@ -2397,7 +2408,14 @@ async def list_submissions(
         (Submission.student_id == identity.id) | (Submission.team_id.in_(team_ids) if team_ids else False)  # noqa: E712
     )
     q = _apply_submission_division_query(q, division)
-    return q.order_by(Submission.submitted_at.desc()).all()
+    total = q.count()
+    rows = (
+        q.order_by(Submission.submitted_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return SubmissionListResponse(page=page, page_size=page_size, total=total, items=rows)
 
 
 @router.get("/submissions/{submission_id}", response_model=SubmissionResponse)

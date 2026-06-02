@@ -162,6 +162,16 @@ function buildCompetitionDivisionParams (options = {}) {
   if (s === 'undergraduate' || s === 'vocational' || s === 'default') {
     params.division = s
   }
+  const rawPage = options && options.page
+  const page = Number(rawPage)
+  if (Number.isFinite(page) && page >= 1) {
+    params.page = Math.floor(page)
+  }
+  const rawPageSize = options && options.page_size
+  const pageSize = Number(rawPageSize)
+  if (Number.isFinite(pageSize) && pageSize >= 1) {
+    params.page_size = Math.floor(pageSize)
+  }
   return params
 }
 

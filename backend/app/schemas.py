@@ -663,7 +663,11 @@ class TeamDetailResponse(BaseModel):
 
 class IndividualParticipantItem(BaseModel):
     """某竞赛下「个人赛道」有效报名列表（不含组队成员）。"""
-    sequence_no: int = Field(..., description="本竞赛个人赛道内序号，从 1 起，按报名时间升序")
+    sequence_no: int = Field(
+        ...,
+        description="本竞赛个人赛道内序号（指定 division 时在该组别内从 1 起编号）",
+    )
+    division: CompetitionDivision = CompetitionDivision.DEFAULT
     enrollment_id: int = Field(..., description="报名记录主键（全局）")
     student_id: int = Field(..., description="alt_auth_users.id")
     username: str
@@ -690,9 +694,13 @@ class TeamMemberWithUserResponse(BaseModel):
 
 class TeamParticipantDetailResponse(BaseModel):
     """某竞赛下「组队赛道」一支队伍及成员（带本竞赛内队伍序号）。"""
-    sequence_no: int = Field(..., description="本竞赛组队赛道内队伍序号，从 1 起，按队伍创建时间升序")
+    sequence_no: int = Field(
+        ...,
+        description="本竞赛组队赛道内队伍序号（指定 division 时在该组别内从 1 起编号）",
+    )
     id: int
     competition_id: int
+    division: CompetitionDivision = CompetitionDivision.DEFAULT
     name: Optional[str] = None
     captain_id: int
     status: TeamStatus
@@ -791,6 +799,13 @@ class SubmissionResponse(BaseModel):
         from_attributes = True
 
 
+class SubmissionListResponse(BaseModel):
+    page: int = Field(..., ge=1, description="当前页码（从 1 开始）")
+    page_size: int = Field(..., ge=1, le=100, description="每页条数（最大 100）")
+    total: int = Field(..., ge=0, description="满足筛选条件的总记录数")
+    items: List[SubmissionResponse] = Field(default_factory=list)
+
+
 class SubmissionForStudentScoreResponse(SubmissionResponse):
     """学生「我的成绩」：在作品字段上附加评审计分（与 Review 表一致；未评分时为 null）。"""
 
@@ -822,6 +837,10 @@ class ReviewResponse(BaseModel):
 
 class CompetitionScoreSummaryResponse(BaseModel):
     competition_id: int
+    division: CompetitionDivision = Field(
+        CompetitionDivision.DEFAULT,
+        description="统计所属学历组别（与 query division 一致）",
+    )
     submissions_total: int
     reviewed_total: int
     avg_score: Optional[float] = None
@@ -845,6 +864,10 @@ class CompetitionScoreRankingItem(BaseModel):
 
 class CompetitionScoreRankingResponse(BaseModel):
     competition_id: int
+    division: CompetitionDivision = Field(
+        CompetitionDivision.DEFAULT,
+        description="排行榜所属学历组别（与 query division 一致；组内独立排名）",
+    )
     items: List[CompetitionScoreRankingItem]
 
 

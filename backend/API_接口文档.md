@@ -3599,10 +3599,12 @@ curl -X POST "http://localhost:8000/api/v1/competitions/submissions/upload" \
 
 **权限**: `VIEW_COMPETITIONS`（专家侧**不额外**要求 `REVIEW_SUBMISSIONS` 亦可拉列表）。
 
-**Query 参数**（可选）：
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| division | string | 按提交时的组别筛选：`undergraduate` / `vocational` / `default`（本科/高职详情页可只拉本组作品） |
+**Query 参数**：
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| division | string | | 按提交时的组别筛选：`undergraduate` / `vocational` / `default`（本科/高职详情页可只拉本组作品） |
+| page | int | | 页码，从 `1` 开始；默认 `1` |
+| page_size | int | | 每页条数，默认 `20`，最大 `100` |
 
 **响应字段**（`SubmissionResponse`，节选）：
 | 字段 | 说明 |
@@ -3611,28 +3613,33 @@ curl -X POST "http://localhost:8000/api/v1/competitions/submissions/upload" \
 
 **请求示例**：
 ```bash
-curl "http://localhost:8000/api/v1/competitions/1/submissions?division=undergraduate" \
+curl "http://localhost:8000/api/v1/competitions/1/submissions?division=undergraduate&page=1&page_size=20" \
   -H "Authorization: Bearer <alt_access_token>"
 ```
 
 **响应示例**（200）：
 ```json
-[
-  {
-    "id": 3,
-    "competition_id": 1,
-    "team_id": 10,
-    "division": "undergraduate",
-    "student_id": 7,
-    "submitter_id": 7,
-    "title": "My Work",
-    "description": "desc",
-    "file_id": 3,
-    "content_text": null,
-    "status": "submitted",
-    "submitted_at": "2026-03-18T07:02:20.371980"
-  }
-]
+{
+  "page": 1,
+  "page_size": 20,
+  "total": 57,
+  "items": [
+    {
+      "id": 3,
+      "competition_id": 1,
+      "team_id": 10,
+      "division": "undergraduate",
+      "student_id": 7,
+      "submitter_id": 7,
+      "title": "My Work",
+      "description": "desc",
+      "file_id": 3,
+      "content_text": null,
+      "status": "submitted",
+      "submitted_at": "2026-03-18T07:02:20.371980"
+    }
+  ]
+}
 ```
 
 #### 8.16.3 查看作品详情
