@@ -55,12 +55,14 @@ import {
   withdrawCompetition,
   getCompetition
 } from '@/api/competition'
+import { getAltProfileFromStorage } from '@/api/altIdentity'
 import {
   markCompetitionWithdrawnForResubmit,
   getEnrollmentScope,
   resolveEnrollmentDivisionLabelForList,
   buildEnrollmentProfileByCompetitionId,
-  mergeEnrollmentRowWithCompetitionProfile
+  mergeEnrollmentRowWithCompetitionProfile,
+  mergeEnrollmentRowWithAltProfileFallback
 } from '@/utils/competitionSubmissionCycle'
 
 /** 报名记录展示：仅使用接口返回值，空则显示 "-" */
@@ -78,7 +80,7 @@ function schoolInfoFromEnrollment (row) {
   const college = row.college
   const a = school != null && String(school).trim() !== '' ? String(school).trim() : ''
   const b = college != null && String(college).trim() !== '' ? String(college).trim() : ''
-  if (a && b) return `${a} · ${b}`
+  if (a && b) return a === b ? a : `${a} · ${b}`
   return a || b || '-'
 }
 
@@ -92,6 +94,8 @@ export default {
       /** §8.1.1 按 competition_id 缓存的竞赛详情（组别主用报名 division；详情仅用于 division 为空时的「不分组」） */
       competitionDetailById: {},
       competitionDetailsLoaded: false,
+      /** 本地 Alt 资料快照（enrollments/me 缺字段时作展示兜底） */
+      altProfileSnapshot: {},
       withdrawLoading: false,
       columns: [
         { title: '竞赛', dataIndex: 'competitionName', key: 'competitionName', ellipsis: true, width: 180 },
@@ -144,7 +148,10 @@ export default {
             ? this.competitionDetailById[String(cid)]
             : null
         const c = detail || row.competition || {}
-        const profileRow = mergeEnrollmentRowWithCompetitionProfile(row, profileByCid)
+        const profileRow = mergeEnrollmentRowWithAltProfileFallback(
+          mergeEnrollmentRowWithCompetitionProfile(row, profileByCid),
+          this.altProfileSnapshot
+        )
 
         // team_id === null 视为个人报名：不显示队伍相关信息
         const isTeam = row.team_id !== null && row.team_id !== undefined
@@ -181,9 +188,17 @@ export default {
     }
   },
   mounted () {
+    this.refreshAltProfileSnapshot()
+    window.addEventListener('alt-identity-changed', this.refreshAltProfileSnapshot)
     this.fetchList()
   },
+  beforeDestroy () {
+    window.removeEventListener('alt-identity-changed', this.refreshAltProfileSnapshot)
+  },
   methods: {
+    refreshAltProfileSnapshot () {
+      this.altProfileSnapshot = getAltProfileFromStorage() || {}
+    },
     getWithdrawErrorMessage (error) {
       const respData = error && error.response ? error.response.data : null
       const raw =
@@ -287,6 +302,7 @@ export default {
       this.loading = true
       this.errorMsg = ''
       this.competitionDetailsLoaded = false
+      this.refreshAltProfileSnapshot()
       try {
         const res = await getMyCompetitionEnrollments()
         if (Array.isArray(res)) this.list = res

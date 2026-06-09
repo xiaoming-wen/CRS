@@ -216,6 +216,50 @@ export function mergeEnrollmentRowWithCompetitionProfile (row, profileByCompetit
   return merged
 }
 
+/**
+ * 将本地 Alt 账号资料映射为报名展示字段（仅用于 enrollments/me 缺省时的展示兜底，不写回接口）
+ * student_id → student_no；full_name → real_name；email/contact/phone → contact；school/college → 学校信息
+ */
+export function buildAltProfileEnrollmentFallback (altProfile) {
+  const p = altProfile && typeof altProfile === 'object' ? altProfile : {}
+  const out = {}
+  if (enrollmentProfileFieldPresent(p.student_id)) {
+    out.student_no = String(p.student_id).trim()
+  }
+  if (enrollmentProfileFieldPresent(p.full_name)) {
+    out.real_name = String(p.full_name).trim()
+  }
+  // 与报名表单一致：Alt 仅有 school 时写入 college，避免 school+college 同值拼接成「111 · 111」
+  if (enrollmentProfileFieldPresent(p.college)) {
+    out.college = String(p.college).trim()
+  } else if (enrollmentProfileFieldPresent(p.school)) {
+    out.college = String(p.school).trim()
+  }
+  const contact = p.email != null && String(p.email).trim() !== ''
+    ? p.email
+    : (p.contact != null && String(p.contact).trim() !== ''
+      ? p.contact
+      : p.phone)
+  if (enrollmentProfileFieldPresent(contact)) {
+    out.contact = String(contact).trim()
+  }
+  return out
+}
+
+/** enrollments/me 字段仍为空时，用本地 Alt 资料补全展示（不覆盖接口已有非空值） */
+export function mergeEnrollmentRowWithAltProfileFallback (row, altProfile) {
+  if (!row || typeof row !== 'object') return row
+  const fallback = buildAltProfileEnrollmentFallback(altProfile)
+  if (!fallback || !Object.keys(fallback).length) return row
+  const merged = { ...row }
+  for (const field of ENROLLMENT_PROFILE_FIELD_KEYS) {
+    if (!enrollmentProfileFieldPresent(merged[field]) && enrollmentProfileFieldPresent(fallback[field])) {
+      merged[field] = fallback[field]
+    }
+  }
+  return merged
+}
+
 /** 从队伍对象解析 division（字段与报名记录一致） */
 export function resolveTeamDivision (team) {
   return resolveEnrollmentDivision(team)
