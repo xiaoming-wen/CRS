@@ -112,12 +112,17 @@
                     <a-select-option value="student">学生</a-select-option>
                     <a-select-option value="advisor">指导老师</a-select-option>
                     <a-select-option value="expert">专家</a-select-option>
+                    <a-select-option value="school_admin">校管理员</a-select-option>
                   </a-select>
                   <template slot="extra">
                     <span
                       v-if="form.getFieldValue('role') === 'expert'"
                       class="register-field-hint register-field-hint--info"
                     >专家可在此自助注册，注册成功后 <code>expert_verified</code> 为 <strong>false</strong>，<strong>暂不可登录</strong>。请牢记系统提示的<strong>用户 ID</strong>，待管理员核验（§8.0.6）并指派竞赛（§8.0.7）后再登录评阅。</span>
+                    <span
+                      v-else-if="form.getFieldValue('role') === 'school_admin'"
+                      class="register-field-hint register-field-hint--info"
+                    >校管理员可在此自助注册，注册成功后可正常登录。登录后须提交资料（含照片）并经超级管理员审核通过后，方可进行本校组队校审。</span>
                   </template>
                 </a-form-item>
 
@@ -327,6 +332,15 @@ export default {
                   setTimeout(() => {
                     this.$router.push({ name: 'ManuVideoCompetition' }).catch(() => {})
                   }, 6000)
+                } else if (values.role === 'school_admin') {
+                  this.$notification.success({
+                    message: '校管理员注册成功',
+                    description: '您可立即登录。登录后请提交资料申请（含照片），待超级管理员审核通过后方可进行本校组队校审。',
+                    duration: 6
+                  })
+                  setTimeout(() => {
+                    this.$router.push({ name: 'ManuVideoCompetition' }).catch(() => {})
+                  }, 2000)
                 } else {
                   this.$message.success('注册成功！')
                   setTimeout(() => {

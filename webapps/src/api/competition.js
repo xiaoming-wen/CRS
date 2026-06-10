@@ -236,6 +236,27 @@ export function getCompetitionTeams (competitionId, options = {}) {
   })
 }
 
+// 8.12.0 查看单支队伍详情（队员/队长/建队老师；含校审 status）
+export function getCompetitionTeam (teamId) {
+  return axios({
+    url: `/v1/competitions/teams/${encodeURIComponent(teamId)}`,
+    method: 'get'
+  })
+}
+
+// 8.9.1 按队名查找可加入队伍（精确匹配，忽略大小写）
+export function lookupCompetitionTeamByName (competitionId, teamName) {
+  const name = teamName != null ? String(teamName).trim() : ''
+  if (!name) {
+    return Promise.reject(new Error('队名不能为空'))
+  }
+  return axios({
+    url: `/v1/competitions/${encodeURIComponent(competitionId)}/teams/lookup`,
+    method: 'get',
+    params: { name }
+  })
+}
+
 // 8.12 创建队伍（学生自建队长 / 指导老师组班；权限 MANAGE_TEAMS）
 // 学生：{ competition_id, initial_member_ids?: null }
 // 指导老师：{ competition_id, name?, captain_student_id?, initial_member_ids: number[] }（至少一名队员）
@@ -282,11 +303,34 @@ export function removeCompetitionTeamMember (teamId, userId) {
   })
 }
 
-// 8.13 加入队伍（学生；权限 MANAGE_TEAMS）
+// 8.13 申请加入队伍（学生；权限 MANAGE_TEAMS；须队长审核）
 export function addTeamMember (teamId) {
   return axios({
     url: `/v1/competitions/teams/${teamId}/members`,
     method: 'post'
+  })
+}
+
+// 8.13.1 查看入队申请（队长或建队指导老师）
+export function listTeamJoinRequests (teamId, options = {}) {
+  const params = {}
+  if (options.status) params.status = options.status
+  return axios({
+    url: `/v1/competitions/teams/${teamId}/join-requests`,
+    method: 'get',
+    params
+  })
+}
+
+// 8.13.2 审核入队申请（同意 / 拒绝）
+export function reviewTeamJoinRequest (teamId, requestId, action) {
+  return axios({
+    url: `/v1/competitions/teams/${teamId}/join-requests/${requestId}/review`,
+    method: 'post',
+    data: { action },
+    headers: {
+      'Content-Type': 'application/json'
+    }
   })
 }
 
@@ -505,5 +549,97 @@ export function revokeCompetitionExpert (competitionId, expertUserId) {
   return axios({
     url: `/v1/competitions/${encodeURIComponent(competitionId)}/experts/${encodeURIComponent(expertUserId)}`,
     method: 'delete'
+  })
+}
+
+// 8.11.5.1 校管理员：提交资料申请（multipart/form-data）
+export function submitSchoolAdminApplication (formData) {
+  return axios({
+    url: '/v1/competitions/school-admin/application',
+    method: 'post',
+    data: formData
+  })
+}
+
+// 8.11.5.1 校管理员：查看本人申请状态
+export function getSchoolAdminApplicationMe () {
+  return axios({
+    url: '/v1/competitions/school-admin/application/me',
+    method: 'get'
+  })
+}
+
+// 8.11.5.1 校管理员：下载本人申请照片
+export function getSchoolAdminApplicationPhoto () {
+  return axios({
+    url: '/v1/competitions/school-admin/application/photo',
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
+// 8.11.5.2 超级管理员：校管申请列表
+export function listSchoolAdminApplications (options = {}) {
+  const params = {}
+  const status = options && options.status
+  if (status != null && String(status).trim() !== '') {
+    params.status = String(status).trim()
+  }
+  return axios({
+    url: '/v1/competitions/admin/school-admin-applications',
+    method: 'get',
+    params
+  })
+}
+
+// 8.11.5.2 超级管理员：查看校管申请照片
+export function getSchoolAdminApplicationPhotoAdmin (userId) {
+  return axios({
+    url: `/v1/competitions/admin/school-admin-applications/${encodeURIComponent(userId)}/photo`,
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
+// 8.11.5.2 超级管理员：审核校管申请
+export function reviewSchoolAdminApplication (userId, payload) {
+  return axios({
+    url: `/v1/competitions/admin/school-admin-applications/${encodeURIComponent(userId)}`,
+    method: 'put',
+    data: payload || {},
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+// 8.11.5.3 校管理员：组队审核列表
+export function getSchoolAdminTeams (options = {}) {
+  const params = {}
+  const status = options && options.status
+  if (status != null && String(status).trim() !== '') {
+    params.status = String(status).trim()
+  }
+  const competitionId = options && options.competition_id
+  const cid = Number(competitionId)
+  if (Number.isFinite(cid) && cid > 0) {
+    params.competition_id = cid
+  }
+  return axios({
+    url: '/v1/competitions/school-admin/teams',
+    method: 'get',
+    params
+  })
+}
+
+// 8.11.5.3 校管理员：审核队伍
+export function schoolReviewTeam (teamId, payload) {
+  return axios({
+    url: `/v1/competitions/teams/${encodeURIComponent(teamId)}/school-review`,
+    method: 'put',
+    data: payload || {},
+    headers: {
+      'Content-Type': 'application/json'
+    }
   })
 }

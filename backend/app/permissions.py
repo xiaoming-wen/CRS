@@ -25,6 +25,7 @@ class Permission(Enum):
     SUBMIT_SUBMISSIONS = "submit_submissions"
     REVIEW_SUBMISSIONS = "review_submissions"
     MANAGE_COMPETITIONS = "manage_competitions"
+    REVIEW_TEAMS = "review_teams"
     PUBLISH_WINNERS = "publish_winners"
     INVIGILATE_EXAMS = "invigilate_exams"
 
@@ -108,6 +109,11 @@ ROLE_PERMISSIONS = {
     "expert": [
         Permission.VIEW_COMPETITIONS,
         Permission.REVIEW_SUBMISSIONS,
+    ],
+    # 校管理员：审核本校组队人员
+    "school_admin": [
+        Permission.VIEW_COMPETITIONS,
+        Permission.REVIEW_TEAMS,
     ],
     "student": [
         Permission.RECEIVE_FILES,

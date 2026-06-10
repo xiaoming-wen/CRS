@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, EmailStr, PlainSerializer, computed_field, field_validator
-from typing import Optional, List, Dict, Any, Annotated
+from typing import Optional, List, Dict, Any, Annotated, Literal
 from datetime import datetime
 from enum import Enum
 
@@ -15,6 +15,7 @@ class UserRole(str, Enum):
     """第二套竞赛主体角色：教师端已拆为「管理员 / 指导老师 / 专家」，学生不变。"""
 
     SUPER_ADMIN = "super_admin"
+    SCHOOL_ADMIN = "school_admin"  # 校管理员
     ADVISOR = "advisor"  # 指导老师
     TEACHER = "teacher"  # 教师（与 advisor 并存）
     EXPERT = "expert"
@@ -413,7 +414,9 @@ class CompetitionStatus(str, Enum):
 
 
 class TeamStatus(str, Enum):
+    PENDING_SCHOOL_REVIEW = "pending_school_review"
     ACTIVE = "active"
+    REJECTED = "rejected"
     DISBANDED = "disbanded"
 
 
@@ -611,6 +614,15 @@ class TeamCreate(BaseModel):
         None,
         description="指导老师建队时必须指定队长 user_id（且须出现在 initial_member_ids 中）；学生自建忽略",
     )
+    advisor_id: Optional[int] = Field(
+        None,
+        description="指导老师用户 ID（学生自建队选填，与 advisor_name 二选一）；须为 advisor/teacher 角色",
+    )
+    advisor_name: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="指导老师姓名（学生自建队选填）；写入队伍展示字段；若与系统老师账号精确匹配则同时关联 created_by_advisor_id",
+    )
 
 
 class TeamResponse(BaseModel):
@@ -619,6 +631,11 @@ class TeamResponse(BaseModel):
     name: Optional[str] = None
     division: CompetitionDivision = CompetitionDivision.DEFAULT
     captain_id: int
+    created_by_advisor_id: Optional[int] = Field(
+        None,
+        description="建队指导老师 alt_auth_users.id；学生自建未指定时为 null",
+    )
+    advisor_name: Optional[str] = Field(None, description="指导老师姓名（学生填写或老师代建时展示用）")
     status: TeamStatus
     created_at: UtcDatetime
 
@@ -647,12 +664,33 @@ class TeamMemberResponse(BaseModel):
         from_attributes = True
 
 
+class TeamJoinRequestResponse(BaseModel):
+    id: int
+    team_id: int
+    user_id: int
+    username: str = ""
+    full_name: Optional[str] = None
+    status: str
+    created_at: UtcDatetime
+    reviewed_at: Optional[UtcDatetime] = None
+    reviewed_by_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TeamJoinRequestReview(BaseModel):
+    action: Literal["approve", "reject"]
+
+
 class TeamDetailResponse(BaseModel):
     """队伍详情（含成员列表），用于查看竞赛下所有队伍"""
     id: int
     competition_id: int
     name: Optional[str] = None
     captain_id: int
+    created_by_advisor_id: Optional[int] = Field(None, description="建队指导老师 alt_auth_users.id")
+    advisor_name: Optional[str] = Field(None, description="建队指导老师姓名（展示用）")
     status: TeamStatus
     created_at: UtcDatetime
     members: List[TeamMemberResponse] = []
@@ -730,17 +768,136 @@ class CompetitionExpertsListResponse(BaseModel):
     items: List[CompetitionExpertListItem] = Field(default_factory=list)
 
 
+class SchoolAdminTeamMemberItem(BaseModel):
+    """校管理员审核列表中的队员信息。"""
+
+    user_id: int
+    username: str = ""
+    full_name: Optional[str] = None
+    is_captain: bool = False
+
+
+class SchoolAdminTeamReviewItem(BaseModel):
+    """校管理员待审/已审队伍列表行。"""
+
+    team_id: int
+    competition_id: int
+    competition_name: str
+    competition_start_at: OptionalUtcDatetime = None
+    competition_end_at: OptionalUtcDatetime = None
+    school: Optional[str] = None
+    advisor_name: Optional[str] = Field(None, description="指导老师姓名（代建队时有值）")
+    advisor_id: Optional[int] = None
+    team_name: Optional[str] = None
+    captain_name: Optional[str] = None
+    captain_id: int
+    members: List[SchoolAdminTeamMemberItem] = Field(default_factory=list)
+    status: TeamStatus
+    review_feedback: Optional[str] = None
+    reviewed_at: OptionalUtcDatetime = None
+    created_at: UtcDatetime
+
+
+class SchoolAdminTeamReviewListResponse(BaseModel):
+    total: int
+    items: List[SchoolAdminTeamReviewItem] = Field(default_factory=list)
+
+
+class TeamSchoolReviewAction(str, Enum):
+    APPROVE = "approve"
+    REJECT = "reject"
+
+
+class TeamSchoolReviewRequest(BaseModel):
+    action: TeamSchoolReviewAction
+    feedback: Optional[str] = Field(None, max_length=2000, description="审核备注或驳回原因")
+
+
+class TeamSchoolReviewResult(BaseModel):
+    team_id: int
+    status: TeamStatus
+    reviewed_at: OptionalUtcDatetime = None
+    review_feedback: Optional[str] = None
+
+
+class SchoolAdminApplicationStatus(str, Enum):
+    NOT_SUBMITTED = "not_submitted"
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class SchoolAdminApplicationMeResponse(BaseModel):
+    """校管理员本人查看申请状态。"""
+
+    user_id: int
+    school: Optional[str] = None
+    full_name: Optional[str] = None
+    school_admin_verified: bool = False
+    application_status: SchoolAdminApplicationStatus = SchoolAdminApplicationStatus.NOT_SUBMITTED
+    application_contact: Optional[str] = None
+    application_remark: Optional[str] = None
+    application_submitted_at: OptionalUtcDatetime = None
+    review_feedback: Optional[str] = None
+    reviewed_at: OptionalUtcDatetime = None
+    photo_url: Optional[str] = Field(None, description="申请照片 URL（已上传时有值）")
+    can_review_teams: bool = Field(False, description="是否已通过审核、可执行组队校审")
+
+
+class SchoolAdminApplicationListItem(BaseModel):
+    """超级管理员查看的校管申请列表项。"""
+
+    user_id: int
+    username: str = ""
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    school: Optional[str] = None
+    application_status: SchoolAdminApplicationStatus
+    application_contact: Optional[str] = None
+    application_remark: Optional[str] = None
+    application_submitted_at: OptionalUtcDatetime = None
+    school_admin_verified: bool = False
+    review_feedback: Optional[str] = None
+    reviewed_at: OptionalUtcDatetime = None
+    photo_url: Optional[str] = None
+
+
+class SchoolAdminApplicationListResponse(BaseModel):
+    total: int
+    items: List[SchoolAdminApplicationListItem] = Field(default_factory=list)
+
+
+class SchoolAdminApplicationReviewAction(str, Enum):
+    APPROVE = "approve"
+    REJECT = "reject"
+
+
+class SchoolAdminApplicationReviewRequest(BaseModel):
+    action: SchoolAdminApplicationReviewAction
+    feedback: Optional[str] = Field(None, max_length=2000)
+
+
+class SchoolAdminApplicationReviewResult(BaseModel):
+    user_id: int
+    school_admin_verified: bool
+    application_status: SchoolAdminApplicationStatus
+    review_feedback: Optional[str] = None
+    reviewed_at: OptionalUtcDatetime = None
+
+
 class AltUserAdminPatch(BaseModel):
-    """竞赛管理员变更第二套用户角色或专家资质（仅限 super_admin 调用）。"""
+    """竞赛管理员变更第二套用户角色或专家/校管资质（仅限 super_admin 调用）。"""
 
     role: Optional[UserRole] = None
     expert_verified: Optional[bool] = None
+    school_admin_verified: Optional[bool] = None
 
 
 class AltUserAdminUpdateResult(BaseModel):
     id: int
     role: str
     expert_verified: bool
+    school_admin_verified: bool = False
 
 
 class TeamMemberCreate(BaseModel):

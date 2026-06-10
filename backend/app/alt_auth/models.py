@@ -53,6 +53,21 @@ class AltAuthUserRecord(Base):
     # 竞赛专家：须由管理员设为 true 后才可担任评委（避免自注册专家随意打分）
     expert_verified = Column(Boolean, nullable=False, default=False)
 
+    # 校管理员：注册后可登录；提交资料并经 super_admin 审核通过后方可组队校审
+    school_admin_verified = Column(Boolean, nullable=False, default=False)
+    school_admin_photo_path = Column(String(512), nullable=True, comment="校管理员申请照片相对路径")
+    school_admin_application_status = Column(
+        String(30),
+        nullable=True,
+        comment="校管申请状态：pending / approved / rejected；空表示未提交",
+    )
+    school_admin_application_contact = Column(String(200), nullable=True, comment="校管申请联系方式")
+    school_admin_application_remark = Column(String(1000), nullable=True, comment="校管申请备注")
+    school_admin_application_submitted_at = Column(DateTime, nullable=True)
+    school_admin_review_feedback = Column(String(2000), nullable=True)
+    school_admin_reviewed_at = Column(DateTime, nullable=True)
+    school_admin_reviewed_by_id = Column(Integer, nullable=True, index=True)
+
     # 历史：曾用统一 account + account_kind；可为空
 
     account = Column(String(256), nullable=True, index=True)

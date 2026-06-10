@@ -205,6 +205,7 @@ async def alt_identity_register(
             role=role_str,
 
             expert_verified=False,
+            school_admin_verified=False,
 
             is_active=True,
 
@@ -457,6 +458,13 @@ async def alt_identity_me(
     if role_out == UserRole.EXPERT.value:
         assigned_ids = _assigned_competition_ids_for_expert(main_db, principal.id)
 
+    school_admin_photo_url = None
+    if (
+        role_out == UserRole.SCHOOL_ADMIN.value
+        and getattr(principal, "school_admin_photo_path", None)
+    ):
+        school_admin_photo_url = f"/api/v1/competitions/school-admin/application/photo"
+
     return AltAuthProfileResponse(
         id=principal.id,
         username=principal.username,
@@ -469,6 +477,13 @@ async def alt_identity_me(
         school=principal.school,
         created_at=principal.created_at,
         expert_verified=bool(getattr(principal, "expert_verified", False)),
+        school_admin_verified=bool(getattr(principal, "school_admin_verified", False)),
+        school_admin_application_status=getattr(principal, "school_admin_application_status", None),
+        school_admin_application_submitted_at=getattr(
+            principal, "school_admin_application_submitted_at", None
+        ),
+        school_admin_review_feedback=getattr(principal, "school_admin_review_feedback", None),
+        school_admin_photo_url=school_admin_photo_url,
         assigned_competition_ids=assigned_ids,
         effective_permissions=list_effective_permissions_for_role(role_out),
     )

@@ -71,6 +71,20 @@ async def startup_event():
         logging.getLogger(__name__).warning("Enrollment dual-track migration skipped: %s", e)
 
     try:
+        from app.competition_team_review_migrate import migrate_competition_team_review
+
+        migrate_competition_team_review(user_engine)
+    except Exception as e:
+        logging.getLogger(__name__).warning("Team review migration skipped: %s", e)
+
+    try:
+        from app.competition_team_join_request_migrate import migrate_competition_team_join_requests
+
+        migrate_competition_team_join_requests(user_engine)
+    except Exception as e:
+        logging.getLogger(__name__).warning("Team join request migration skipped: %s", e)
+
+    try:
         from app.alt_auth.bootstrap import setup_alt_auth_database
 
         setup_alt_auth_database(log=logging.getLogger(__name__))

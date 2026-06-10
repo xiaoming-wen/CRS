@@ -68,7 +68,13 @@ class AltAuthRegisterPayload(BaseModel):
     def registerable_role_only(cls, v: UserRole) -> UserRole:
         if v == UserRole.SUPER_ADMIN:
             raise ValueError("该角色不可自助注册，请联系管理员")
-        if v not in (UserRole.STUDENT, UserRole.ADVISOR, UserRole.TEACHER, UserRole.EXPERT):
+        if v not in (
+            UserRole.STUDENT,
+            UserRole.ADVISOR,
+            UserRole.TEACHER,
+            UserRole.EXPERT,
+            UserRole.SCHOOL_ADMIN,
+        ):
             raise ValueError("无效角色")
         return v
 
@@ -101,6 +107,8 @@ class AltAuthRegisterResult(BaseModel):
     teacher_id: Optional[str] = None
     school: Optional[str] = None
     expert_verified: bool = False
+    school_admin_verified: bool = False
+    school_admin_application_status: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -134,6 +142,17 @@ class AltAuthProfileResponse(BaseModel):
     school: Optional[str] = None
     created_at: Optional[datetime] = None
     expert_verified: bool = False
+    school_admin_verified: bool = False
+    school_admin_application_status: Optional[str] = Field(
+        None,
+        description="校管申请状态：null/空=未提交；pending=待审；approved=已通过；rejected=已驳回",
+    )
+    school_admin_application_submitted_at: Optional[datetime] = None
+    school_admin_review_feedback: Optional[str] = None
+    school_admin_photo_url: Optional[str] = Field(
+        None,
+        description="校管申请照片访问路径（仅本人或 super_admin 可见时有值）",
+    )
     assigned_competition_ids: List[int] = Field(
         default_factory=list,
         description="专家已被指派的竞赛 id；非 expert 或尚未指派时为 []",

@@ -17,7 +17,7 @@ from app.database import get_db
 from app.alt_auth.context import get_current_alt_identity
 from app.alt_auth.database import get_alt_auth_db
 from app.alt_auth.models import AltAuthUserRecord
-from app.permissions import Permission, require_permission, check_permission
+from app.permissions import Permission, require_permission
 from app.models.user import File as FileModel
 from app.models.competition import (
     Competition,
@@ -27,6 +27,8 @@ from app.models.competition import (
     CompetitionExpertAssignment,
     Team,
     TeamMember,
+    TeamJoinRequest,
+    TeamJoinRequestStatus,
     TeamStatus,
     Submission,
     SubmissionStatus,
@@ -36,11 +38,6 @@ from app.schemas import (
     CompetitionCreate,
     CompetitionUpdate,
     CompetitionResponse,
-    CompetitionQrCodes,
-    CompetitionQrSlot,
-    CompetitionDivision,
-    CompetitionDivisionMode,
-    CompetitionQrLayout,
     CompetitionEnrollmentCreate,
     CompetitionEnrollmentResponse,
     MyEnrollmentResponse,
@@ -50,18 +47,30 @@ from app.schemas import (
     TeamInviteMember,
     TeamDetailResponse,
     TeamMemberResponse,
+    TeamJoinRequestResponse,
+    TeamJoinRequestReview,
     IndividualParticipantItem,
     TeamParticipantDetailResponse,
     TeamMemberWithUserResponse,
     TeamTransferCaptain,
     AltUserAdminPatch,
     AltUserAdminUpdateResult,
+    SchoolAdminTeamReviewListResponse,
+    SchoolAdminTeamReviewItem,
+    SchoolAdminTeamMemberItem,
+    TeamSchoolReviewRequest,
+    TeamSchoolReviewResult,
+    SchoolAdminApplicationStatus,
+    SchoolAdminApplicationMeResponse,
+    SchoolAdminApplicationListResponse,
+    SchoolAdminApplicationListItem,
+    SchoolAdminApplicationReviewRequest,
+    SchoolAdminApplicationReviewResult,
     CompetitionExpertsListResponse,
     CompetitionExpertListItem,
     SubmissionCreate,
     SubmissionCreateWrapped,
     SubmissionResponse,
-    SubmissionListResponse,
     ReviewGrade,
     ReviewResponse,
     CompetitionScoreSummaryResponse,
@@ -82,6 +91,11 @@ os.makedirs(COMPETITION_QR_DIR, exist_ok=True)
 MAX_QR_IMAGE_BYTES = 5 * 1024 * 1024
 _ALLOWED_QR_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 _ALLOWED_QR_MIME = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+SCHOOL_ADMIN_PHOTO_DIR = "school_admin_applications"
+os.makedirs(SCHOOL_ADMIN_PHOTO_DIR, exist_ok=True)
+MAX_SCHOOL_ADMIN_PHOTO_BYTES = 5 * 1024 * 1024
+
 
 def _alt_users_by_id(adb: Session, ids: set[int]) -> dict[int, AltAuthUserRecord]:
     if not ids:
@@ -130,17 +144,8 @@ def _can_view_competition_score_insights(db: Session, competition_id: int, ident
 
 
 def _can_view_full_participant_rosters(db: Session, competition_id: int, identity: AltAuthUserRecord) -> bool:
-    """
-    参赛者花名册（个人/组队 participants、与 export 语义一致）：
-    - super_admin、已指派且已核验专家：与全量作品查看一致；
-    - advisor / teacher 且具备 MANAGE_TEAMS：只读花名册（不含学生等其他 MANAGE_TEAMS 角色）。
-    """
-    if _can_view_all_competition_submissions(db, competition_id, identity):
-        return True
-    role = _effective_alt_role(identity.role)
-    if role in {"advisor", "teacher"} and check_permission(identity.role, Permission.MANAGE_TEAMS):
-        return True
-    return False
+    """参赛者花名册导出接口：与个人/组队 participant 详情一致权限。"""
+    return _can_view_all_competition_submissions(db, competition_id, identity)
 
 
 def _ensure_alt_principal_is_student(adb: Session, user_id: int) -> AltAuthUserRecord:
@@ -152,6 +157,70 @@ def _ensure_alt_principal_is_student(adb: Session, user_id: int) -> AltAuthUserR
     return row
 
 
+def _ensure_alt_principal_is_advisor(adb: Session, user_id: int) -> AltAuthUserRecord:
+    row = adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.id == user_id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="指导老师用户不存在")
+    if _effective_alt_role(row.role) not in {"advisor", "teacher"}:
+        raise HTTPException(status_code=400, detail="指定用户须为指导老师账号")
+    return row
+
+
+def _match_advisors_by_name(adb: Session, name: str) -> list[AltAuthUserRecord]:
+    key = (name or "").strip()
+    if not key:
+        return []
+    key_lower = key.lower()
+    matches: list[AltAuthUserRecord] = []
+    for row in adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.is_active.is_(True)).all():
+        if _effective_alt_role(row.role) not in {"advisor", "teacher"}:
+            continue
+        full_name = (row.full_name or "").strip()
+        username = (row.username or "").strip()
+        if full_name.lower() == key_lower or username.lower() == key_lower:
+            matches.append(row)
+    return matches
+
+
+def _resolve_advisor_by_name(adb: Session, name: str) -> AltAuthUserRecord:
+    key = (name or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="指导老师姓名不能为空")
+    matches = _match_advisors_by_name(adb, key)
+    if not matches:
+        raise HTTPException(status_code=404, detail="未找到该指导老师，请确认姓名是否正确")
+    if len(matches) > 1:
+        raise HTTPException(status_code=400, detail="存在多位同名指导老师，请填写更准确的姓名")
+    return matches[0]
+
+
+def _try_resolve_advisor_by_name(adb: Session, name: str) -> Optional[AltAuthUserRecord]:
+    key = (name or "").strip()
+    if not key:
+        return None
+    matches = _match_advisors_by_name(adb, key)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise HTTPException(status_code=400, detail="存在多位同名指导老师，请填写更准确的姓名")
+    return None
+
+
+def _team_advisor_display_name(
+    team: Team,
+    users_by_id: Optional[dict[int, AltAuthUserRecord]] = None,
+) -> Optional[str]:
+    stored = getattr(team, "advisor_name", None)
+    if stored is not None and str(stored).strip():
+        return str(stored).strip()
+    advisor_id = team.created_by_advisor_id
+    if advisor_id and users_by_id:
+        adv = users_by_id.get(advisor_id)
+        if adv:
+            return _display_user_name(adv, advisor_id)
+    return None
+
+
 def _team_advisor_managed(team: Team, identity_id: int) -> bool:
     return team.created_by_advisor_id is not None and int(team.created_by_advisor_id) == int(identity_id)
 
@@ -161,6 +230,211 @@ def _can_manage_team_composition(team: Team, identity: AltAuthUserRecord) -> boo
     if team.captain_id == identity.id:
         return True
     return _effective_alt_role(identity.role) in {"advisor", "teacher"} and _team_advisor_managed(team, identity.id)
+
+
+def _normalize_school_name(raw: Optional[str]) -> str:
+    return (raw or "").strip()
+
+
+def _school_admin_application_status(user: AltAuthUserRecord) -> SchoolAdminApplicationStatus:
+    raw = (getattr(user, "school_admin_application_status", None) or "").strip().lower()
+    if raw == SchoolAdminApplicationStatus.PENDING.value:
+        return SchoolAdminApplicationStatus.PENDING
+    if raw == SchoolAdminApplicationStatus.APPROVED.value:
+        return SchoolAdminApplicationStatus.APPROVED
+    if raw == SchoolAdminApplicationStatus.REJECTED.value:
+        return SchoolAdminApplicationStatus.REJECTED
+    return SchoolAdminApplicationStatus.NOT_SUBMITTED
+
+
+def _school_admin_can_review_teams(user: AltAuthUserRecord) -> bool:
+    return (
+        _effective_alt_role(user.role) == "school_admin"
+        and bool(getattr(user, "school_admin_verified", False))
+    )
+
+
+def _require_school_admin_role(identity: AltAuthUserRecord) -> None:
+    if _effective_alt_role(identity.role) != "school_admin":
+        raise HTTPException(status_code=403, detail="Only school_admin can perform this operation")
+    if not _normalize_school_name(getattr(identity, "school", None)):
+        raise HTTPException(status_code=400, detail="School admin account must have school configured")
+
+
+def _require_school_admin_identity(identity: AltAuthUserRecord) -> None:
+    _require_school_admin_role(identity)
+    require_permission(identity.role, Permission.REVIEW_TEAMS)
+    if not _school_admin_can_review_teams(identity):
+        raise HTTPException(
+            status_code=403,
+            detail="School admin account pending verification; submit application with photo and wait for super_admin approval",
+        )
+
+
+def _resolve_school_admin_photo_fs_path(stored: str) -> str:
+    if not stored or not stored.strip():
+        raise HTTPException(status_code=404, detail="Photo not found")
+    base_dir = os.path.abspath(SCHOOL_ADMIN_PHOTO_DIR)
+    if os.path.isabs(stored):
+        full = os.path.abspath(stored)
+    else:
+        full = os.path.abspath(os.path.normpath(os.path.join(os.getcwd(), stored)))
+    if not full.startswith(base_dir + os.sep) and full != base_dir:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="Photo missing on server")
+    return full
+
+
+async def _save_school_admin_photo(upload: StarletteUploadFile, user_id: int) -> str:
+    if not upload.filename or not str(upload.filename).strip():
+        raise HTTPException(status_code=400, detail="photo requires a filename")
+    ext = os.path.splitext(upload.filename)[1].lower()
+    if ext not in _ALLOWED_QR_EXT:
+        raise HTTPException(status_code=400, detail="Unsupported photo format")
+    mime = (upload.content_type or "").split(";")[0].strip().lower()
+    if mime and mime not in _ALLOWED_QR_MIME:
+        raise HTTPException(status_code=400, detail="Unsupported photo mime type")
+    content = await upload.read()
+    if len(content) > MAX_SCHOOL_ADMIN_PHOTO_BYTES:
+        raise HTTPException(status_code=400, detail="Photo too large (max 5MB)")
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty photo file")
+    filename = f"user_{user_id}_{uuid.uuid4().hex}{ext}"
+    rel_path = f"{SCHOOL_ADMIN_PHOTO_DIR}/{filename}"
+    fs_path = os.path.abspath(os.path.join(os.getcwd(), rel_path.replace("/", os.sep)))
+    base_dir = os.path.abspath(SCHOOL_ADMIN_PHOTO_DIR)
+    if not fs_path.startswith(base_dir + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid photo path")
+    with open(fs_path, "wb") as f:
+        f.write(content)
+    return rel_path.replace("\\", "/")
+
+
+def _delete_school_admin_photo(stored: Optional[str]) -> None:
+    if not stored:
+        return
+    try:
+        fs = _resolve_school_admin_photo_fs_path(stored)
+        if os.path.isfile(fs):
+            os.remove(fs)
+    except HTTPException:
+        pass
+    except Exception as e:
+        logger.warning("Failed to remove school admin photo %s: %s", stored, e)
+
+
+def _team_composition_open_statuses() -> Tuple[str, ...]:
+    """允许调整队员/队名的队伍状态（含待校审）。"""
+    return (TeamStatus.PENDING_SCHOOL_REVIEW, TeamStatus.ACTIVE)
+
+
+def _add_student_to_team(
+    db: Session,
+    competition: Competition,
+    team: Team,
+    student_id: int,
+    *,
+    is_captain: bool = False,
+) -> TeamMember:
+    member = TeamMember(team_id=team.id, user_id=student_id, is_captain=is_captain)
+    db.add(member)
+    row_any = _get_enrollment_by_scope(
+        db, competition.id, student_id, CompetitionEnrollmentScope.TEAM
+    )
+    if row_any and row_any.status == CompetitionEnrollmentStatus.WITHDRAWN:
+        row_any.team_id = team.id
+        row_any.enrollment_scope = CompetitionEnrollmentScope.TEAM
+        row_any.is_captain = is_captain
+        row_any.status = CompetitionEnrollmentStatus.ENROLLED
+    else:
+        db.add(
+            CompetitionEnrollment(
+                competition_id=competition.id,
+                student_id=student_id,
+                team_id=team.id,
+                enrollment_scope=CompetitionEnrollmentScope.TEAM,
+                is_captain=is_captain,
+                status=CompetitionEnrollmentStatus.ENROLLED,
+            )
+        )
+    return member
+
+
+def _build_team_join_request_response(
+    req: TeamJoinRequest,
+    users_by_id: dict[int, AltAuthUserRecord],
+) -> TeamJoinRequestResponse:
+    u = users_by_id.get(req.user_id)
+    return TeamJoinRequestResponse(
+        id=req.id,
+        team_id=req.team_id,
+        user_id=req.user_id,
+        username=(u.username or "") if u else "",
+        full_name=u.full_name if u else None,
+        status=req.status,
+        created_at=req.created_at,
+        reviewed_at=req.reviewed_at,
+        reviewed_by_id=req.reviewed_by_id,
+    )
+
+
+def _resolve_team_school(adb: Session, captain_id: int) -> str:
+    captain = adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.id == captain_id).first()
+    if captain is None:
+        raise HTTPException(status_code=400, detail="Captain account not found")
+    school = _normalize_school_name(getattr(captain, "school", None))
+    if not school:
+        raise HTTPException(status_code=400, detail="Captain must have school configured")
+    return school
+
+
+def _team_matches_school(team: Team, school: str) -> bool:
+    team_school = _normalize_school_name(getattr(team, "school", None))
+    return team_school.casefold() == _normalize_school_name(school).casefold()
+
+
+def _build_school_admin_team_item(
+    team: Team,
+    competition: Competition,
+    users_by_id: dict[int, AltAuthUserRecord],
+) -> SchoolAdminTeamReviewItem:
+    advisor_id = team.created_by_advisor_id
+    advisor_name = _team_advisor_display_name(team, users_by_id)
+
+    captain = users_by_id.get(team.captain_id)
+    captain_name = (captain.full_name or captain.username) if captain else None
+
+    members_out: List[SchoolAdminTeamMemberItem] = []
+    for m in sorted(team.members, key=lambda x: (not x.is_captain, x.joined_at or utc_now(), x.id)):
+        u = users_by_id.get(m.user_id)
+        members_out.append(
+            SchoolAdminTeamMemberItem(
+                user_id=m.user_id,
+                username=u.username if u else "",
+                full_name=u.full_name if u else None,
+                is_captain=m.is_captain,
+            )
+        )
+
+    return SchoolAdminTeamReviewItem(
+        team_id=team.id,
+        competition_id=competition.id,
+        competition_name=competition.name,
+        competition_start_at=competition.start_at,
+        competition_end_at=competition.end_at,
+        school=getattr(team, "school", None),
+        advisor_name=advisor_name,
+        advisor_id=advisor_id,
+        team_name=team.name,
+        captain_name=captain_name,
+        captain_id=team.captain_id,
+        members=members_out,
+        status=TeamStatus(team.status),
+        review_feedback=getattr(team, "review_feedback", None),
+        reviewed_at=getattr(team, "reviewed_at", None),
+        created_at=team.created_at,
+    )
 
 
 def _strip_team_name(raw: Optional[str]) -> Optional[str]:
@@ -188,250 +462,6 @@ def _form_bool(val, default: bool) -> bool:
     return s in ("1", "true", "yes", "on")
 
 
-def _form_optional_enum(val, enum_cls, default):
-    if val is None:
-        return default
-    s = str(val).strip()
-    if not s:
-        return default
-    try:
-        return enum_cls(s)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid value '{s}' for {enum_cls.__name__}",
-        ) from e
-
-
-def _competition_division_mode(comp: Competition) -> str:
-    return comp.division_mode or CompetitionDivisionMode.SINGLE.value
-
-
-def _competition_qr_layout(comp: Competition) -> str:
-    if _competition_division_mode(comp) == CompetitionDivisionMode.SINGLE.value:
-        return CompetitionQrLayout.SHARED.value
-    return comp.qr_layout or CompetitionQrLayout.SHARED.value
-
-
-def _resolve_enroll_division(competition: Competition, division: Optional[Union[str, CompetitionDivision]]) -> str:
-    if division is not None and hasattr(division, "value"):
-        division = division.value
-    mode = _competition_division_mode(competition)
-    if mode == CompetitionDivisionMode.SINGLE.value:
-        if division and str(division).strip().lower() not in ("", CompetitionDivision.DEFAULT.value):
-            raise HTTPException(
-                status_code=400,
-                detail="division is not applicable for single-division competition",
-            )
-        return CompetitionDivision.DEFAULT.value
-    raw = (str(division).strip().lower() if division is not None else "")
-    if not raw or raw == CompetitionDivision.DEFAULT.value:
-        raise HTTPException(
-            status_code=400,
-            detail="division is required (undergraduate or vocational)",
-        )
-    if raw not in (
-        CompetitionDivision.UNDERGRADUATE.value,
-        CompetitionDivision.VOCATIONAL.value,
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="division must be undergraduate or vocational",
-        )
-    return raw
-
-
-def _student_active_division(db: Session, competition_id: int, student_id: int) -> Optional[str]:
-    rows = (
-        db.query(CompetitionEnrollment.division)
-        .filter(
-            CompetitionEnrollment.competition_id == competition_id,
-            CompetitionEnrollment.student_id == student_id,
-            CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
-        )
-        .all()
-    )
-    divisions = {
-        (r[0] or CompetitionDivision.DEFAULT.value)
-        for r in rows
-        if (r[0] or CompetitionDivision.DEFAULT.value) != CompetitionDivision.DEFAULT.value
-    }
-    if not divisions:
-        return None
-    if len(divisions) > 1:
-        raise HTTPException(
-            status_code=400,
-            detail="Data inconsistency: student enrolled in multiple divisions",
-        )
-    return next(iter(divisions))
-
-
-def _assert_student_division_consistent(
-    db: Session, competition: Competition, student_id: int, division: str
-) -> None:
-    if _competition_division_mode(competition) != CompetitionDivisionMode.DUAL.value:
-        return
-    existing = _student_active_division(db, competition.id, student_id)
-    if existing and existing != division:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Already enrolled in division '{existing}'; "
-                f"cannot enroll in '{division}' for the same competition"
-            ),
-        )
-
-
-def _team_division(team: Team) -> str:
-    return team.division or CompetitionDivision.DEFAULT.value
-
-
-def _build_qr_codes(comp: Competition) -> CompetitionQrCodes:
-    cid = comp.id
-    qr = CompetitionQrCodes()
-    if comp.qr_code_path:
-        qr.shared = CompetitionQrSlot(
-            path=comp.qr_code_path,
-            image_url=f"/api/v1/competitions/{cid}/qr-code",
-        )
-    if comp.qr_code_path_undergraduate:
-        qr.undergraduate = CompetitionQrSlot(
-            path=comp.qr_code_path_undergraduate,
-            image_url=f"/api/v1/competitions/{cid}/qr-code?division=undergraduate",
-        )
-    if comp.qr_code_path_vocational:
-        qr.vocational = CompetitionQrSlot(
-            path=comp.qr_code_path_vocational,
-            image_url=f"/api/v1/competitions/{cid}/qr-code?division=vocational",
-        )
-    return qr
-
-
-def _legacy_qr_image_url(comp: Competition) -> Optional[str]:
-    mode = _competition_division_mode(comp)
-    layout = _competition_qr_layout(comp)
-    if mode == CompetitionDivisionMode.SINGLE.value or layout == CompetitionQrLayout.SHARED.value:
-        if comp.qr_code_path:
-            return f"/api/v1/competitions/{comp.id}/qr-code"
-    return None
-
-
-def _serialize_competition(comp: Competition) -> CompetitionResponse:
-    base = CompetitionResponse.model_validate(comp)
-    return base.model_copy(
-        update={
-            "qr_codes": _build_qr_codes(comp),
-            "qr_code_image_url": _legacy_qr_image_url(comp),
-        }
-    )
-
-
-def _pick_qr_upload(form, *keys: str) -> Optional[StarletteUploadFile]:
-    for key in keys:
-        q = form.get(key)
-        if isinstance(q, StarletteUploadFile) and q.filename and str(q.filename).strip():
-            return q
-    return None
-
-
-def _validate_qr_uploads_for_mode(
-    division_mode: str,
-    qr_layout: str,
-    *,
-    shared: Optional[StarletteUploadFile],
-    ug: Optional[StarletteUploadFile],
-    vc: Optional[StarletteUploadFile],
-) -> None:
-    if division_mode == CompetitionDivisionMode.SINGLE.value:
-        if ug or vc:
-            raise HTTPException(
-                status_code=400,
-                detail="qr_code_image_undergraduate/vocational not allowed when division_mode=single",
-            )
-        return
-    if qr_layout == CompetitionQrLayout.SHARED.value:
-        if ug or vc:
-            raise HTTPException(
-                status_code=400,
-                detail="Use qr_code_image for shared QR when qr_layout=shared",
-            )
-    else:
-        if shared:
-            raise HTTPException(
-                status_code=400,
-                detail="Use qr_code_image_undergraduate and qr_code_image_vocational when qr_layout=separate",
-            )
-
-
-async def _apply_qr_uploads_from_form(
-    comp: Competition,
-    form,
-    *,
-    is_update: bool = False,
-) -> None:
-    mode = _competition_division_mode(comp)
-    layout = _competition_qr_layout(comp)
-    shared = _pick_qr_upload(form, "qr_code_image", "qr_code_image_shared")
-    ug = _pick_qr_upload(form, "qr_code_image_undergraduate")
-    vc = _pick_qr_upload(form, "qr_code_image_vocational")
-    _validate_qr_uploads_for_mode(mode, layout, shared=shared, ug=ug, vc=vc)
-
-    if mode == CompetitionDivisionMode.SINGLE.value or layout == CompetitionQrLayout.SHARED.value:
-        if shared:
-            old = comp.qr_code_path
-            comp.qr_code_path = await _save_qr_code_upload(shared, comp.id, tag="shared")
-            if is_update and old and old != comp.qr_code_path:
-                _delete_stored_qr_file(old)
-        return
-
-    if ug:
-        old = comp.qr_code_path_undergraduate
-        comp.qr_code_path_undergraduate = await _save_qr_code_upload(
-            ug, comp.id, tag="undergraduate"
-        )
-        if is_update and old and old != comp.qr_code_path_undergraduate:
-            _delete_stored_qr_file(old)
-    if vc:
-        old = comp.qr_code_path_vocational
-        comp.qr_code_path_vocational = await _save_qr_code_upload(
-            vc, comp.id, tag="vocational"
-        )
-        if is_update and old and old != comp.qr_code_path_vocational:
-            _delete_stored_qr_file(old)
-
-
-def _delete_all_competition_qr_files(comp: Competition) -> None:
-    for path in (
-        comp.qr_code_path,
-        comp.qr_code_path_undergraduate,
-        comp.qr_code_path_vocational,
-    ):
-        _delete_stored_qr_file(path)
-
-
-def _resolve_qr_path_for_download(comp: Competition, division: Optional[str]) -> str:
-    mode = _competition_division_mode(comp)
-    layout = _competition_qr_layout(comp)
-    if mode == CompetitionDivisionMode.SINGLE.value or layout == CompetitionQrLayout.SHARED.value:
-        if not comp.qr_code_path:
-            raise HTTPException(status_code=404, detail="No QR code for this competition")
-        return comp.qr_code_path
-
-    div = (division or "").strip().lower()
-    if div == CompetitionDivision.UNDERGRADUATE.value:
-        stored = comp.qr_code_path_undergraduate
-    elif div == CompetitionDivision.VOCATIONAL.value:
-        stored = comp.qr_code_path_vocational
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail="division query required (undergraduate or vocational)",
-        )
-    if not stored:
-        raise HTTPException(status_code=404, detail="No QR code for this division")
-    return stored
-
-
 def _competition_create_from_form(form) -> CompetitionCreate:
     name_raw = form.get("name")
     if name_raw is None or not str(name_raw).strip():
@@ -444,12 +474,6 @@ def _competition_create_from_form(form) -> CompetitionCreate:
         "end_at": _form_optional_str(form.get("end_at")),
         "allow_individual": _form_bool(form.get("allow_individual"), True),
         "allow_team": _form_bool(form.get("allow_team"), True),
-        "division_mode": _form_optional_enum(
-            form.get("division_mode"), CompetitionDivisionMode, CompetitionDivisionMode.SINGLE
-        ),
-        "qr_layout": _form_optional_enum(
-            form.get("qr_layout"), CompetitionQrLayout, CompetitionQrLayout.SHARED
-        ),
     }
     try:
         return CompetitionCreate.model_validate(payload)
@@ -472,30 +496,10 @@ def _competition_update_from_form(form) -> CompetitionUpdate:
         payload["allow_individual"] = _form_bool(form.get("allow_individual"), True)
     if "allow_team" in form:
         payload["allow_team"] = _form_bool(form.get("allow_team"), True)
-    if "division_mode" in form:
-        payload["division_mode"] = _form_optional_enum(
-            form.get("division_mode"), CompetitionDivisionMode, CompetitionDivisionMode.SINGLE
-        )
-    if "qr_layout" in form:
-        payload["qr_layout"] = _form_optional_enum(
-            form.get("qr_layout"), CompetitionQrLayout, CompetitionQrLayout.SHARED
-        )
     try:
         return CompetitionUpdate.model_validate(payload)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid form payload: {e}") from e
-
-
-def _validate_competition_division_qr_config(comp: Competition) -> None:
-    mode = _competition_division_mode(comp)
-    layout = _competition_qr_layout(comp)
-    if mode == CompetitionDivisionMode.SINGLE.value:
-        return
-    if layout not in (
-        CompetitionQrLayout.SHARED.value,
-        CompetitionQrLayout.SEPARATE.value,
-    ):
-        raise HTTPException(status_code=400, detail="Invalid qr_layout for dual-division competition")
 
 
 def _delete_stored_qr_file(stored: Optional[str]) -> None:
@@ -527,12 +531,7 @@ def _resolve_qr_fs_path(stored: str) -> str:
     return full
 
 
-async def _save_qr_code_upload(
-    upload: StarletteUploadFile,
-    competition_id: int,
-    *,
-    tag: str = "shared",
-) -> str:
+async def _save_qr_code_upload(upload: StarletteUploadFile, competition_id: int) -> str:
     if not upload.filename or not str(upload.filename).strip():
         raise HTTPException(status_code=400, detail="qr_code_image requires a filename")
     ext = os.path.splitext(upload.filename)[1].lower()
@@ -552,7 +551,7 @@ async def _save_qr_code_upload(
             detail=f"qr_code_image too large (max {MAX_QR_IMAGE_BYTES // (1024 * 1024)} MiB)",
         )
 
-    fname = f"comp_{competition_id}_{tag}_{uuid.uuid4().hex}{ext}"
+    fname = f"comp_{competition_id}_{uuid.uuid4().hex}{ext}"
     rel = _normalize_stored_qr_path(os.path.join(COMPETITION_QR_DIR, fname))
     abs_path = _resolve_qr_fs_path(rel)
     with open(abs_path, "wb") as f:
@@ -644,108 +643,6 @@ def _ensure_active_individual_enrollment(db: Session, competition_id: int, user_
         )
 
 
-def _enrollment_division_value(enrollment: CompetitionEnrollment) -> str:
-    return enrollment.division or CompetitionDivision.DEFAULT.value
-
-
-def _apply_submission_division_query(q, division: Optional[str]):
-    """按提交时写入的 division 过滤（可选 query）。"""
-    if division is None or not str(division).strip():
-        return q
-    d = str(division).strip().lower()
-    if hasattr(division, "value"):
-        d = division.value
-    if d not in (
-        CompetitionDivision.DEFAULT.value,
-        CompetitionDivision.UNDERGRADUATE.value,
-        CompetitionDivision.VOCATIONAL.value,
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="division must be undergraduate, vocational, or default",
-        )
-    return q.filter(Submission.division == d)
-
-
-def _resolve_division_query_param(competition: Competition, division: Optional[str]) -> str:
-    """
-    花名册/成绩类接口的 division query：
-    - single：固定 default（可不传）；
-    - dual：必填 undergraduate 或 vocational。
-    """
-    mode = _competition_division_mode(competition)
-    if mode == CompetitionDivisionMode.SINGLE.value:
-        return CompetitionDivision.DEFAULT.value
-    if division is None or not str(division).strip():
-        raise HTTPException(
-            status_code=400,
-            detail="division query is required (undergraduate or vocational)",
-        )
-    raw = str(division).strip().lower()
-    if hasattr(division, "value"):
-        raw = division.value
-    if raw not in (
-        CompetitionDivision.UNDERGRADUATE.value,
-        CompetitionDivision.VOCATIONAL.value,
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="division must be undergraduate or vocational",
-        )
-    return raw
-
-
-def _validate_submission_division(
-    db: Session,
-    competition: Competition,
-    identity: AltAuthUserRecord,
-    division: Optional[Union[str, CompetitionDivision]],
-    *,
-    team_id: Optional[int],
-    team: Optional[Team] = None,
-) -> str:
-    """解析并校验提交组别与当前个人/组队报名、队伍所属组别一致。"""
-    submit_div = _resolve_enroll_division(competition, division)
-    if team_id is None:
-        enr = _get_enrollment_by_scope(
-            db, competition.id, identity.id, CompetitionEnrollmentScope.INDIVIDUAL
-        )
-        if not enr or enr.status != CompetitionEnrollmentStatus.ENROLLED:
-            raise HTTPException(
-                status_code=403,
-                detail="Not actively enrolled as individual participant in this competition",
-            )
-        if submit_div != _enrollment_division_value(enr):
-            raise HTTPException(
-                status_code=400,
-                detail="division must match your individual enrollment for this competition",
-            )
-        return submit_div
-
-    if team is None:
-        raise HTTPException(status_code=404, detail="Team not found")
-    team_div = _team_division(team)
-    if submit_div != team_div:
-        raise HTTPException(
-            status_code=400,
-            detail="division must match team's division for this competition",
-        )
-    enr = _get_enrollment_by_scope(
-        db, competition.id, identity.id, CompetitionEnrollmentScope.TEAM
-    )
-    if not enr or enr.status != CompetitionEnrollmentStatus.ENROLLED:
-        raise HTTPException(
-            status_code=403,
-            detail="Not actively enrolled in the team track for this competition",
-        )
-    if submit_div != _enrollment_division_value(enr):
-        raise HTTPException(
-            status_code=400,
-            detail="division must match your team enrollment for this competition",
-        )
-    return submit_div
-
-
 def _individual_sequence_no(db: Session, competition_id: int, enrollment: CompetitionEnrollment) -> int:
     """本竞赛个人赛道内序号（从 1 起，按报名时间、id 稳定排序）。"""
     n = (
@@ -828,13 +725,22 @@ def _display_user_name(u: Optional[AltAuthUserRecord], fallback_id: Optional[int
     return str(fallback_id) if fallback_id is not None else str(u.id)
 
 
+def _team_detail_responses(adb: Session, teams: list[Team]) -> list[TeamDetailResponse]:
+    advisor_ids = {t.created_by_advisor_id for t in teams if t.created_by_advisor_id is not None}
+    users_by_id = _alt_users_by_id(adb, advisor_ids)
+    out: list[TeamDetailResponse] = []
+    for team in teams:
+        base = TeamDetailResponse.model_validate(team)
+        display_name = _team_advisor_display_name(team, users_by_id)
+        if display_name:
+            base = base.model_copy(update={"advisor_name": display_name})
+        out.append(base)
+    return out
+
+
 @router.get("/{competition_id}/teams/export")
 async def export_team_roster_excel(
     competition_id: int,
-    division: Optional[str] = Query(
-        None,
-        description="学历组别：dual 竞赛必填 undergraduate 或 vocational",
-    ),
     db: Session = Depends(get_db),
     adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
@@ -842,20 +748,14 @@ async def export_team_roster_excel(
     """
     管理员导出某竞赛队伍信息 Excel。
     字段：序号、指导老师（可多名）、队长、队员（可多名）、队伍名、参加的竞赛。
-  dual 竞赛须传 division，仅导出该组别队伍。
     """
     require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
     competition = _get_competition(db, competition_id)
-    div_val = _resolve_division_query_param(competition, division)
 
     teams = (
         db.query(Team)
         .options(joinedload(Team.members))
-        .filter(
-            Team.competition_id == competition_id,
-            Team.status == TeamStatus.ACTIVE,
-            Team.division == div_val,
-        )
+        .filter(Team.competition_id == competition_id, Team.status == TeamStatus.ACTIVE)
         .order_by(Team.created_at.asc(), Team.id.asc())
         .all()
     )
@@ -870,11 +770,8 @@ async def export_team_roster_excel(
     ws.append(["序号", "指导老师", "队长", "队员", "队伍名", "参加的竞赛"])
 
     for idx, team in enumerate(teams, start=1):
-        advisor_names: list[str] = []
-        if team.created_by_advisor_id is not None:
-            advisor = users_by_id.get(team.created_by_advisor_id)
-            advisor_names.append(_display_user_name(advisor, team.created_by_advisor_id))
-        advisors_text = "、".join(sorted(set(advisor_names))) if advisor_names else "-"
+        display_advisor = _team_advisor_display_name(team, users_by_id)
+        advisors_text = display_advisor or "-"
 
         captain_user = users_by_id.get(team.captain_id)
         captain_text = _display_user_name(captain_user, team.captain_id)
@@ -899,8 +796,7 @@ async def export_team_roster_excel(
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)
-    suffix = "" if div_val == CompetitionDivision.DEFAULT.value else f"_{div_val}"
-    filename = f"competition_{competition_id}_teams{suffix}.xlsx"
+    filename = f"competition_{competition_id}_teams.xlsx"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return StreamingResponse(
         buffer,
@@ -923,7 +819,7 @@ async def create_competition(
     require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
 
     ct = (request.headers.get("content-type") or "").lower()
-    form = None
+    qr_upload = None
     if "application/json" in ct:
         try:
             body = await request.json()
@@ -933,18 +829,14 @@ async def create_competition(
     elif "multipart/form-data" in ct:
         form = await request.form()
         competition = _competition_create_from_form(form)
+        q = form.get("qr_code_image")
+        if isinstance(q, StarletteUploadFile) and q.filename and str(q.filename).strip():
+            qr_upload = q
     else:
         raise HTTPException(
             status_code=415,
             detail="Content-Type must be application/json or multipart/form-data",
         )
-
-    dm = competition.division_mode.value
-    ql = (
-        competition.qr_layout.value
-        if dm == CompetitionDivisionMode.DUAL.value
-        else CompetitionQrLayout.SHARED.value
-    )
 
     comp = Competition(
         name=competition.name,
@@ -955,20 +847,16 @@ async def create_competition(
         end_at=competition.end_at,
         allow_individual=competition.allow_individual,
         allow_team=competition.allow_team,
-        division_mode=dm,
-        qr_layout=ql,
         qr_code_path=None,
-        qr_code_path_undergraduate=None,
-        qr_code_path_vocational=None,
     )
-    _validate_competition_division_qr_config(comp)
     db.add(comp)
     db.flush()
-    if form is not None:
-        await _apply_qr_uploads_from_form(comp, form, is_update=False)
+    if qr_upload is not None:
+        rel = await _save_qr_code_upload(qr_upload, comp.id)
+        comp.qr_code_path = rel
     db.commit()
     db.refresh(comp)
-    return _serialize_competition(comp)
+    return comp
 
 
 @router.get("/", response_model=List[CompetitionResponse])
@@ -977,8 +865,29 @@ async def list_competitions(
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
-    rows = db.query(Competition).order_by(Competition.created_at.desc()).all()
-    return [_serialize_competition(c) for c in rows]
+    return db.query(Competition).order_by(Competition.created_at.desc()).all()
+
+
+@router.get("/{competition_id}/qr-code")
+async def get_competition_qr_code(
+    competition_id: int,
+    db: Session = Depends(get_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """下载/查看创建竞赛时上传的二维码图片（需登录且具备 VIEW_COMPETITIONS）。"""
+    require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+    competition = _get_competition(db, competition_id)
+    if not competition.qr_code_path:
+        raise HTTPException(status_code=404, detail="No QR code for this competition")
+    fs_path = _resolve_qr_fs_path(competition.qr_code_path)
+    if not os.path.isfile(fs_path):
+        raise HTTPException(status_code=404, detail="QR code file missing on server")
+    mime, _ = mimetypes.guess_type(fs_path)
+    return FileResponse(
+        path=fs_path,
+        filename=os.path.basename(fs_path),
+        media_type=mime or "application/octet-stream",
+    )
 
 
 @router.get("/enrollments/me", response_model=List[MyEnrollmentResponse])
@@ -1002,7 +911,7 @@ async def my_enrollments(
         comp = db.query(Competition).filter(Competition.id == e.competition_id).first()
         data = MyEnrollmentResponse.model_validate(e)
         if comp:
-            data.competition = _serialize_competition(comp)
+            data.competition = CompetitionResponse.model_validate(comp)
         results.append(data)
     return results
 
@@ -1058,43 +967,6 @@ async def list_all_experts(
     return CompetitionExpertsListResponse(total=len(items), items=items)
 
 
-@router.get("/{competition_id}", response_model=CompetitionResponse)
-async def get_competition(
-    competition_id: int,
-    db: Session = Depends(get_db),
-    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
-):
-    """竞赛详情（含按组别划分的二维码下载地址，供详情页展示）。"""
-    require_permission(identity.role, Permission.VIEW_COMPETITIONS)
-    competition = _get_competition(db, competition_id)
-    return _serialize_competition(competition)
-
-
-@router.get("/{competition_id}/qr-code")
-async def get_competition_qr_code(
-    competition_id: int,
-    division: Optional[str] = Query(
-        None,
-        description="学历组别：dual 且 separate 时必填 undergraduate 或 vocational",
-    ),
-    db: Session = Depends(get_db),
-    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
-):
-    """下载/查看创建竞赛时上传的二维码图片（需登录且具备 VIEW_COMPETITIONS）。"""
-    require_permission(identity.role, Permission.VIEW_COMPETITIONS)
-    competition = _get_competition(db, competition_id)
-    stored = _resolve_qr_path_for_download(competition, division)
-    fs_path = _resolve_qr_fs_path(stored)
-    if not os.path.isfile(fs_path):
-        raise HTTPException(status_code=404, detail="QR code file missing on server")
-    mime, _ = mimetypes.guess_type(fs_path)
-    return FileResponse(
-        path=fs_path,
-        filename=os.path.basename(fs_path),
-        media_type=mime or "application/octet-stream",
-    )
-
-
 @router.put("/{competition_id}/publish", response_model=CompetitionResponse)
 async def publish_competition(
     competition_id: int,
@@ -1106,7 +978,7 @@ async def publish_competition(
     competition.status = "published"
     db.commit()
     db.refresh(competition)
-    return _serialize_competition(competition)
+    return competition
 
 
 @router.put("/{competition_id}/lock", response_model=CompetitionResponse)
@@ -1121,7 +993,7 @@ async def lock_competition(
     competition.status = "closed"
     db.commit()
     db.refresh(competition)
-    return _serialize_competition(competition)
+    return competition
 
 
 @router.patch("/admin/alt-users/{target_user_id}", response_model=AltUserAdminUpdateResult)
@@ -1139,19 +1011,358 @@ async def competition_admin_patch_alt_user(
     if body.role is not None:
         r = body.role.value if hasattr(body.role, "value") else str(body.role)
         r = r.strip()
-        if r not in {"student", "advisor", "teacher", "expert", "super_admin"}:
+        if r not in {"student", "advisor", "teacher", "expert", "super_admin", "school_admin"}:
             raise HTTPException(status_code=400, detail="Invalid role for alt user")
         row.role = r
     if body.expert_verified is not None:
         if body.expert_verified and _effective_alt_role(row.role) != "expert":
             raise HTTPException(status_code=400, detail="expert_verified only applies to expert role")
         row.expert_verified = bool(body.expert_verified)
+    if body.school_admin_verified is not None:
+        if body.school_admin_verified and _effective_alt_role(row.role) != "school_admin":
+            raise HTTPException(status_code=400, detail="school_admin_verified only applies to school_admin role")
+        row.school_admin_verified = bool(body.school_admin_verified)
+        if row.school_admin_verified:
+            row.school_admin_application_status = SchoolAdminApplicationStatus.APPROVED.value
+        elif _school_admin_application_status(row) == SchoolAdminApplicationStatus.APPROVED:
+            row.school_admin_application_status = SchoolAdminApplicationStatus.REJECTED.value
     adb.commit()
     adb.refresh(row)
     return AltUserAdminUpdateResult(
         id=row.id,
         role=_effective_alt_role(row.role),
         expert_verified=bool(getattr(row, "expert_verified", False)),
+        school_admin_verified=bool(getattr(row, "school_admin_verified", False)),
+    )
+
+
+@router.get("/school-admin/application/me", response_model=SchoolAdminApplicationMeResponse)
+async def get_school_admin_application_me(
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """校管理员查看本人申请状态（未通过审核前不可查看组队校审列表）。"""
+    _require_school_admin_role(identity)
+    app_status = _school_admin_application_status(identity)
+    photo_url = (
+        "/api/v1/competitions/school-admin/application/photo"
+        if getattr(identity, "school_admin_photo_path", None)
+        else None
+    )
+    return SchoolAdminApplicationMeResponse(
+        user_id=identity.id,
+        school=identity.school,
+        full_name=identity.full_name,
+        school_admin_verified=bool(getattr(identity, "school_admin_verified", False)),
+        application_status=app_status,
+        application_contact=getattr(identity, "school_admin_application_contact", None),
+        application_remark=getattr(identity, "school_admin_application_remark", None),
+        application_submitted_at=getattr(identity, "school_admin_application_submitted_at", None),
+        review_feedback=getattr(identity, "school_admin_review_feedback", None),
+        reviewed_at=getattr(identity, "school_admin_reviewed_at", None),
+        photo_url=photo_url,
+        can_review_teams=_school_admin_can_review_teams(identity),
+    )
+
+
+@router.post("/school-admin/application", response_model=SchoolAdminApplicationMeResponse)
+async def submit_school_admin_application(
+    photo: UploadFile = File(..., description="校管理员申请照片（必填）"),
+    contact: Optional[str] = Form(None, description="联系方式"),
+    remark: Optional[str] = Form(None, description="申请备注"),
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """校管理员提交资料申请（须含照片）；待 super_admin 审核通过后方可组队校审。"""
+    _require_school_admin_role(identity)
+    row = adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.id == identity.id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    app_status = _school_admin_application_status(row)
+    if app_status == SchoolAdminApplicationStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Application already pending review")
+    if _school_admin_can_review_teams(row):
+        raise HTTPException(status_code=400, detail="School admin already verified")
+
+    old_photo = getattr(row, "school_admin_photo_path", None)
+    rel_path = await _save_school_admin_photo(photo, row.id)
+    if old_photo and old_photo != rel_path:
+        _delete_school_admin_photo(old_photo)
+
+    row.school_admin_photo_path = rel_path
+    row.school_admin_application_contact = (contact or "").strip() or None
+    row.school_admin_application_remark = (remark or "").strip() or None
+    row.school_admin_application_status = SchoolAdminApplicationStatus.PENDING.value
+    row.school_admin_application_submitted_at = utc_now()
+    row.school_admin_verified = False
+    row.school_admin_review_feedback = None
+    row.school_admin_reviewed_at = None
+    row.school_admin_reviewed_by_id = None
+    adb.commit()
+    adb.refresh(row)
+
+    return SchoolAdminApplicationMeResponse(
+        user_id=row.id,
+        school=row.school,
+        full_name=row.full_name,
+        school_admin_verified=False,
+        application_status=SchoolAdminApplicationStatus.PENDING,
+        application_contact=row.school_admin_application_contact,
+        application_remark=row.school_admin_application_remark,
+        application_submitted_at=row.school_admin_application_submitted_at,
+        review_feedback=None,
+        reviewed_at=None,
+        photo_url="/api/v1/competitions/school-admin/application/photo",
+        can_review_teams=False,
+    )
+
+
+@router.get("/school-admin/application/photo")
+async def download_school_admin_application_photo_self(
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """校管理员下载本人申请照片。"""
+    _require_school_admin_role(identity)
+    row = adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.id == identity.id).first()
+    if row is None or not getattr(row, "school_admin_photo_path", None):
+        raise HTTPException(status_code=404, detail="Photo not found")
+    fs_path = _resolve_school_admin_photo_fs_path(row.school_admin_photo_path)
+    ext = os.path.splitext(fs_path)[1].lower()
+    media = mimetypes.guess_type(fs_path)[0] or "application/octet-stream"
+    return FileResponse(path=fs_path, filename=f"school_admin_{row.id}{ext}", media_type=media)
+
+
+@router.get("/admin/school-admin-applications", response_model=SchoolAdminApplicationListResponse)
+async def list_school_admin_applications(
+    status_filter: Optional[str] = Query(
+        SchoolAdminApplicationStatus.PENDING.value,
+        alias="status",
+        description="申请状态：pending / approved / rejected / not_submitted",
+    ),
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """超级管理员查看校管理员资料申请列表。"""
+    _require_super_admin_identity(identity)
+    q = adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.role == "school_admin")
+    if status_filter and status_filter != "all":
+        if status_filter == SchoolAdminApplicationStatus.NOT_SUBMITTED.value:
+            q = q.filter(
+                or_(
+                    AltAuthUserRecord.school_admin_application_status.is_(None),
+                    AltAuthUserRecord.school_admin_application_status == "",
+                )
+            )
+        else:
+            q = q.filter(AltAuthUserRecord.school_admin_application_status == status_filter)
+    rows = q.order_by(
+        AltAuthUserRecord.school_admin_application_submitted_at.desc(),
+        AltAuthUserRecord.id.desc(),
+    ).all()
+
+    items: List[SchoolAdminApplicationListItem] = []
+    for row in rows:
+        app_status = _school_admin_application_status(row)
+        items.append(
+            SchoolAdminApplicationListItem(
+                user_id=row.id,
+                username=row.username or "",
+                email=row.email,
+                full_name=row.full_name,
+                school=row.school,
+                application_status=app_status,
+                application_contact=getattr(row, "school_admin_application_contact", None),
+                application_remark=getattr(row, "school_admin_application_remark", None),
+                application_submitted_at=getattr(row, "school_admin_application_submitted_at", None),
+                school_admin_verified=bool(getattr(row, "school_admin_verified", False)),
+                review_feedback=getattr(row, "school_admin_review_feedback", None),
+                reviewed_at=getattr(row, "school_admin_reviewed_at", None),
+                photo_url=(
+                    f"/api/v1/competitions/admin/school-admin-applications/{row.id}/photo"
+                    if getattr(row, "school_admin_photo_path", None)
+                    else None
+                ),
+            )
+        )
+    return SchoolAdminApplicationListResponse(total=len(items), items=items)
+
+
+@router.get("/admin/school-admin-applications/{user_id}/photo")
+async def download_school_admin_application_photo_admin(
+    user_id: int,
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """超级管理员查看校管申请照片。"""
+    _require_super_admin_identity(identity)
+    row = adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.id == user_id).first()
+    if row is None or _effective_alt_role(row.role) != "school_admin":
+        raise HTTPException(status_code=404, detail="School admin user not found")
+    if not getattr(row, "school_admin_photo_path", None):
+        raise HTTPException(status_code=404, detail="Photo not found")
+    fs_path = _resolve_school_admin_photo_fs_path(row.school_admin_photo_path)
+    ext = os.path.splitext(fs_path)[1].lower()
+    media = mimetypes.guess_type(fs_path)[0] or "application/octet-stream"
+    return FileResponse(path=fs_path, filename=f"school_admin_{row.id}{ext}", media_type=media)
+
+
+@router.put(
+    "/admin/school-admin-applications/{user_id}",
+    response_model=SchoolAdminApplicationReviewResult,
+)
+async def review_school_admin_application(
+    user_id: int,
+    body: SchoolAdminApplicationReviewRequest,
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """超级管理员审核校管理员资料申请。"""
+    _require_super_admin_identity(identity)
+    row = adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.id == user_id).first()
+    if row is None or _effective_alt_role(row.role) != "school_admin":
+        raise HTTPException(status_code=404, detail="School admin user not found")
+    if _school_admin_application_status(row) != SchoolAdminApplicationStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Application is not pending review")
+    if not getattr(row, "school_admin_photo_path", None):
+        raise HTTPException(status_code=400, detail="Application has no photo")
+
+    action = body.action.value if hasattr(body.action, "value") else str(body.action)
+    feedback = (body.feedback or "").strip() or None
+    now = utc_now()
+
+    if action == "approve":
+        row.school_admin_verified = True
+        row.school_admin_application_status = SchoolAdminApplicationStatus.APPROVED.value
+    elif action == "reject":
+        row.school_admin_verified = False
+        row.school_admin_application_status = SchoolAdminApplicationStatus.REJECTED.value
+    else:
+        raise HTTPException(status_code=400, detail="action must be approve or reject")
+
+    row.school_admin_review_feedback = feedback
+    row.school_admin_reviewed_at = now
+    row.school_admin_reviewed_by_id = identity.id
+    adb.commit()
+    adb.refresh(row)
+
+    return SchoolAdminApplicationReviewResult(
+        user_id=row.id,
+        school_admin_verified=bool(row.school_admin_verified),
+        application_status=_school_admin_application_status(row),
+        review_feedback=row.school_admin_review_feedback,
+        reviewed_at=row.school_admin_reviewed_at,
+    )
+
+
+@router.get("/school-admin/teams", response_model=SchoolAdminTeamReviewListResponse)
+async def list_school_admin_teams(
+    status_filter: Optional[str] = Query(
+        TeamStatus.PENDING_SCHOOL_REVIEW,
+        alias="status",
+        description="队伍状态筛选，默认 pending_school_review",
+    ),
+    competition_id: Optional[int] = Query(None, description="按竞赛 id 筛选"),
+    db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """
+    校管理员查看本校组队人员审核列表。
+    列表字段：竞赛名、开始/结束时间、学校、指导老师、队伍名、队长、队员、状态。
+    """
+    _require_school_admin_identity(identity)
+    admin_school = _normalize_school_name(identity.school)
+
+    q = (
+        db.query(Team)
+        .join(Competition, Team.competition_id == Competition.id)
+        .options(joinedload(Team.members))
+        .filter(Team.school.isnot(None))
+    )
+    if status_filter:
+        q = q.filter(Team.status == status_filter)
+    if competition_id is not None:
+        q = q.filter(Team.competition_id == competition_id)
+
+    teams = q.order_by(Team.created_at.desc(), Team.id.desc()).all()
+    teams = [t for t in teams if _team_matches_school(t, admin_school)]
+
+    all_uids: set[int] = set()
+    for t in teams:
+        all_uids.add(t.captain_id)
+        if t.created_by_advisor_id:
+            all_uids.add(t.created_by_advisor_id)
+        for m in t.members:
+            all_uids.add(m.user_id)
+    users_by_id = _alt_users_by_id(adb, all_uids)
+
+    items = [
+        _build_school_admin_team_item(t, t.competition, users_by_id)
+        for t in teams
+    ]
+    return SchoolAdminTeamReviewListResponse(total=len(items), items=items)
+
+
+@router.put("/teams/{team_id}/school-review", response_model=TeamSchoolReviewResult)
+async def school_review_team(
+    team_id: int,
+    body: TeamSchoolReviewRequest,
+    db: Session = Depends(get_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """校管理员审核本校队伍：通过或驳回。"""
+    _require_school_admin_identity(identity)
+    admin_school = _normalize_school_name(identity.school)
+
+    team = (
+        db.query(Team)
+        .options(joinedload(Team.members))
+        .filter(Team.id == team_id)
+        .first()
+    )
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    if not _team_matches_school(team, admin_school):
+        raise HTTPException(status_code=403, detail="Team does not belong to your school")
+    if team.status != TeamStatus.PENDING_SCHOOL_REVIEW:
+        raise HTTPException(status_code=400, detail="Team is not pending school review")
+
+    action = body.action.value if hasattr(body.action, "value") else str(body.action)
+    feedback = (body.feedback or "").strip() or None
+    now = utc_now()
+
+    if action == "approve":
+        team.status = TeamStatus.ACTIVE
+        team.reviewed_by_id = identity.id
+        team.reviewed_at = now
+        team.review_feedback = feedback
+    elif action == "reject":
+        team.status = TeamStatus.REJECTED
+        team.reviewed_by_id = identity.id
+        team.reviewed_at = now
+        team.review_feedback = feedback
+        enrollments = (
+            db.query(CompetitionEnrollment)
+            .filter(
+                CompetitionEnrollment.competition_id == team.competition_id,
+                CompetitionEnrollment.team_id == team.id,
+                CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
+            )
+            .all()
+        )
+        for enr in enrollments:
+            enr.status = CompetitionEnrollmentStatus.WITHDRAWN
+    else:
+        raise HTTPException(status_code=400, detail="action must be approve or reject")
+
+    db.commit()
+    db.refresh(team)
+    return TeamSchoolReviewResult(
+        team_id=team.id,
+        status=team.status,
+        reviewed_at=team.reviewed_at,
+        review_feedback=team.review_feedback,
     )
 
 
@@ -1229,7 +1440,7 @@ async def update_competition(
     competition = _get_competition(db, competition_id)
 
     ct = (request.headers.get("content-type") or "").lower()
-    form = None
+    qr_upload = None
     if "application/json" in ct:
         try:
             body = await request.json()
@@ -1241,6 +1452,9 @@ async def update_competition(
         form = await request.form()
         payload = _competition_update_from_form(form)
         update_data = payload.model_dump(exclude_unset=True)
+        q = form.get("qr_code_image")
+        if isinstance(q, StarletteUploadFile) and q.filename and str(q.filename).strip():
+            qr_upload = q
     else:
         raise HTTPException(
             status_code=415,
@@ -1248,22 +1462,18 @@ async def update_competition(
         )
 
     for field, value in update_data.items():
-        if field in ("division_mode", "qr_layout") and value is not None:
-            setattr(competition, field, value.value if hasattr(value, "value") else value)
-        else:
-            setattr(competition, field, value)
+        setattr(competition, field, value)
 
-    if _competition_division_mode(competition) == CompetitionDivisionMode.SINGLE.value:
-        competition.qr_layout = CompetitionQrLayout.SHARED.value
-
-    _validate_competition_division_qr_config(competition)
-
-    if form is not None:
-        await _apply_qr_uploads_from_form(competition, form, is_update=True)
+    if qr_upload is not None:
+        old_path = competition.qr_code_path
+        rel = await _save_qr_code_upload(qr_upload, competition_id)
+        competition.qr_code_path = rel
+        if old_path and old_path != rel:
+            _delete_stored_qr_file(old_path)
 
     db.commit()
     db.refresh(competition)
-    return _serialize_competition(competition)
+    return competition
 
 
 @router.delete("/{competition_id}", status_code=status.HTTP_200_OK)
@@ -1274,6 +1484,7 @@ async def delete_competition(
 ):
     require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
     competition = _get_competition(db, competition_id)
+    qr_storage = competition.qr_code_path
 
     db.query(Review).filter(
         Review.submission_id.in_(
@@ -1288,10 +1499,10 @@ async def delete_competition(
         )
     ).delete(synchronize_session=False)
     db.query(Team).filter(Team.competition_id == competition_id).delete(synchronize_session=False)
-    _delete_all_competition_qr_files(competition)
     db.delete(competition)
 
     db.commit()
+    _delete_stored_qr_file(qr_storage)
 
     return {"ok": True, "detail": f"Competition {competition_id} and all related data deleted"}
 
@@ -1320,26 +1531,6 @@ async def enroll_competition(
     if (not is_team) and not competition.allow_individual:
         raise HTTPException(status_code=400, detail="Individual enrollment not allowed")
 
-    team: Optional[Team] = None
-    enroll_div: str
-    if is_team:
-        team = db.query(Team).filter(Team.id == enroll.team_id, Team.competition_id == competition.id).first()
-        if not team:
-            raise HTTPException(status_code=404, detail="Team not found in this competition")
-        enroll_div = _resolve_enroll_division(competition, enroll.division)
-        if _competition_division_mode(competition) == CompetitionDivisionMode.DUAL.value:
-            team_div = _team_division(team)
-            if team_div != CompetitionDivision.DEFAULT.value and enroll_div != team_div:
-                raise HTTPException(status_code=400, detail="division must match team")
-            if team_div == CompetitionDivision.DEFAULT.value:
-                team.division = enroll_div
-        else:
-            enroll_div = CompetitionDivision.DEFAULT.value
-    else:
-        enroll_div = _resolve_enroll_division(competition, enroll.division)
-
-    _assert_student_division_consistent(db, competition, identity.id, enroll_div)
-
     scope = _enrollment_scope_for_team(enroll.team_id)
     existing_row = _get_enrollment_by_scope(db, competition.id, identity.id, scope)
     if existing_row and existing_row.status == CompetitionEnrollmentStatus.ENROLLED:
@@ -1353,8 +1544,13 @@ async def enroll_competition(
             detail="Already enrolled in the individual track for this competition",
         )
 
+    team: Optional[Team] = None
     if is_team:
-        assert team is not None
+        team = db.query(Team).filter(Team.id == enroll.team_id, Team.competition_id == competition.id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found in this competition")
+
+        # 同一队伍：成员表必须存在
         member = db.query(TeamMember).filter(
             TeamMember.team_id == team.id, TeamMember.user_id == identity.id
         ).first()
@@ -1367,7 +1563,6 @@ async def enroll_competition(
             existing_row.enrollment_scope = CompetitionEnrollmentScope.TEAM
             existing_row.is_captain = is_captain
             existing_row.status = CompetitionEnrollmentStatus.ENROLLED
-            existing_row.division = enroll_div
             existing_row.student_no = enroll.student_no
             existing_row.real_name = enroll.real_name
             existing_row.college = enroll.college
@@ -1380,7 +1575,6 @@ async def enroll_competition(
                 student_id=identity.id,
                 team_id=team.id,
                 enrollment_scope=CompetitionEnrollmentScope.TEAM,
-                division=enroll_div,
                 is_captain=is_captain,
                 status=CompetitionEnrollmentStatus.ENROLLED,
                 student_no=enroll.student_no,
@@ -1396,7 +1590,6 @@ async def enroll_competition(
             existing_row.enrollment_scope = CompetitionEnrollmentScope.INDIVIDUAL
             existing_row.is_captain = False
             existing_row.status = CompetitionEnrollmentStatus.ENROLLED
-            existing_row.division = enroll_div
             existing_row.student_no = enroll.student_no
             existing_row.real_name = enroll.real_name
             existing_row.college = enroll.college
@@ -1409,7 +1602,6 @@ async def enroll_competition(
                 student_id=identity.id,
                 team_id=None,
                 enrollment_scope=CompetitionEnrollmentScope.INDIVIDUAL,
-                division=enroll_div,
                 is_captain=False,
                 status=CompetitionEnrollmentStatus.ENROLLED,
                 student_no=enroll.student_no,
@@ -1565,57 +1757,87 @@ async def withdraw_from_competition(
     return enrollment
 
 
-@router.get("/{competition_id}/teams", response_model=List[TeamDetailResponse])
-async def list_teams(
+@router.get("/{competition_id}/teams/lookup", response_model=TeamResponse)
+async def lookup_team_by_name(
     competition_id: int,
-    division: Optional[str] = Query(
-        None,
-        description="学历组别：dual 竞赛必填 undergraduate 或 vocational",
-    ),
+    name: str = Query(..., min_length=1, description="队名（精确匹配，忽略大小写）"),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
-    """查看某竞赛下所有队伍（含成员列表）；dual 竞赛须传 division 按组筛选。"""
+    """按队名查找可加入的队伍（pending_school_review / active）。"""
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
-    competition = _get_competition(db, competition_id)
-    div_val = _resolve_division_query_param(competition, division)
-
+    _get_competition(db, competition_id)
+    target = _strip_team_name(name)
+    if not target:
+        raise HTTPException(status_code=404, detail="Team not found")
+    target_key = target.casefold()
     teams = (
         db.query(Team)
         .filter(
             Team.competition_id == competition_id,
-            Team.status == TeamStatus.ACTIVE,
-            Team.division == div_val,
+            Team.status.in_(_team_composition_open_statuses()),
         )
-        .order_by(Team.created_at.desc())
         .all()
     )
-    return teams
+    for team in teams:
+        tn = _strip_team_name(team.name)
+        if tn and tn.casefold() == target_key:
+            return team
+    raise HTTPException(status_code=404, detail="Team not found")
+
+
+@router.get("/{competition_id}/teams", response_model=List[TeamDetailResponse])
+async def list_teams(
+    competition_id: int,
+    db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """查看某竞赛下队伍（含成员列表）；指导老师/教师仅见本人创建的队伍（含待校审）。"""
+    require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+    _get_competition(db, competition_id)
+
+    role_eff = _effective_alt_role(identity.role)
+    q = db.query(Team).filter(Team.competition_id == competition_id)
+    if role_eff in {"advisor", "teacher"}:
+        teams = (
+            q.filter(
+                Team.created_by_advisor_id == identity.id,
+                Team.status.in_(
+                    [
+                        TeamStatus.ACTIVE,
+                        TeamStatus.PENDING_SCHOOL_REVIEW,
+                        TeamStatus.REJECTED,
+                    ]
+                ),
+            )
+            .order_by(Team.created_at.desc())
+            .all()
+        )
+    else:
+        teams = (
+            q.filter(Team.status == TeamStatus.ACTIVE)
+            .order_by(Team.created_at.desc())
+            .all()
+        )
+    return _team_detail_responses(adb, teams)
 
 
 @router.get("/{competition_id}/participants/individual", response_model=List[IndividualParticipantItem])
 async def list_individual_participants(
     competition_id: int,
-    division: Optional[str] = Query(
-        None,
-        description="学历组别：dual 竞赛必填 undergraduate 或 vocational",
-    ),
     db: Session = Depends(get_db),
     adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
-    查看某竞赛「个人赛道」有效报名者（`enrolled`）。
-    dual 须传 division；sequence_no 在该组别内从 1 起编号。
+    查看某竞赛「个人赛道」全部有效报名者（`team_id` 为空、`enrolled`）。
+    `sequence_no` 为本竞赛个人赛道内序号（从 1 起）；`enrollment_id` 为数据库主键。
     """
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
-    competition = _get_competition(db, competition_id)
+    _get_competition(db, competition_id)
     if not _can_view_full_participant_rosters(db, competition_id, identity):
-        raise HTTPException(
-            status_code=403,
-            detail="Not allowed to view participant roster for this competition",
-        )
-    div_val = _resolve_division_query_param(competition, division)
+        raise HTTPException(status_code=403, detail="Only super_admin or assigned verified experts may view roster")
 
     rows = (
         db.query(CompetitionEnrollment)
@@ -1623,7 +1845,6 @@ async def list_individual_participants(
             CompetitionEnrollment.competition_id == competition_id,
             CompetitionEnrollment.enrollment_scope == CompetitionEnrollmentScope.INDIVIDUAL,
             CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
-            CompetitionEnrollment.division == div_val,
         )
         .order_by(CompetitionEnrollment.created_at.asc(), CompetitionEnrollment.id.asc())
         .all()
@@ -1633,11 +1854,9 @@ async def list_individual_participants(
     out: List[IndividualParticipantItem] = []
     for seq, enr in enumerate(rows, start=1):
         au = alt_map.get(enr.student_id)
-        enr_div = enr.division or CompetitionDivision.DEFAULT.value
         out.append(
             IndividualParticipantItem(
                 sequence_no=seq,
-                division=enr_div,
                 enrollment_id=enr.id,
                 student_id=enr.student_id,
                 username=(au.username or "") if au else "",
@@ -1657,34 +1876,23 @@ async def list_individual_participants(
 @router.get("/{competition_id}/participants/teams", response_model=List[TeamParticipantDetailResponse])
 async def list_team_participants(
     competition_id: int,
-    division: Optional[str] = Query(
-        None,
-        description="学历组别：dual 竞赛必填 undergraduate 或 vocational",
-    ),
     db: Session = Depends(get_db),
     adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
-    查看某竞赛「组队赛道」活跃队伍及成员；dual 须传 division；sequence_no 组内从 1 起。
+    查看某竞赛「组队赛道」全部活跃队伍及成员（含账号名）。
+    `sequence_no` 为本竞赛内队伍序号（从 1 起）；队伍的 `id` 仍为全局队伍主键。
     """
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
-    competition = _get_competition(db, competition_id)
+    _get_competition(db, competition_id)
     if not _can_view_full_participant_rosters(db, competition_id, identity):
-        raise HTTPException(
-            status_code=403,
-            detail="Not allowed to view participant roster for this competition",
-        )
-    div_val = _resolve_division_query_param(competition, division)
+        raise HTTPException(status_code=403, detail="Only super_admin or assigned verified experts may view roster")
 
     teams = (
         db.query(Team)
         .options(joinedload(Team.members))
-        .filter(
-            Team.competition_id == competition_id,
-            Team.status == TeamStatus.ACTIVE,
-            Team.division == div_val,
-        )
+        .filter(Team.competition_id == competition_id, Team.status == TeamStatus.ACTIVE)
         .order_by(Team.created_at.asc(), Team.id.asc())
         .all()
     )
@@ -1707,13 +1915,11 @@ async def list_team_participants(
                     joined_at=m.joined_at,
                 )
             )
-        team_div = team.division or CompetitionDivision.DEFAULT.value
         out.append(
             TeamParticipantDetailResponse(
                 sequence_no=seq,
                 id=team.id,
                 competition_id=team.competition_id,
-                division=team_div,
                 name=team.name,
                 captain_id=team.captain_id,
                 status=team.status,
@@ -1742,7 +1948,6 @@ async def create_team(
 
     role_eff = _effective_alt_role(identity.role)
     tn = _strip_team_name(team_create.name)
-    team_div = _resolve_enroll_division(competition, team_create.division)
 
     if role_eff in {"advisor", "teacher"}:
         ids = team_create.initial_member_ids or []
@@ -1766,19 +1971,21 @@ async def create_team(
 
         for sid in ordered_ids:
             _ensure_alt_principal_is_student(adb, sid)
-            _assert_student_division_consistent(db, competition, sid, team_div)
             if _has_active_enrollment_in_scope(
                 db, competition.id, sid, CompetitionEnrollmentScope.TEAM
             ):
                 raise HTTPException(status_code=400, detail=f"学生 {sid} 已在该竞赛组队赛道报名")
 
+        team_school = _resolve_team_school(adb, captain_id)
+        # 指导老师/教师代建队：自动将当前登录老师设为建队指导老师（忽略请求体中的 advisor_id/advisor_name）
         team = Team(
             competition_id=competition.id,
             name=tn,
             captain_id=captain_id,
             created_by_advisor_id=identity.id,
-            division=team_div,
-            status=TeamStatus.ACTIVE,
+            advisor_name=_display_user_name(identity, identity.id),
+            school=team_school,
+            status=TeamStatus.PENDING_SCHOOL_REVIEW,
         )
         db.add(team)
         db.flush()
@@ -1794,21 +2001,18 @@ async def create_team(
                 row_any.enrollment_scope = CompetitionEnrollmentScope.TEAM
                 row_any.is_captain = ic
                 row_any.status = CompetitionEnrollmentStatus.ENROLLED
-                row_any.division = team_div
             else:
                 enrollment = CompetitionEnrollment(
                     competition_id=competition.id,
                     student_id=sid,
                     team_id=team.id,
                     enrollment_scope=CompetitionEnrollmentScope.TEAM,
-                    division=team_div,
                     is_captain=ic,
                     status=CompetitionEnrollmentStatus.ENROLLED,
                 )
                 db.add(enrollment)
 
     elif role_eff == "student":
-        _assert_student_division_consistent(db, competition, identity.id, team_div)
         if _has_active_enrollment_in_scope(
             db, competition.id, identity.id, CompetitionEnrollmentScope.TEAM
         ):
@@ -1817,13 +2021,31 @@ async def create_team(
                 detail="You have already enrolled in the team track for this competition",
             )
 
+        team_school = _resolve_team_school(adb, identity.id)
+        created_by_advisor_id = None
+        advisor_display_name = None
+        if team_create.advisor_id is not None:
+            if int(team_create.advisor_id) == int(identity.id):
+                raise HTTPException(status_code=400, detail="不能将自己指定为指导老师")
+            adv_row = _ensure_alt_principal_is_advisor(adb, team_create.advisor_id)
+            created_by_advisor_id = team_create.advisor_id
+            advisor_display_name = _display_user_name(adv_row, team_create.advisor_id)
+        elif team_create.advisor_name and str(team_create.advisor_name).strip():
+            advisor_display_name = str(team_create.advisor_name).strip()
+            advisor_row = _try_resolve_advisor_by_name(adb, advisor_display_name)
+            if advisor_row:
+                if int(advisor_row.id) == int(identity.id):
+                    raise HTTPException(status_code=400, detail="不能将自己指定为指导老师")
+                created_by_advisor_id = advisor_row.id
+
         team = Team(
             competition_id=competition.id,
             name=tn,
             captain_id=identity.id,
-            created_by_advisor_id=None,
-            division=team_div,
-            status=TeamStatus.ACTIVE,
+            created_by_advisor_id=created_by_advisor_id,
+            advisor_name=advisor_display_name,
+            school=team_school,
+            status=TeamStatus.PENDING_SCHOOL_REVIEW,
         )
         db.add(team)
         db.flush()
@@ -1839,14 +2061,12 @@ async def create_team(
             row_any.enrollment_scope = CompetitionEnrollmentScope.TEAM
             row_any.is_captain = True
             row_any.status = CompetitionEnrollmentStatus.ENROLLED
-            row_any.division = team_div
         else:
             enrollment = CompetitionEnrollment(
                 competition_id=competition.id,
                 student_id=identity.id,
                 team_id=team.id,
                 enrollment_scope=CompetitionEnrollmentScope.TEAM,
-                division=team_div,
                 is_captain=True,
                 status=CompetitionEnrollmentStatus.ENROLLED,
             )
@@ -1856,7 +2076,6 @@ async def create_team(
         extras = [x for x in extras if x != identity.id]
         for sid in extras:
             _ensure_alt_principal_is_student(adb, sid)
-            _assert_student_division_consistent(db, competition, sid, team_div)
             if _has_active_enrollment_in_scope(
                 db, competition.id, sid, CompetitionEnrollmentScope.TEAM
             ):
@@ -1871,7 +2090,6 @@ async def create_team(
                 row_other.enrollment_scope = CompetitionEnrollmentScope.TEAM
                 row_other.is_captain = False
                 row_other.status = CompetitionEnrollmentStatus.ENROLLED
-                row_other.division = team_div
             else:
                 db.add(
                     CompetitionEnrollment(
@@ -1879,7 +2097,6 @@ async def create_team(
                         student_id=sid,
                         team_id=team.id,
                         enrollment_scope=CompetitionEnrollmentScope.TEAM,
-                        division=team_div,
                         is_captain=False,
                         status=CompetitionEnrollmentStatus.ENROLLED,
                     )
@@ -1898,6 +2115,36 @@ async def create_team(
     return team
 
 
+@router.get("/teams/{team_id}", response_model=TeamResponse)
+async def get_team(
+    team_id: int,
+    db: Session = Depends(get_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """队员/队长/建队指导老师查看本队详情（含校审状态 pending_school_review / active / rejected）。"""
+    require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    _get_competition(db, team.competition_id)
+
+    role_eff = _effective_alt_role(identity.role)
+    if role_eff == "super_admin":
+        return team
+    if team.captain_id == identity.id:
+        return team
+    if _team_advisor_managed(team, identity.id):
+        return team
+    member = (
+        db.query(TeamMember)
+        .filter(TeamMember.team_id == team_id, TeamMember.user_id == identity.id)
+        .first()
+    )
+    if member:
+        return team
+    raise HTTPException(status_code=403, detail="Not a member of this team")
+
+
 @router.patch("/teams/{team_id}", response_model=TeamResponse)
 async def patch_team(
     team_id: int,
@@ -1907,7 +2154,11 @@ async def patch_team(
 ):
     body = TeamPatch.model_validate(body)
     require_permission(identity.role, Permission.MANAGE_TEAMS)
-    team = db.query(Team).filter(Team.id == team_id, Team.status == TeamStatus.ACTIVE).first()
+    team = (
+        db.query(Team)
+        .filter(Team.id == team_id, Team.status.in_(_team_composition_open_statuses()))
+        .first()
+    )
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
 
@@ -1934,7 +2185,11 @@ async def invite_team_member(
     body = TeamInviteMember.model_validate(body)
     require_permission(identity.role, Permission.MANAGE_TEAMS)
 
-    team = db.query(Team).filter(Team.id == team_id, Team.status == TeamStatus.ACTIVE).first()
+    team = (
+        db.query(Team)
+        .filter(Team.id == team_id, Team.status.in_(_team_composition_open_statuses()))
+        .first()
+    )
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     competition = team.competition
@@ -1950,8 +2205,6 @@ async def invite_team_member(
         raise HTTPException(status_code=400, detail="Captain is already on the team")
 
     _ensure_alt_principal_is_student(adb, sid)
-    team_div = _team_division(team)
-    _assert_student_division_consistent(db, competition, sid, team_div)
 
     if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == sid).first():
         raise HTTPException(status_code=400, detail="Already a team member")
@@ -1962,28 +2215,7 @@ async def invite_team_member(
             detail="Student already enrolled in the team track for this competition",
         )
 
-    member = TeamMember(team_id=team.id, user_id=sid, is_captain=False)
-    db.add(member)
-
-    row_any = _get_enrollment_by_scope(db, competition.id, sid, CompetitionEnrollmentScope.TEAM)
-    if row_any and row_any.status == CompetitionEnrollmentStatus.WITHDRAWN:
-        row_any.team_id = team.id
-        row_any.enrollment_scope = CompetitionEnrollmentScope.TEAM
-        row_any.is_captain = False
-        row_any.status = CompetitionEnrollmentStatus.ENROLLED
-        row_any.division = team_div
-    else:
-        db.add(
-            CompetitionEnrollment(
-                competition_id=competition.id,
-                student_id=sid,
-                team_id=team.id,
-                enrollment_scope=CompetitionEnrollmentScope.TEAM,
-                division=team_div,
-                is_captain=False,
-                status=CompetitionEnrollmentStatus.ENROLLED,
-            )
-        )
+    member = _add_student_to_team(db, competition, team, sid, is_captain=False)
 
     try:
         db.commit()
@@ -2003,7 +2235,11 @@ async def kick_team_member(
 ):
     require_permission(identity.role, Permission.MANAGE_TEAMS)
 
-    team = db.query(Team).filter(Team.id == team_id, Team.status == TeamStatus.ACTIVE).first()
+    team = (
+        db.query(Team)
+        .filter(Team.id == team_id, Team.status.in_(_team_composition_open_statuses()))
+        .first()
+    )
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     competition = team.competition
@@ -2031,19 +2267,21 @@ async def kick_team_member(
     return {"ok": True}
 
 
-@router.post("/teams/{team_id}/members", response_model=TeamMemberResponse, status_code=status.HTTP_201_CREATED)
-async def join_team(
+@router.post("/teams/{team_id}/members", response_model=TeamJoinRequestResponse, status_code=status.HTTP_201_CREATED)
+async def request_join_team(
     team_id: int,
     db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
+    """学生申请加入队伍（须队长或建队指导老师审核通过后正式入队）。"""
     require_permission(identity.role, Permission.MANAGE_TEAMS)
 
     if _effective_alt_role(identity.role) != "student":
-        raise HTTPException(status_code=403, detail="Only students can join teams")
+        raise HTTPException(status_code=403, detail="Only students can request to join teams")
 
     team = db.query(Team).filter(Team.id == team_id).first()
-    if not team or team.status != TeamStatus.ACTIVE:
+    if not team or team.status not in _team_composition_open_statuses():
         raise HTTPException(status_code=404, detail="Team not found")
 
     competition = team.competition
@@ -2051,12 +2289,8 @@ async def join_team(
         raise HTTPException(status_code=400, detail="Competition not published")
     _ensure_enrollment_open(competition)
 
-    member = db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == identity.id).first()
-    if member:
+    if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == identity.id).first():
         raise HTTPException(status_code=400, detail="Already a team member")
-
-    team_div = _team_division(team)
-    _assert_student_division_consistent(db, competition, identity.id, team_div)
 
     if _has_active_enrollment_in_scope(
         db, competition.id, identity.id, CompetitionEnrollmentScope.TEAM
@@ -2066,38 +2300,146 @@ async def join_team(
             detail="You have already enrolled in the team track for this competition",
         )
 
-    member = TeamMember(team_id=team.id, user_id=identity.id, is_captain=False)
-    db.add(member)
-
-    row_any = _get_enrollment_by_scope(
-        db, competition.id, identity.id, CompetitionEnrollmentScope.TEAM
-    )
-    if row_any and row_any.status == CompetitionEnrollmentStatus.WITHDRAWN:
-        row_any.team_id = team.id
-        row_any.enrollment_scope = CompetitionEnrollmentScope.TEAM
-        row_any.is_captain = False
-        row_any.status = CompetitionEnrollmentStatus.ENROLLED
-        row_any.division = team_div
-    else:
-        enrollment = CompetitionEnrollment(
-            competition_id=competition.id,
-            student_id=identity.id,
-            team_id=team.id,
-            enrollment_scope=CompetitionEnrollmentScope.TEAM,
-            division=team_div,
-            is_captain=False,
-            status=CompetitionEnrollmentStatus.ENROLLED,
+    pending = (
+        db.query(TeamJoinRequest)
+        .filter(
+            TeamJoinRequest.team_id == team.id,
+            TeamJoinRequest.user_id == identity.id,
+            TeamJoinRequest.status == TeamJoinRequestStatus.PENDING,
         )
-        db.add(enrollment)
+        .first()
+    )
+    if pending:
+        raise HTTPException(status_code=400, detail="您已提交过入队申请，请等待队长审核")
+
+    req = TeamJoinRequest(team_id=team.id, user_id=identity.id, status=TeamJoinRequestStatus.PENDING)
+    db.add(req)
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Join request failed: {str(e)}")
+
+    db.refresh(req)
+    users_by_id = _alt_users_by_id(adb, {identity.id})
+    return _build_team_join_request_response(req, users_by_id)
+
+
+@router.get("/teams/{team_id}/join-requests", response_model=List[TeamJoinRequestResponse])
+async def list_team_join_requests(
+    team_id: int,
+    status_filter: str = Query("pending", alias="status", description="pending | approved | rejected"),
+    db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """队长或建队指导老师查看入队申请列表。"""
+    require_permission(identity.role, Permission.MANAGE_TEAMS)
+
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    _get_competition(db, team.competition_id)
+
+    if not _can_manage_team_composition(team, identity):
+        raise HTTPException(status_code=403, detail="Only captain or advising teacher may view join requests")
+
+    st = (status_filter or "pending").strip().lower()
+    if st not in {
+        TeamJoinRequestStatus.PENDING,
+        TeamJoinRequestStatus.APPROVED,
+        TeamJoinRequestStatus.REJECTED,
+    }:
+        raise HTTPException(status_code=400, detail="Invalid status filter")
+
+    rows = (
+        db.query(TeamJoinRequest)
+        .filter(TeamJoinRequest.team_id == team_id, TeamJoinRequest.status == st)
+        .order_by(TeamJoinRequest.created_at.asc(), TeamJoinRequest.id.asc())
+        .all()
+    )
+    users_by_id = _alt_users_by_id(adb, {r.user_id for r in rows})
+    return [_build_team_join_request_response(r, users_by_id) for r in rows]
+
+
+@router.post(
+    "/teams/{team_id}/join-requests/{request_id}/review",
+    response_model=TeamJoinRequestResponse,
+)
+async def review_team_join_request(
+    team_id: int,
+    request_id: int,
+    body: TeamJoinRequestReview,
+    db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """队长或建队指导老师同意/拒绝入队申请。"""
+    body = TeamJoinRequestReview.model_validate(body)
+    require_permission(identity.role, Permission.MANAGE_TEAMS)
+
+    team = (
+        db.query(Team)
+        .filter(Team.id == team_id, Team.status.in_(_team_composition_open_statuses()))
+        .first()
+    )
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    competition = team.competition
+    if not competition or competition.status != "published":
+        raise HTTPException(status_code=400, detail="Competition not published")
+    _ensure_enrollment_open(competition)
+
+    if not _can_manage_team_composition(team, identity):
+        raise HTTPException(status_code=403, detail="Only captain or advising teacher may review join requests")
+
+    req = (
+        db.query(TeamJoinRequest)
+        .filter(
+            TeamJoinRequest.id == request_id,
+            TeamJoinRequest.team_id == team_id,
+            TeamJoinRequest.status == TeamJoinRequestStatus.PENDING,
+        )
+        .first()
+    )
+    if not req:
+        raise HTTPException(status_code=404, detail="Join request not found or already reviewed")
+
+    if body.action == "reject":
+        req.status = TeamJoinRequestStatus.REJECTED
+        req.reviewed_at = utc_now()
+        req.reviewed_by_id = identity.id
+        db.commit()
+        db.refresh(req)
+        users_by_id = _alt_users_by_id(adb, {req.user_id})
+        return _build_team_join_request_response(req, users_by_id)
+
+    _ensure_alt_principal_is_student(adb, req.user_id)
+    if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == req.user_id).first():
+        raise HTTPException(status_code=400, detail="Already a team member")
+    if _has_active_enrollment_in_scope(
+        db, competition.id, req.user_id, CompetitionEnrollmentScope.TEAM
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Student already enrolled in the team track for this competition",
+        )
+
+    _add_student_to_team(db, competition, team, req.user_id, is_captain=False)
+    req.status = TeamJoinRequestStatus.APPROVED
+    req.reviewed_at = utc_now()
+    req.reviewed_by_id = identity.id
 
     try:
         db.commit()
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail=f"Join team failed: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Approve join request failed: {str(e)}")
 
-    db.refresh(member)
-    return member
+    db.refresh(req)
+    users_by_id = _alt_users_by_id(adb, {req.user_id})
+    return _build_team_join_request_response(req, users_by_id)
 
 
 @router.post("/teams/{team_id}/transfer-captain", response_model=TeamResponse)
@@ -2112,7 +2454,11 @@ async def transfer_captain(
     if _effective_alt_role(identity.role) != "student":
         raise HTTPException(status_code=403, detail="Only students can transfer captain")
 
-    team = db.query(Team).filter(Team.id == team_id, Team.status == TeamStatus.ACTIVE).first()
+    team = (
+        db.query(Team)
+        .filter(Team.id == team_id, Team.status.in_(_team_composition_open_statuses()))
+        .first()
+    )
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
 
@@ -2168,7 +2514,11 @@ async def leave_team(
     if _effective_alt_role(identity.role) != "student":
         raise HTTPException(status_code=403, detail="Only students can leave team")
 
-    team = db.query(Team).filter(Team.id == team_id, Team.status == TeamStatus.ACTIVE).first()
+    team = (
+        db.query(Team)
+        .filter(Team.id == team_id, Team.status.in_(_team_composition_open_statuses()))
+        .first()
+    )
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
 
@@ -2217,26 +2567,24 @@ async def create_submission(
 
     # 校验提交目标：个人 or 队伍
     team_id = payload.team_id
-    team: Optional[Team] = None
     if team_id is None:
+        # 个人提交：student_id 必须是当前用户，且个人报名仍有效
         student_id = identity.id
-        submit_div = _validate_submission_division(
-            db, competition, identity, payload.division, team_id=None
-        )
+        _ensure_active_individual_enrollment(db, competition.id, identity.id)
     else:
         team = db.query(Team).filter(Team.id == team_id, Team.competition_id == competition.id).first()
         if not team:
             raise HTTPException(status_code=404, detail="Team not found")
+        if team.status != TeamStatus.ACTIVE:
+            raise HTTPException(status_code=400, detail="Team must be approved by school admin before submitting")
 
+        # 队伍提交：须为队长提交
         member = db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == identity.id).first()
         if not member:
             raise HTTPException(status_code=403, detail="User is not a team member")
         if team.captain_id != identity.id:
             raise HTTPException(status_code=403, detail="Only team captain may submit for the team")
         student_id = identity.id
-        submit_div = _validate_submission_division(
-            db, competition, identity, payload.division, team_id=team_id, team=team
-        )
 
     if not payload.file_id and not payload.content_text:
         raise HTTPException(status_code=400, detail="Provide file_id or content_text")
@@ -2247,7 +2595,6 @@ async def create_submission(
     submission = Submission(
         competition_id=competition.id,
         team_id=payload.team_id,
-        division=submit_div,
         student_id=student_id,
         submitter_id=identity.id,
         title=payload.title,
@@ -2271,10 +2618,6 @@ async def create_submission(
 async def create_submission_upload(
     competition_id: int = Form(...),
     team_id: Optional[int] = Form(None),
-    division: Optional[str] = Form(
-        None,
-        description="学历组别：dual 竞赛必填 undergraduate 或 vocational",
-    ),
     title: str = Form(...),
     description: Optional[str] = Form(None),
     content_text: Optional[str] = Form(None),
@@ -2293,25 +2636,21 @@ async def create_submission_upload(
     _ensure_competition_allows_submissions(competition)
 
     # 校验提交目标：个人 or 队伍
-    team: Optional[Team] = None
     if team_id is None:
         student_id = identity.id
-        submit_div = _validate_submission_division(
-            db, competition, identity, division, team_id=None
-        )
+        _ensure_active_individual_enrollment(db, competition.id, identity.id)
     else:
         team = db.query(Team).filter(Team.id == team_id, Team.competition_id == competition.id).first()
         if not team:
             raise HTTPException(status_code=404, detail="Team not found")
+        if team.status != TeamStatus.ACTIVE:
+            raise HTTPException(status_code=400, detail="Team must be approved by school admin before submitting")
         member = db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == identity.id).first()
         if not member:
             raise HTTPException(status_code=403, detail="User is not a team member")
         if team.captain_id != identity.id:
             raise HTTPException(status_code=403, detail="Only team captain may submit for the team")
         student_id = identity.id
-        submit_div = _validate_submission_division(
-            db, competition, identity, division, team_id=team_id, team=team
-        )
 
     if not content_text and not (file and file.filename):
         raise HTTPException(status_code=400, detail="Provide content_text or upload file")
@@ -2340,7 +2679,6 @@ async def create_submission_upload(
     submission = Submission(
         competition_id=competition.id,
         team_id=team_id,
-        division=submit_div,
         student_id=student_id,
         submitter_id=identity.id,
         title=title,
@@ -2360,37 +2698,17 @@ async def create_submission_upload(
     return submission
 
 
-@router.get("/{competition_id}/submissions", response_model=SubmissionListResponse)
+@router.get("/{competition_id}/submissions", response_model=List[SubmissionResponse])
 async def list_submissions(
     competition_id: int,
-    division: Optional[str] = Query(
-        None,
-        description="按提交时的学历组别过滤：undergraduate / vocational / default",
-    ),
-    page: int = Query(1, ge=1, description="页码，从 1 开始"),
-    page_size: int = Query(20, ge=1, le=100, description="每页条数，默认 20，最大 100"),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
-    """
-    作品列表。响应含 `division`（与提交作品时写入一致）。
-    可选 query `division` 按组别筛选（如本科详情页只拉 undergraduate）。
-    支持分页：`page`/`page_size`。
-    """
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
     _get_competition(db, competition_id)
 
     if _can_view_all_competition_submissions(db, competition_id, identity):
-        q = db.query(Submission).filter(Submission.competition_id == competition_id)
-        q = _apply_submission_division_query(q, division)
-        total = q.count()
-        rows = (
-            q.order_by(Submission.submitted_at.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-            .all()
-        )
-        return SubmissionListResponse(page=page, page_size=page_size, total=total, items=rows)
+        return db.query(Submission).filter(Submission.competition_id == competition_id).order_by(Submission.submitted_at.desc()).all()
 
     if _effective_alt_role(identity.role) != "student":
         raise HTTPException(
@@ -2407,15 +2725,7 @@ async def list_submissions(
     q = db.query(Submission).filter(Submission.competition_id == competition_id).filter(
         (Submission.student_id == identity.id) | (Submission.team_id.in_(team_ids) if team_ids else False)  # noqa: E712
     )
-    q = _apply_submission_division_query(q, division)
-    total = q.count()
-    rows = (
-        q.order_by(Submission.submitted_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-    return SubmissionListResponse(page=page, page_size=page_size, total=total, items=rows)
+    return q.order_by(Submission.submitted_at.desc()).all()
 
 
 @router.get("/submissions/{submission_id}", response_model=SubmissionResponse)
@@ -2424,7 +2734,6 @@ async def get_submission(
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
-    """作品详情；响应 `division` 为提交时（§8.16 / §8.16.1）写入的值。"""
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission:
@@ -2563,35 +2872,24 @@ async def update_review_grade(
 @router.get("/{competition_id}/scores/summary", response_model=CompetitionScoreSummaryResponse)
 async def score_summary(
     competition_id: int,
-    division: Optional[str] = Query(
-        None,
-        description="学历组别：dual 竞赛必填；仅统计该组提交作品",
-    ),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
-    竞赛评分汇总（按学历组别）；统计范围为本组 ``submissions.division``。
+    竞赛评分汇总（聚合统计）。
+    - super_admin：可查看任意竞赛汇总
+    - verified expert：仅可查看被指派的竞赛汇总
     """
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
-    competition = _get_competition(db, competition_id)
+    _get_competition(db, competition_id)
     if not _can_view_competition_score_insights(db, competition_id, identity):
         raise HTTPException(status_code=403, detail="Not allowed to view scores for this competition")
-    div_val = _resolve_division_query_param(competition, division)
 
-    submissions_total = (
-        db.query(func.count(Submission.id))
-        .filter(Submission.competition_id == competition_id, Submission.division == div_val)
-        .scalar()
-        or 0
-    )
+    submissions_total = db.query(func.count(Submission.id)).filter(Submission.competition_id == competition_id).scalar() or 0
     reviewed_total = (
         db.query(func.count(Review.id))
         .join(Submission, Submission.id == Review.submission_id)
-        .filter(
-            Submission.competition_id == competition_id,
-            Submission.division == div_val,
-        )
+        .filter(Submission.competition_id == competition_id)
         .scalar()
         or 0
     )
@@ -2603,10 +2901,7 @@ async def score_summary(
             func.min(Review.score),
         )
         .join(Submission, Submission.id == Review.submission_id)
-        .filter(
-            Submission.competition_id == competition_id,
-            Submission.division == div_val,
-        )
+        .filter(Submission.competition_id == competition_id)
         .first()
     )
 
@@ -2616,7 +2911,6 @@ async def score_summary(
 
     return CompetitionScoreSummaryResponse(
         competition_id=competition_id,
-        division=div_val,
         submissions_total=int(submissions_total),
         reviewed_total=int(reviewed_total),
         avg_score=avg_score,
@@ -2628,23 +2922,21 @@ async def score_summary(
 @router.get("/{competition_id}/scores/rankings", response_model=CompetitionScoreRankingResponse)
 async def score_rankings(
     competition_id: int,
-    division: Optional[str] = Query(
-        None,
-        description="学历组别：dual 竞赛必填；本组内独立排名",
-    ),
     limit: int = 50,
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
-    排行榜：在指定 ``division`` 内，个人与组队同一排名池按 ``best_score`` 排序。
+    排行榜：个人参赛与组队参赛**同一排名池**，按各参赛者（队伍或个人）的 `best_score` 全局排序。
+    - 先分别聚合「有评分作品」的队伍与个人，再合并排序；**不在**各自赛道单独截断 limit（避免名次被截断错误）。
+    - `limit` 仅作用于合并排序后的最终结果条数。
     """
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
-    competition = _get_competition(db, competition_id)
+    _get_competition(db, competition_id)
     if not _can_view_competition_score_insights(db, competition_id, identity):
         raise HTTPException(status_code=403, detail="Not allowed to view rankings for this competition")
-    div_val = _resolve_division_query_param(competition, division)
 
+    # 队伍参赛：按 team_id 聚合（本竞赛内有已评分作品的所有队伍）
     team_rows = (
         db.query(
             Submission.team_id.label("team_id"),
@@ -2652,15 +2944,12 @@ async def score_rankings(
             func.count(Review.id).label("reviewed_submissions"),
         )
         .join(Review, Review.submission_id == Submission.id)
-        .filter(
-            Submission.competition_id == competition_id,
-            Submission.division == div_val,
-            Submission.team_id.isnot(None),
-        )
+        .filter(Submission.competition_id == competition_id, Submission.team_id.isnot(None))
         .group_by(Submission.team_id)
         .all()
     )
 
+    # 个人参赛：按 student_id 聚合（team_id 为空）
     individual_rows = (
         db.query(
             Submission.student_id.label("student_id"),
@@ -2668,11 +2957,7 @@ async def score_rankings(
             func.count(Review.id).label("reviewed_submissions"),
         )
         .join(Review, Review.submission_id == Submission.id)
-        .filter(
-            Submission.competition_id == competition_id,
-            Submission.division == div_val,
-            Submission.team_id.is_(None),
-        )
+        .filter(Submission.competition_id == competition_id, Submission.team_id.is_(None))
         .group_by(Submission.student_id)
         .all()
     )
@@ -2701,25 +2986,17 @@ async def score_rankings(
             )
         )
 
-    return CompetitionScoreRankingResponse(
-        competition_id=competition_id,
-        division=div_val,
-        items=items[:limit],
-    )
+    return CompetitionScoreRankingResponse(competition_id=competition_id, items=items[:limit])
 
 
 @router.get("/{competition_id}/scores/me", response_model=MyCompetitionScoresResponse)
 async def my_scores(
     competition_id: int,
-    division: Optional[str] = Query(
-        None,
-        description="按提交时的学历组别过滤：undergraduate / vocational / default",
-    ),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
-    学生查看自己在某竞赛的提交与成绩。每项含 `division`（提交时写入）。
+    学生查看自己在某竞赛的提交与成绩。
     """
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
     if _effective_alt_role(identity.role) != "student":
@@ -2741,7 +3018,6 @@ async def my_scores(
             | (Submission.team_id.in_(team_ids) if team_ids else False)  # noqa: E712
         )
     )
-    q = _apply_submission_division_query(q, division)
     submissions = q.order_by(Submission.submitted_at.desc()).all()
     items: List[SubmissionForStudentScoreResponse] = []
     for s in submissions:

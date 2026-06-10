@@ -3291,10 +3291,12 @@ curl -L "http://localhost:8000/api/v1/competitions/1/teams/export" \
 | name | string | | 可选队名（展示用）；**学生**不传则服务端可为空/`null`；指导老师可顺带命名 |
 | initial_member_ids | array\<int\> \| null | 视角色 | 成员 **`alt_auth_users.id`** 列表 |
 | captain_student_id | int \| null | 指导老师建队时与 `initial_member_ids` 联用 | **`advisor`**：**队长必须在** `initial_member_ids` 中；本字段若省略则默认 **`initial_member_ids`** 的首元素为队长。若填写则必须与列表中某一元素一致。**`student`** 自建：**忽略**，队长恒为本人 |
+| advisor_id | int \| null | | **学生自建选填**（与 `advisor_name` 二选一）：指导老师 `alt_auth_users.id`，须为 `advisor`/`teacher` 角色 |
+| advisor_name | string \| null | | **学生自建选填**：指导老师姓名，**始终写入**队伍 `advisor_name` 供校审展示；精确匹配系统老师账号时同时写入 `created_by_advisor_id`。指导老师自建队时**忽略** |
 
 **学生 `student`**：当前账号尚未在本赛存在**组队赛道**有效报名（`enrollment_scope=team`）；**允许**已有个人的 `individual` 报名后再建队。可先只建空队仅有本人队长，或通过 `initial_member_ids` 顺带拉入其他同学（写入 `team_members` 与组队赛道 `enrolled`；对方须未在组队赛道报名，但可已有个人的 individual 报名）。
 
-**指导老师 `advisor`**：`initial_member_ids` **至少一人**（不可仅空列表）；指导老师本人 **不可**写入队员名单。**所列学生均未在本赛组队赛道处于 `enrolled`**。服务端记录 **`created_by_advisor_id`**；后续 **§8.12.2 邀请**、**§8.12.3 踢人**、**§8.12.1 改队名** 可与队长共同参与队务。
+**指导老师 `advisor` / `teacher`**：`initial_member_ids` **至少一人**（不可仅空列表）；指导老师本人 **不可**写入队员名单。**所列学生均未在本赛组队赛道处于 `enrolled`**。服务端**自动**将当前登录老师写入 **`created_by_advisor_id`**（请求体中的 `advisor_id`/`advisor_name` **忽略**）；后续 **§8.12.2 邀请**、**§8.12.3 踢人**、**§8.12.1 改队名** 可与队长共同参与队务。
 
 **请求示例（学生自建）**：
 ```bash
@@ -3302,6 +3304,14 @@ curl -X POST "http://localhost:8000/api/v1/competitions/teams" \
   -H "Authorization: Bearer <alt_access_token>" \
   -H "Content-Type: application/json" \
   -d '{"competition_id":1,"name":"筑梦队"}'
+```
+
+**请求示例（学生自建并指定指导老师）**：
+```bash
+curl -X POST "http://localhost:8000/api/v1/competitions/teams" \
+  -H "Authorization: Bearer <alt_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"competition_id":1,"name":"筑梦队","advisor_name":"张老师"}'
 ```
 
 **请求示例（指导老师组班）**：
@@ -3361,10 +3371,12 @@ curl -X DELETE "http://localhost:8000/api/v1/competitions/teams/10/members/8" \
   -H "Authorization: Bearer <alt_access_token>"
 ```
 
-#### 8.13 加入队伍（学生自助申请）
+#### 8.13 申请加入队伍（学生）
 
 **端点**: `POST /api/v1/competitions/teams/{team_id}/members`  
 **权限**: `MANAGE_TEAMS`，且 **`student` 专享**（403：指导老师/管理员不可「自己加队」）。
+
+**说明**：提交入队**申请**（`status=pending`），须队长或建队指导老师在 **§8.13.2** 审核通过后正式入队。
 
 **路径参数**：`team_id`（int）
 
@@ -3377,13 +3389,27 @@ curl -X POST "http://localhost:8000/api/v1/competitions/teams/10/members" \
 **响应示例**（201）：
 ```json
 {
-  "id": 123,
+  "id": 5,
   "team_id": 10,
   "user_id": 8,
-  "is_captain": false,
-  "joined_at": "2026-03-18T07:00:00.000000"
+  "username": "stu08",
+  "full_name": "李同学",
+  "status": "pending",
+  "created_at": "2026-03-18T07:00:00.000000",
+  "reviewed_at": null,
+  "reviewed_by_id": null
 }
 ```
+
+#### 8.13.1 查看入队申请（队长 / 建队指导老师）
+
+**端点**: `GET /api/v1/competitions/teams/{team_id}/join-requests`  
+**Query**：`status`（默认 `pending`）
+
+#### 8.13.2 审核入队申请（同意 / 拒绝）
+
+**端点**: `POST /api/v1/competitions/teams/{team_id}/join-requests/{request_id}/review`  
+**请求体**：`{ "action": "approve" }` 或 `{ "action": "reject" }`
 
 #### 8.14 队长转让（学生）
 

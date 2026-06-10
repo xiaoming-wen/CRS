@@ -129,7 +129,9 @@ class CompetitionEnrollment(Base):
 
 
 class TeamStatus(str):
+    PENDING_SCHOOL_REVIEW = "pending_school_review"
     ACTIVE = "active"
+    REJECTED = "rejected"
     DISBANDED = "disbanded"
 
 
@@ -147,6 +149,8 @@ class Team(Base):
 
     # 指导老师代为建队时记录其 alt_auth_users.id（普通学生自建队则为空）
     created_by_advisor_id = Column(Integer, nullable=True, index=True)
+    # 学生自建队时填写的指导老师姓名（展示用；可与 created_by_advisor_id 并存）
+    advisor_name = Column(String(100), nullable=True)
 
     division = Column(
         String(20),
@@ -155,11 +159,39 @@ class Team(Base):
         comment="队伍所属学历组别",
     )
 
-    status = Column(String(30), default=TeamStatus.ACTIVE, nullable=False)
+    status = Column(String(30), default=TeamStatus.PENDING_SCHOOL_REVIEW, nullable=False)
+
+    school = Column(String(200), nullable=True, comment="队伍所属学校（队长学校快照）")
+    reviewed_by_id = Column(Integer, nullable=True, index=True, comment="校管理员 alt_auth_users.id")
+    reviewed_at = Column(DateTime, nullable=True)
+    review_feedback = Column(Text, nullable=True, comment="校审备注/驳回原因")
+
     created_at = Column(DateTime, default=utc_now)
 
     competition = relationship("Competition", back_populates="teams")
     members = relationship("TeamMember", back_populates="team", cascade="all, delete-orphan")
+
+
+class TeamJoinRequestStatus(str):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class TeamJoinRequest(Base):
+    """学生申请加入队伍，须队长（或建队指导老师）审核。"""
+
+    __tablename__ = "team_join_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    status = Column(String(20), default=TeamJoinRequestStatus.PENDING, nullable=False, index=True)
+    created_at = Column(DateTime, default=utc_now)
+    reviewed_at = Column(DateTime, nullable=True)
+    reviewed_by_id = Column(Integer, nullable=True, index=True)
+
+    team = relationship("Team", backref="join_requests")
 
 
 class TeamMember(Base):

@@ -312,12 +312,7 @@
             </a-form>
 
             <div v-if="enrollMode === 'team'" class="muted" style="margin-bottom: 12px; font-size: 13px">
-              <template v-if="studentTeamEnrolledAsMember">
-                您已完成队伍赛道报名（队员身份）。队伍由队长统一管理，无需创建/加入队伍或进行队长操作。
-              </template>
-              <template v-else>
-                队伍参赛流程：① 创建队伍 <strong>或</strong> 加入已有队伍 → ② 获得「我的队伍ID」后 → ③ 若后端未自动报名，再点击「报名（队伍）」。（部分接口在创建队伍时已自动完成竞赛报名，此时无需再点报名。）
-              </template>
+              {{ studentTeamEnrollFlowHint }}
             </div>
 
             <div class="row">
@@ -367,6 +362,22 @@
                     :disabled="true"
                   />
                 </a-form-item>
+                <a-alert
+                  v-if="myTeamId && isMyTeamPendingSchoolReview"
+                  type="warning"
+                  show-icon
+                  message="待校审"
+                  description="队伍已创建，须本校校管理员在「校审」中审核通过（状态变为「已通过」）后，队长方可提交队伍作品。"
+                  style="margin-bottom: 12px"
+                />
+                <a-alert
+                  v-else-if="myTeamId && isMyTeamSchoolReviewRejected"
+                  type="error"
+                  show-icon
+                  message="校审已驳回"
+                  description="该队伍未通过校审，相关组队报名已退赛。请联系校管理员了解原因，或由队长/指导老师重新建队。"
+                  style="margin-bottom: 12px"
+                />
                 <a-form-item v-if="showStudentTeamCreateJoinOps" label="加入已有队伍（输入队长提供的队伍ID）">
                   <div class="row">
                     <a-input-number
@@ -381,7 +392,7 @@
                       :disabled="competitionEnrollActionsDisabled || studentHasTeamForCurrentCompetition"
                       @click="handleJoinTeam"
                     >
-                      加入队伍
+                      申请加入队伍
                     </a-button>
                   </div>
                 </a-form-item>
@@ -490,6 +501,14 @@
               :description="`当前为${activeDivisionLabel}，提交的作品 division 将与本组别及您的报名一致。`"
               style="margin-bottom: 12px"
             />
+            <a-alert
+              v-if="teamSchoolReviewSubmissionBlocked"
+              type="warning"
+              show-icon
+              :message="teamSchoolReviewBlockedTitle"
+              :description="teamSchoolReviewBlockedDescription"
+              style="margin-bottom: 12px"
+            />
             <a-form layout="vertical">
               <a-form-item label="作品标题" required>
                 <a-input v-model="submissionForm.title" placeholder="请输入作品标题" style="max-width: 520px" />
@@ -520,7 +539,7 @@
               <a-form-item label="提交类型">
                 <a-radio-group v-model="submissionMode" @change="onSubmissionModeChange">
                   <a-radio-button value="individual" :disabled="!myEnrolledIndividual || !allowIndividual">个人提交</a-radio-button>
-                  <a-radio-button value="team" :disabled="!myEnrolledTeam || !allowTeam || !isCurrentTeamCaptain">队伍提交</a-radio-button>
+                  <a-radio-button value="team" :disabled="!myEnrolledTeam || !allowTeam || !isCurrentTeamCaptain || teamSchoolReviewSubmissionBlocked">队伍提交</a-radio-button>
                 </a-radio-group>
               </a-form-item>
 
@@ -615,6 +634,14 @@
               style="margin-bottom: 12px"
             />
 
+            <a-alert
+              type="info"
+              show-icon
+              message="组队校审说明"
+              description="代建队成功后队伍状态为「待校审」，须本校校管理员审核通过（状态变为「已通过」）后，队长方可提交队伍作品。"
+              style="margin-bottom: 12px"
+            />
+
             <a-divider orientation="left">创建队伍</a-divider>
             <a-form layout="vertical" style="max-width: 720px">
               <a-row :gutter="12">
@@ -624,6 +651,15 @@
                       v-model="advisorCreateForm.name"
                       placeholder="如：一班代表队"
                       :disabled="advisorTeamActionsDisabled || !allowTeam"
+                    />
+                  </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="12">
+                  <a-form-item label="指导老师">
+                    <a-input
+                      :value="altCurrentUserDisplayName"
+                      disabled
+                      placeholder="自动设为当前登录老师"
                     />
                   </a-form-item>
                 </a-col>
@@ -708,7 +744,7 @@
                 <a-descriptions-item label="队名">{{ advisorSelectedTeam.name || '（未设置）' }}</a-descriptions-item>
                 <a-descriptions-item label="队长 ID">{{ advisorSelectedTeam.captain_id }}</a-descriptions-item>
                 <a-descriptions-item label="状态">{{ participantTeamStatusText(advisorSelectedTeam.status) }}</a-descriptions-item>
-                <a-descriptions-item label="建队老师 ID">{{ advisorSelectedTeam.created_by_advisor_id != null ? advisorSelectedTeam.created_by_advisor_id : '-' }}</a-descriptions-item>
+                <a-descriptions-item label="指导老师">{{ advisorSelectedTeamAdvisorLabel }}</a-descriptions-item>
               </a-descriptions>
 
               <div class="advisor-manage-team-ops">
@@ -1099,12 +1135,7 @@
         </a-form>
 
         <div v-if="enrollMode === 'team'" class="muted" style="margin-bottom: 12px; font-size: 13px">
-          <template v-if="studentTeamEnrolledAsMember">
-            您已完成队伍赛道报名（队员身份）。队伍由队长统一管理，无需创建/加入队伍或进行队长操作。
-          </template>
-          <template v-else>
-            队伍参赛流程：① 创建队伍 <strong>或</strong> 加入已有队伍 → ② 获得「我的队伍ID」后 → ③ 若后端未自动报名，再点击「报名（队伍）」。（部分接口在创建队伍时已自动完成竞赛报名，此时无需再点报名。）
-          </template>
+          {{ studentTeamEnrollFlowHint }}
         </div>
 
         <div class="row">
@@ -1123,7 +1154,7 @@
               v-if="showStudentTeamCreateJoinOps"
               type="primary"
               :loading="enrollLoading"
-              @click="handleCreateTeamOnly"
+              @click="openStudentCreateTeamModal"
               :disabled="competitionEnrollActionsDisabled || !allowTeam || studentHasTeamForCurrentCompetition"
               style="margin-right: 8px"
             >
@@ -1155,27 +1186,93 @@
                 :disabled="true"
               />
             </a-form-item>
-            <a-form-item v-if="showStudentTeamCreateJoinOps" label="加入已有队伍（输入队长提供的队伍ID）">
-              <div class="row">
+            <a-form-item v-if="myTeamId" label="队伍名">
+              <a-input :value="myTeamNameDisplay" style="max-width: 360px" :disabled="true" />
+            </a-form-item>
+            <a-form-item v-if="myTeamId && myTeamAdvisorName" label="指导老师">
+              <a-input :value="myTeamAdvisorName" style="max-width: 360px" :disabled="true" />
+            </a-form-item>
+            <a-form-item v-if="showStudentTeamCreateJoinOps" label="加入已有队伍（队伍ID 或队名二选一）">
+              <div class="row" style="flex-wrap: wrap; gap: 8px">
                 <a-input-number
                   v-model="joinTeamId"
                   :min="1"
-                  placeholder="请输入队伍ID"
+                  placeholder="队伍ID"
+                  style="width: 140px"
+                  :disabled="competitionEnrollActionsDisabled || studentHasTeamForCurrentCompetition"
+                />
+                <a-input
+                  v-model="joinTeamName"
+                  placeholder="或输入队名"
                   style="width: 180px"
                   :disabled="competitionEnrollActionsDisabled || studentHasTeamForCurrentCompetition"
+                  allow-clear
                 />
                 <a-button
                   :loading="teamLoading"
                   :disabled="competitionEnrollActionsDisabled || studentHasTeamForCurrentCompetition"
                   @click="handleJoinTeam"
                 >
-                  加入队伍
+                  申请加入队伍
                 </a-button>
               </div>
             </a-form-item>
+            <a-form-item
+              v-if="showCaptainTeamJoinRequestsInEnrollModal"
+              label="入队申请（待处理）"
+            >
+              <a-spin :spinning="teamJoinRequestsLoading">
+                <a-empty
+                  v-if="!teamJoinRequestsLoading && teamJoinRequests.length === 0"
+                  description="暂无待处理的入队申请"
+                />
+                <div
+                  v-for="req in teamJoinRequests"
+                  :key="req.id"
+                  class="team-join-request-row"
+                >
+                  <span class="team-join-request-name">{{ formatTeamJoinRequestStudentName(req) }}</span>
+                  <a-button
+                    size="small"
+                    type="primary"
+                    :loading="teamJoinRequestReviewingId === req.id"
+                    :disabled="teamJoinRequestReviewingId != null && teamJoinRequestReviewingId !== req.id"
+                    @click="handleReviewTeamJoinRequest(req, 'approve')"
+                  >
+                    同意
+                  </a-button>
+                  <a-button
+                    size="small"
+                    :loading="teamJoinRequestReviewingId === req.id"
+                    :disabled="teamJoinRequestReviewingId != null && teamJoinRequestReviewingId !== req.id"
+                    @click="handleReviewTeamJoinRequest(req, 'reject')"
+                  >
+                    拒绝
+                  </a-button>
+                </div>
+              </a-spin>
+            </a-form-item>
+            <div v-if="showTeamSchoolReviewStatusInEnrollModal" class="team-school-review-status-row">
+              <span class="team-school-review-status-label">校审状态：</span>
+              <a-tag v-if="isMyTeamPendingSchoolReview" color="orange">待校审</a-tag>
+              <a-tag v-else-if="isMyTeamSchoolReviewRejected" color="red">已驳回</a-tag>
+              <a-tag v-else-if="isMyTeamSchoolReviewActive" color="green">已通过</a-tag>
+            </div>
+            <p
+              v-if="showTeamSchoolReviewStatusInEnrollModal && isMyTeamPendingSchoolReview"
+              class="muted team-school-review-status-hint"
+            >
+              须本校校管理员审核通过后，方可进行队长转让与队伍作品提交。
+            </p>
+            <p
+              v-else-if="showTeamSchoolReviewStatusInEnrollModal && isMyTeamSchoolReviewRejected"
+              class="muted team-school-review-status-hint"
+            >
+              校审未通过，相关组队报名已退赛；请重新建队并等待校审。
+            </p>
           </a-form>
 
-          <template v-if="showStudentTeamCaptainOptionalOps">
+          <template v-if="showStudentTeamCaptainOpsInEnrollModal">
           <a-divider />
           <a-form layout="vertical">
             <a-form-item label="队长转让（可选）">
@@ -1253,7 +1350,7 @@
           </template>
         </div>
 
-        <template v-if="hasAnyEnrollment && showSubmissionPanelInEnrollView">
+        <template v-if="hasAnyEnrollment && showSubmissionPanelInEnrollModal">
           <a-divider />
           <h4 class="standalone-modal-section-title">作品提交</h4>
           <a-alert
@@ -1311,7 +1408,7 @@
                 @change="onSubmissionModeChange"
               >
                 <a-radio-button value="individual" :disabled="!myEnrolledIndividual || !allowIndividual">个人提交</a-radio-button>
-                <a-radio-button value="team" :disabled="!myEnrolledTeam || !allowTeam || !isCurrentTeamCaptain">队伍提交</a-radio-button>
+                <a-radio-button value="team" :disabled="!myEnrolledTeam || !allowTeam || !isCurrentTeamCaptain || teamSchoolReviewSubmissionBlocked">队伍提交</a-radio-button>
               </a-radio-group>
             </a-form-item>
 
@@ -1339,6 +1436,40 @@
           <a-button @click="showStandaloneEnrollModal = false">关闭</a-button>
         </div>
       </div>
+    </a-modal>
+
+    <!-- 报名弹窗：创建队伍（填写队名） -->
+    <a-modal
+      v-model="showStudentCreateTeamModal"
+      title="创建队伍"
+      ok-text="确认创建"
+      cancel-text="取消"
+      :confirm-loading="studentCreateTeamModalLoading"
+      :destroyOnClose="false"
+      @ok="submitStudentCreateTeamModal"
+      @cancel="closeStudentCreateTeamModal"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="队名" required>
+          <a-input
+            v-model="studentCreateTeamForm.name"
+            placeholder="请输入队伍名称"
+            :maxLength="200"
+            @pressEnter="submitStudentCreateTeamModal"
+          />
+        </a-form-item>
+        <a-form-item label="指导老师（选填）">
+          <a-input
+            v-model="studentCreateTeamForm.advisor_name"
+            placeholder="请输入指导老师姓名"
+            :maxLength="100"
+            allow-clear
+          />
+        </a-form-item>
+        <p class="muted" style="margin: 0; font-size: 13px">
+          您将作为队长创建队伍；创建后状态为「待校审」，须校管理员审核通过后方可提交队伍作品。
+        </p>
+      </a-form>
     </a-modal>
 
     <!-- 独立详情页：我的作品 -->
@@ -1830,12 +1961,16 @@ import {
   getCompetitionParticipantsTeams,
   exportCompetitionTeamsExcel,
   enrollCompetition,
+  getCompetitionTeam,
   getCompetitionTeams,
+  lookupCompetitionTeamByName,
   createCompetitionTeam,
   patchCompetitionTeam,
   inviteCompetitionTeamMember,
   removeCompetitionTeamMember,
   addTeamMember,
+  listTeamJoinRequests,
+  reviewTeamJoinRequest,
   transferTeamCaptain,
   leaveTeam,
   submitCompetitionSubmission,
@@ -1929,6 +2064,17 @@ export default {
 
       enrollMode: 'individual', // 'individual' | 'team'
       myTeamId: null,
+      myTeamName: null,
+      myTeamAdvisorName: null,
+      /** 当前队伍校审状态：pending_school_review | active | rejected */
+      myTeamStatus: null,
+      joinTeamName: '',
+      showStudentCreateTeamModal: false,
+      studentCreateTeamModalLoading: false,
+      studentCreateTeamForm: {
+        name: '',
+        advisor_name: ''
+      },
 
       /** POST /v1/competitions/enroll 选填扩展字段（8.7） */
       enrollProfileForm: {
@@ -1939,6 +2085,10 @@ export default {
       },
 
       joinTeamId: null,
+      /** 队长：待审核的入队申请 */
+      teamJoinRequests: [],
+      teamJoinRequestsLoading: false,
+      teamJoinRequestReviewingId: null,
       studentTeamInviteId: null,
       studentTeamRemoveMemberId: null,
       transferTeamId: null,
@@ -2194,6 +2344,14 @@ export default {
       const id = p.user_id != null ? p.user_id : p.id
       return id != null && Number.isFinite(Number(id)) ? Number(id) : null
     },
+    /** 当前登录老师姓名（组班时自动作为指导老师） */
+    altCurrentUserDisplayName () {
+      if (!this.isUsingAltIdentity) return ''
+      const p = getAltProfileFromStorage()
+      const name = String(p.full_name || p.username || '').trim()
+      if (name) return name
+      return this.altCurrentUserId != null ? String(this.altCurrentUserId) : ''
+    },
     /** 竞赛列表顶栏：学生账号 ID（alt_auth_users.id） */
     studentAccountIdLabel () {
       if (!this.isStudent) return ''
@@ -2401,9 +2559,54 @@ export default {
     teamEnrollActionBlockedForMember () {
       return this.studentTeamEnrolledAsMember
     },
+    studentTeamEnrollFlowHint () {
+      if (this.studentTeamEnrolledAsMember) {
+        return '您已完成队伍赛道报名（队员身份）。队伍由队长统一管理，无需创建/加入队伍或进行队长操作。'
+      }
+      return '队伍参赛流程：① 创建队伍或申请加入已有队伍（须队长同意）→ ② 完成竞赛报名（创建队伍时可能已自动报名）→ ③ 等待本校校管理员校审通过 → ④ 队长提交队伍作品。校审通过前无法以队伍身份提交作品。'
+    },
+    myTeamStatusNormalized () {
+      const s = this.myTeamStatus
+      return s != null && String(s).trim() !== '' ? String(s).trim().toLowerCase() : ''
+    },
+    /** 展示用校审状态：未拉取到时，有队伍 ID 则默认为待校审 */
+    effectiveMyTeamStatusNormalized () {
+      if (this.myTeamStatusNormalized) return this.myTeamStatusNormalized
+      if (this.myTeamId) return 'pending_school_review'
+      return ''
+    },
+    isMyTeamPendingSchoolReview () {
+      return this.effectiveMyTeamStatusNormalized === 'pending_school_review'
+    },
+    isMyTeamSchoolReviewRejected () {
+      return this.effectiveMyTeamStatusNormalized === 'rejected'
+    },
+    isMyTeamSchoolReviewActive () {
+      return this.effectiveMyTeamStatusNormalized === 'active'
+    },
+    teamSchoolReviewSubmissionBlocked () {
+      if (this.submissionMode !== 'team' || !this.myEnrolledTeam) return false
+      const s = this.effectiveMyTeamStatusNormalized
+      if (!s) return false
+      return s === 'pending_school_review' || s === 'rejected'
+    },
+    teamSchoolReviewBlockedTitle () {
+      if (this.isMyTeamSchoolReviewRejected) return '校审已驳回，无法提交队伍作品'
+      return '待校审，暂无法提交队伍作品'
+    },
+    teamSchoolReviewBlockedDescription () {
+      if (this.isMyTeamSchoolReviewRejected) {
+        return '该队伍未通过校管理员审核，相关组队报名已退赛。请重新建队并等待校审通过后再提交。'
+      }
+      return '队伍已创建/报名，须本校校管理员在「校审」中审核通过后，队长方可提交队伍作品。'
+    },
     /** 队员已队伍报名后：不可再创建/加入队伍 */
     showStudentTeamCreateJoinOps () {
       return this.enrollMode === 'team' && !this.studentTeamEnrolledAsMember
+    },
+    /** 报名弹窗：队长在「加入已有队伍」下方查看入队申请 */
+    showCaptainTeamJoinRequestsInEnrollModal () {
+      return this.enrollMode === 'team' && this.isCurrentTeamCaptain && !!this.myTeamId
     },
     /** 当前竞赛已存在队伍关联（已报名队伍或已有 team_id） */
     studentHasTeamForCurrentCompetition () {
@@ -2414,6 +2617,35 @@ export default {
       if (this.enrollMode !== 'team') return false
       if (this.studentTeamEnrolledAsMember) return false
       return this.studentCreatedTeamInCurrentCompetition || this.isCurrentTeamCaptain
+    },
+    /** 报名弹窗：队伍名展示（有队伍 ID 即展示，未设置时显示占位） */
+    myTeamNameDisplay () {
+      const name = this.myTeamName != null ? String(this.myTeamName).trim() : ''
+      return name || '（未设置）'
+    },
+    /** 报名弹窗：校审状态行（有队伍 ID 即展示） */
+    showTeamSchoolReviewStatusInEnrollModal () {
+      return this.enrollMode === 'team' && !!this.myTeamId
+    },
+    /** 报名弹窗：校审通过后才展示队长转让/邀请等队务操作 */
+    showStudentTeamCaptainOpsInEnrollModal () {
+      if (!this.showStudentTeamCaptainOptionalOps) return false
+      if (!this.myTeamId) return false
+      return this.isMyTeamSchoolReviewActive
+    },
+    /** 报名弹窗：队伍参赛须校审通过后才展示作品提交 */
+    showSubmissionPanelInEnrollModal () {
+      if (this.enrollBlockedByOtherDivision) return false
+      if (this.enrollMode === 'individual') {
+        return this.myEnrolledIndividual
+      }
+      if (this.enrollMode === 'team') {
+        if (!this.myEnrolledTeam) return false
+        if (this.currentTeamEnrollmentRow && !this.isCurrentTeamCaptain) return false
+        if (!this.myTeamId) return false
+        return this.isMyTeamSchoolReviewActive
+      }
+      return false
     },
     showSubmissionPanelInEnrollView () {
       if (this.enrollBlockedByOtherDivision) return false
@@ -2624,9 +2856,9 @@ export default {
     competitionSubmissionBlockedDescription () {
       return '作品提交须在竞赛发布后进行；锁定报名（closed）后仍可提交作品。'
     },
-    /** 报名弹窗/内联作品表单禁用（已提交锁定或竞赛不可提交） */
+    /** 报名弹窗/内联作品表单禁用（已提交锁定、竞赛不可提交或队伍待校审） */
     submissionFormDisabled () {
-      return this.enrollModalSubmissionLocked || this.competitionSubmissionBlocked
+      return this.enrollModalSubmissionLocked || this.competitionSubmissionBlocked || this.teamSchoolReviewSubmissionBlocked
     },
     /** 停止报名：closed 或已过 end_at（与 §8.5 一致；退赛等仍可进行） */
     competitionEnrollmentClosed () {
@@ -2680,6 +2912,14 @@ export default {
     advisorSelectedTeam () {
       if (this.advisorSelectedTeamId == null) return null
       return this.advisorTeamsForCurrentView.find(t => Number(t.id) === Number(this.advisorSelectedTeamId)) || null
+    },
+    advisorSelectedTeamAdvisorLabel () {
+      const t = this.advisorSelectedTeam
+      if (!t) return '-'
+      const name = t.advisor_name != null ? String(t.advisor_name).trim() : ''
+      if (name) return name
+      if (t.created_by_advisor_id != null) return String(t.created_by_advisor_id)
+      return this.altCurrentUserDisplayName || '-'
     },
     advisorSelectedTeamMembers () {
       const t = this.advisorSelectedTeam
@@ -2788,7 +3028,13 @@ export default {
       this.studentCreatedTeamInCurrentCompetition = false
       this.teamEnrollmentEligible = false
       this.myTeamId = null
+      this.myTeamName = null
+      this.myTeamAdvisorName = null
+      this.myTeamStatus = null
       this.joinTeamId = null
+      this.joinTeamName = ''
+      this.teamJoinRequests = []
+      this.teamJoinRequestReviewingId = null
       this.studentTeamInviteId = null
       this.studentTeamRemoveMemberId = null
       this.submissionTeamId = null
@@ -2877,6 +3123,9 @@ export default {
     },
     myTeamId (newId) {
       if (this.submissionTeamId == null && newId) this.submissionTeamId = newId
+      if (newId && this.enrollMode === 'team') {
+        void this.refreshMyTeamStatus()
+      }
     },
     showCreateCompetitionModal (visible) {
       if (visible) {
@@ -2885,7 +3134,18 @@ export default {
     },
     showStandaloneEnrollModal (visible) {
       if (visible && this.standaloneDetailMode) {
-        this.$nextTick(() => this.syncEnrollProfileDefaults())
+        this.$nextTick(() => {
+          this.syncEnrollProfileDefaults()
+          if (this.enrollMode === 'team' && this.myTeamId) {
+            void this.refreshMyTeamStatus()
+          }
+          if (this.showCaptainTeamJoinRequestsInEnrollModal) {
+            void this.refreshTeamJoinRequests()
+          }
+        })
+      }
+      if (!visible) {
+        this.teamJoinRequests = []
       }
     },
     initialViewDivision (val) {
@@ -3729,6 +3989,9 @@ export default {
           this.studentCreatedTeamInCurrentCompetition = false
           this.teamEnrollmentEligible = false
           this.myTeamId = null
+          this.myTeamName = null
+          this.myTeamAdvisorName = null
+          this.myTeamStatus = null
           this.submissionTeamId = null
         }
         this.applyEnrollmentContextFromRows()
@@ -3834,6 +4097,11 @@ export default {
         const { individual: individualRow, team: teamRow } = splitEnrollmentsByTrack(enrolledRows)
         this.activeCompetitionEnrollmentRows = { individual: individualRow, team: teamRow }
         this.applyEnrollmentContextFromRows()
+        if (this.myTeamId) {
+          await this.refreshMyTeamStatus()
+        } else {
+          this.myTeamStatus = null
+        }
       } catch {
         this.activeCompetitionMyEnrollKind = null
         this.activeCompetitionEnrollmentId = null
@@ -3841,6 +4109,7 @@ export default {
         this.myEnrolledTeam = false
         this.activeCompetitionEnrollmentRows = { individual: null, team: null }
         this.activeCompetitionEnrolledDivision = null
+        this.myTeamStatus = null
         this.notifyEnrollBlockChanged()
       }
     },
@@ -3987,45 +4256,93 @@ export default {
       }
     },
 
-    async handleCreateTeamOnly () {
-      if (!this.activeCompetitionId) return
-      if (!this.assertEnrollDivisionContext()) return
-      if (!this.assertNotEnrolledInOtherDivision()) return
+    assertCanCreateStudentTeam () {
+      if (!this.activeCompetitionId) return false
+      if (!this.assertEnrollDivisionContext()) return false
+      if (!this.assertNotEnrolledInOtherDivision()) return false
       if (this.studentTeamEnrolledAsMember) {
         this.$message.info('您已是队伍报名队员，无法创建新队伍')
-        return
+        return false
       }
       if (this.studentHasTeamForCurrentCompetition) {
         this.$message.info('当前竞赛已存在您的队伍，无法重复创建')
-        return
+        return false
       }
-      if (!this.assertCompetitionPublishedForEnroll()) return
+      if (!this.assertCompetitionPublishedForEnroll()) return false
       if (!this.allowTeam) {
         this.$message.error('该竞赛不允许团队参赛')
-        return
+        return false
       }
+      return true
+    },
+
+    openStudentCreateTeamModal () {
+      if (!this.assertCanCreateStudentTeam()) return
+      this.studentCreateTeamForm = { name: '', advisor_name: '' }
+      this.showStudentCreateTeamModal = true
+    },
+
+    closeStudentCreateTeamModal () {
+      this.showStudentCreateTeamModal = false
+      this.studentCreateTeamModalLoading = false
+      this.studentCreateTeamForm = { name: '', advisor_name: '' }
+    },
+
+    async submitStudentCreateTeamModal () {
+      const name = (this.studentCreateTeamForm.name || '').trim()
+      const advisorName = (this.studentCreateTeamForm.advisor_name || '').trim()
+      if (!name) {
+        this.$message.warning('请填写队名')
+        return Promise.reject()
+      }
+      this.studentCreateTeamModalLoading = true
+      try {
+        await this.createStudentTeamWithName(name, advisorName)
+        this.closeStudentCreateTeamModal()
+      } catch (e) {
+        return Promise.reject(e)
+      } finally {
+        this.studentCreateTeamModalLoading = false
+      }
+    },
+
+    async createStudentTeamWithName (teamName, advisorName) {
+      const name = (teamName || '').trim()
+      const teamPayload = {
+        competition_id: this.activeCompetitionId,
+        initial_member_ids: null
+      }
+      if (name) teamPayload.name = name
+      if (this.enrollDivisionForApi) teamPayload.division = this.enrollDivisionForApi
+      const advisor = (advisorName != null ? String(advisorName) : (this.studentCreateTeamForm.advisor_name || '')).trim()
+      if (advisor) teamPayload.advisor_name = advisor
+      const team = await createCompetitionTeam(teamPayload)
+      const teamId = team && (team.id || team.team_id)
+      if (!teamId) throw new Error('创建队伍返回缺少 id')
+      const teamDiv = resolveTeamDivision(team) || this.enrollDivisionForApi
+      if (teamDiv) saveCompetitionTeamDivision(this.activeCompetitionId, teamId, teamDiv)
+      this.myTeamId = teamId
+      this.submissionTeamId = teamId
+      this.applyMyTeamInfoFromTeam(team, name)
+      this.studentCreatedTeamInCurrentCompetition = true
+      this.teamEnrollmentEligible = true
+      await this.refreshMySubmissions()
+      await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
+      await this.refreshMyTeamStatus()
+      await this.refreshActiveCompetitionMyEnrollKind()
+      if (this.myEnrolledTeam) {
+        this.syncIgnoreSubmissionsAfterEnrollRefresh()
+        this.$message.success('队伍创建成功并已报名。当前为「待校审」，须本校校管理员审核通过后，队长方可提交队伍作品。')
+      } else {
+        this.$message.success('队伍创建成功，当前为「待校审」。请完成队伍报名；校审通过后队长方可提交队伍作品。')
+      }
+    },
+
+    async handleCreateTeamOnly () {
+      if (!this.assertCanCreateStudentTeam()) return
       this.enrollLoading = true
       try {
-        const teamPayload = { competition_id: this.activeCompetitionId, initial_member_ids: null }
-        if (this.enrollDivisionForApi) teamPayload.division = this.enrollDivisionForApi
-        const team = await createCompetitionTeam(teamPayload)
-        const teamId = team && (team.id || team.team_id)
-        if (!teamId) throw new Error('创建队伍返回缺少 id')
-        const teamDiv = resolveTeamDivision(team) || this.enrollDivisionForApi
-        if (teamDiv) saveCompetitionTeamDivision(this.activeCompetitionId, teamId, teamDiv)
-        this.myTeamId = teamId
-        this.submissionTeamId = teamId
-        this.studentCreatedTeamInCurrentCompetition = true
-        this.teamEnrollmentEligible = true
-        await this.refreshMySubmissions()
-        await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
-        await this.refreshActiveCompetitionMyEnrollKind()
-        if (this.myEnrolledTeam) {
-          this.syncIgnoreSubmissionsAfterEnrollRefresh()
-          this.$message.success('队伍创建成功，系统已为您完成本竞赛的队伍报名，可直接提交作品')
-        } else {
-          this.$message.success('队伍创建成功，请点击「报名（队伍）」完成竞赛报名')
-        }
+        await this.createStudentTeamWithName('')
       } catch (e) {
         this.$message.error('创建队伍失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {
@@ -4044,26 +4361,39 @@ export default {
       return text || (error && error.message) || '加入失败'
     },
 
-    async validateJoinTeamBelongsToActiveCompetition () {
-      if (!this.activeCompetitionId || !this.joinTeamId) return true
-      if (!this.assertCompetitionDivisionQueryContext(false)) return true
+    async resolveJoinTeamTargetId () {
+      const rawId = this.joinTeamId
+      if (rawId != null && rawId !== '') {
+        const tid = Number(rawId)
+        if (Number.isFinite(tid) && tid > 0) return tid
+      }
+      const name = (this.joinTeamName || '').trim()
+      if (!name) return null
+      if (!this.activeCompetitionId) return null
       try {
-        const res = await getCompetitionTeams(
-          this.activeCompetitionId,
-          this.buildCompetitionDivisionQueryOptions()
-        )
-        const list = normalizeCompetitionApiList(res)
-        if (!Array.isArray(list) || !list.length) return true
-        const found = list.find(r => {
-          const tid = r.id != null ? r.id : r.team_id
-          return Number(tid) === Number(this.joinTeamId)
-        })
-        if (found) return true
+        const team = await lookupCompetitionTeamByName(this.activeCompetitionId, name)
+        const tid = team && (team.id != null ? team.id : team.team_id)
+        const n = Number(tid)
+        return Number.isFinite(n) && n > 0 ? n : null
+      } catch (e) {
+        const msg = this.getApiErrorMessage(e, '未找到该队名的队伍')
+        this.$message.warning(msg)
+        return null
+      }
+    },
+
+    async validateJoinTeamBelongsToActiveCompetition (teamId) {
+      const targetId = teamId != null ? Number(teamId) : Number(this.joinTeamId)
+      if (!this.activeCompetitionId || !Number.isFinite(targetId) || targetId <= 0) return true
+      try {
+        const team = await getCompetitionTeam(targetId)
+        if (team && Number(team.competition_id) === Number(this.activeCompetitionId)) {
+          return true
+        }
         const currentName = (this.activeCompetition && this.activeCompetition.name) ? this.activeCompetition.name : '-'
-        this.$message.warning(`队伍ID ${this.joinTeamId} 不属于当前竞赛（${this.activeCompetitionId} - ${currentName}），请确认后再加入`)
+        this.$message.warning(`队伍ID ${targetId} 不属于当前竞赛（${this.activeCompetitionId} - ${currentName}），请确认后再加入`)
         return false
       } catch {
-        // 校验接口失败时不阻断主流程，避免影响正常加入
         return true
       }
     },
@@ -4079,37 +4409,78 @@ export default {
         this.$message.info('当前竞赛已存在您的队伍，无法加入其他队伍')
         return
       }
-      if (!this.joinTeamId) {
-        this.$message.warning('请先输入要加入的队伍ID')
-        return
-      }
       if (!this.assertCompetitionPublishedForEnroll()) return
       if (!this.activeCompetitionId) {
         this.$message.warning('请先选择竞赛')
         return
       }
-      const teamBelongsCurrentCompetition = await this.validateJoinTeamBelongsToActiveCompetition()
+      const targetTeamId = await this.resolveJoinTeamTargetId()
+      if (!targetTeamId) {
+        this.$message.warning('请输入要加入的队伍ID或队名')
+        return
+      }
+      const teamBelongsCurrentCompetition = await this.validateJoinTeamBelongsToActiveCompetition(targetTeamId)
       if (!teamBelongsCurrentCompetition) return
       this.teamLoading = true
       try {
-        await addTeamMember(this.joinTeamId)
-        this.myTeamId = this.joinTeamId
-        this.submissionTeamId = this.joinTeamId
-        this.studentCreatedTeamInCurrentCompetition = false
-        this.teamEnrollmentEligible = true
-        await this.refreshMySubmissions()
-        await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
-        await this.refreshActiveCompetitionMyEnrollKind()
-        if (this.myEnrolledTeam) {
-          this.syncIgnoreSubmissionsAfterEnrollRefresh()
-          this.$message.success('加入队伍成功，您已在该竞赛以队伍身份报名')
-        } else {
-          this.$message.success('加入队伍成功，请点击「报名（队伍）」完成竞赛报名')
-        }
+        await addTeamMember(targetTeamId)
+        this.$message.success('入队申请已提交，请等待队长审核；审核通过后将自动加入队伍并完成组队赛道报名。')
       } catch (e) {
-        this.$message.error('加入队伍失败：' + this.getJoinTeamErrorMessage(e))
+        this.$message.error('申请加入失败：' + this.getJoinTeamErrorMessage(e))
       } finally {
         this.teamLoading = false
+      }
+    },
+
+    formatTeamJoinRequestStudentName (req) {
+      if (!req || typeof req !== 'object') return '未知队员'
+      const name = String(req.full_name || req.username || '').trim()
+      if (name) return name
+      return req.user_id != null ? `用户 #${req.user_id}` : '未知队员'
+    },
+
+    async refreshTeamJoinRequests () {
+      if (!this.showCaptainTeamJoinRequestsInEnrollModal) {
+        this.teamJoinRequests = []
+        return
+      }
+      const teamId = Number(this.myTeamId)
+      if (!Number.isFinite(teamId) || teamId <= 0) {
+        this.teamJoinRequests = []
+        return
+      }
+      this.teamJoinRequestsLoading = true
+      try {
+        const res = await listTeamJoinRequests(teamId, { status: 'pending' })
+        this.teamJoinRequests = normalizeCompetitionApiList(res)
+      } catch (e) {
+        this.teamJoinRequests = []
+        this.$message.error('获取入队申请失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.teamJoinRequestsLoading = false
+      }
+    },
+
+    async handleReviewTeamJoinRequest (req, action) {
+      if (!req || req.id == null || !this.myTeamId) return
+      const teamId = Number(this.myTeamId)
+      const requestId = Number(req.id)
+      if (!Number.isFinite(teamId) || !Number.isFinite(requestId)) return
+      this.teamJoinRequestReviewingId = requestId
+      try {
+        await reviewTeamJoinRequest(teamId, requestId, action)
+        const studentName = this.formatTeamJoinRequestStudentName(req)
+        if (action === 'approve') {
+          this.$message.success(`已同意「${studentName}」加入队伍`)
+        } else {
+          this.$message.success(`已拒绝「${studentName}」的入队申请`)
+        }
+        await this.refreshTeamJoinRequests()
+      } catch (e) {
+        const verb = action === 'approve' ? '同意' : '拒绝'
+        this.$message.error(`${verb}入队申请失败：` + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.teamJoinRequestReviewingId = null
       }
     },
 
@@ -4133,7 +4504,12 @@ export default {
       try {
         await leaveTeam(this.leaveTeamId)
         this.$message.success('退队成功')
-        if (this.myTeamId === this.leaveTeamId) this.myTeamId = null
+        if (this.myTeamId === this.leaveTeamId) {
+          this.myTeamId = null
+          this.myTeamName = null
+          this.myTeamAdvisorName = null
+          this.myTeamStatus = null
+        }
         await this.refreshMySubmissions()
         await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
       } catch (e) {
@@ -4241,9 +4617,9 @@ export default {
       if (!this.isUsingAltIdentity || !this.isAdvisorOrTeacher) return false
       if (!hasAltPermission('MANAGE_TEAMS')) return false
       const myId = this.altCurrentUserId
-      if (myId == null) return true
+      if (myId == null) return false
       const creatorId = this.getTeamCreatorAdvisorId(team)
-      if (creatorId == null) return true
+      if (creatorId == null) return false
       return Number(creatorId) === Number(myId)
     },
 
@@ -4349,7 +4725,10 @@ export default {
             }
           }
         }
-        this.$message.success('队伍创建成功' + (teamId ? `，队伍 ID：${teamId}` : ''))
+        this.$message.success(
+          '队伍创建成功，当前为「待校审」，须本校校管理员审核通过后队长方可提交队伍作品'
+            + (teamId ? `（队伍 ID：${teamId}）` : '')
+        )
         this.advisorCreateForm = { name: '', captain_student_id: null, initial_member_ids_text: '' }
         await this.refreshAdvisorTeams()
         if (teamId) this.selectAdvisorTeam(teamId)
@@ -4589,6 +4968,9 @@ export default {
       if (t.includes('only team captain may submit')) {
         return '只有队长可以提交队伍作品'
       }
+      if (t.includes('approved by school admin') || t.includes('school admin')) {
+        return '队伍须经本校校管理员校审通过后方可提交作品，请等待校审完成'
+      }
       return null
     },
 
@@ -4597,6 +4979,10 @@ export default {
       if (!this.assertEnrollDivisionContext()) return
       if (!this.assertNotEnrolledInOtherDivision()) return
       if (!this.assertCompetitionOpenForSubmission()) return
+      if (this.submissionMode === 'team' && this.teamSchoolReviewSubmissionBlocked) {
+        this.$message.warning(this.teamSchoolReviewBlockedDescription)
+        return
+      }
       if (this.enrollModalSubmissionLocked) {
         const trackLabel = this.submissionMode === 'team' ? '队伍' : '个人'
         this.$message.warning(`本报名周期${trackLabel}赛道已提交作品，无法再次提交；退赛后重新报名可提交新作品`)
@@ -5888,8 +6274,55 @@ export default {
     },
 
     participantTeamStatusText (status) {
-      const map = { active: '活跃', cancelled: '已取消', withdrawn: '已退赛', left: '已退队' }
+      const map = {
+        pending_school_review: '待校审',
+        active: '已通过',
+        rejected: '已驳回',
+        cancelled: '已取消',
+        withdrawn: '已退赛',
+        left: '已退队'
+      }
       return map[status] || (status || '-')
+    },
+
+    applyMyTeamStatusFromTeam (team) {
+      if (!team || typeof team !== 'object') return
+      const st = team.status
+      this.myTeamStatus = st != null && String(st).trim() !== ''
+        ? String(st).trim()
+        : 'pending_school_review'
+    },
+
+    applyMyTeamInfoFromTeam (team, fallbackName) {
+      this.applyMyTeamStatusFromTeam(team)
+      const fromTeam = team && team.name != null ? String(team.name).trim() : ''
+      const fromFallback = fallbackName != null ? String(fallbackName).trim() : ''
+      const name = fromTeam || fromFallback
+      this.myTeamName = name || null
+      const fromAdvisor = team && team.advisor_name != null ? String(team.advisor_name).trim() : ''
+      this.myTeamAdvisorName = fromAdvisor || null
+    },
+
+    async refreshMyTeamStatus () {
+      if (!this.myTeamId) {
+        this.myTeamStatus = null
+        this.myTeamName = null
+        this.myTeamAdvisorName = null
+        return
+      }
+      const tid = Number(this.myTeamId)
+      if (!Number.isFinite(tid) || tid <= 0) {
+        this.myTeamStatus = null
+        this.myTeamName = null
+        this.myTeamAdvisorName = null
+        return
+      }
+      try {
+        const res = await getCompetitionTeam(tid)
+        this.applyMyTeamInfoFromTeam(res)
+      } catch (e) {
+        /* 保留已有状态；无状态时由 effectiveMyTeamStatusNormalized 默认待校审 */
+      }
     },
 
     async refreshParticipantsIndividual () {
@@ -6771,6 +7204,35 @@ export default {
   font-size: 15px;
   font-weight: 600;
   color: rgba(0, 0, 0, 0.85);
+}
+
+.team-join-request-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.team-join-request-name {
+  min-width: 80px;
+  font-weight: 500;
+}
+.team-school-review-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.team-school-review-status-label {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.team-school-review-status-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .standalone-modal-footer-actions {

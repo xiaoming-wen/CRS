@@ -40,7 +40,7 @@ function unwrapError (resp) {
 /**
  * 8.0.1 注册 POST /api/alt-identity/register
  * body 与主站注册字段对齐，并含 school（学校名称）。
- * role：`student` | `advisor` | `teacher` | `expert`（注册时 expert_verified=false，须管理员 §8.0.6 核验）；`super_admin` 不可自助注册。
+ * role：`student` | `advisor` | `teacher` | `expert` | `school_admin`（专家须管理员 §8.0.6 核验；校管须 §8.11.5 资料审核）；`super_admin` 不可自助注册。
  */
 export async function altIdentityRegister (body) {
   try {
@@ -157,6 +157,12 @@ export function applyAltIdentityMeToStorage (me) {
     teacher_id: me.teacher_id != null ? me.teacher_id : prev.teacher_id,
     is_active: me.is_active !== undefined ? me.is_active : prev.is_active,
     expert_verified: me.expert_verified !== undefined ? me.expert_verified === true : prev.expert_verified,
+    school_admin_verified: me.school_admin_verified !== undefined
+      ? me.school_admin_verified === true
+      : prev.school_admin_verified,
+    school_admin_application_status: me.school_admin_application_status !== undefined
+      ? me.school_admin_application_status
+      : prev.school_admin_application_status,
     assigned_competition_ids: assignedRaw !== undefined
       ? normalizeAssignedCompetitionIds(assignedRaw)
       : prev.assigned_competition_ids,
@@ -191,6 +197,12 @@ export function saveAltSession (payload, extras = {}) {
     expert_verified: p.expert_verified !== undefined
       ? p.expert_verified === true
       : (extras.expert_verified !== undefined ? extras.expert_verified === true : prev.expert_verified),
+    school_admin_verified: p.school_admin_verified !== undefined
+      ? p.school_admin_verified === true
+      : (extras.school_admin_verified !== undefined ? extras.school_admin_verified === true : prev.school_admin_verified),
+    school_admin_application_status: p.school_admin_application_status !== undefined
+      ? p.school_admin_application_status
+      : (extras.school_admin_application_status !== undefined ? extras.school_admin_application_status : prev.school_admin_application_status),
     assigned_competition_ids: p.assigned_competition_ids !== undefined
       ? normalizeAssignedCompetitionIds(p.assigned_competition_ids)
       : (extras.assigned_competition_ids !== undefined
@@ -263,6 +275,15 @@ export function isAltCompetitionCanManageTeams () {
 
 export function isAltCompetitionExpert () {
   return getAltRoleNormalized() === 'expert'
+}
+
+export function isAltCompetitionSchoolAdmin () {
+  return getAltRoleNormalized() === 'school_admin'
+}
+
+export function isAltCompetitionSchoolAdminVerified () {
+  const p = getAltProfileFromStorage()
+  return isAltCompetitionSchoolAdmin() && p && p.school_admin_verified === true
 }
 
 export function isAltCompetitionExpertVerified () {

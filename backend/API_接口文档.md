@@ -2247,15 +2247,20 @@ RAG_ENABLE_WEB_SEARCH=true
 > 竞赛相关表中的 **`student_id` / `team_members.user_id` / `captain_id` / `submitter_id` / `reviewer_id`** 等整型字段语义均为 **`alt_auth_users.id`**，**不再引用**主库 **`users.id`**；ORM 已去掉对 `users` 的外键与关联。从旧版本升级时：可 **清空竞赛相关数据**，或运行仓库脚本 **`python scripts/migrate_competition_user_ids_to_alt.py --dry-run`** 预览、去掉 `--dry-run` 执行，将旧 **`users.id`** 按 **username / email** 匹配改写为 **`alt_auth_users.id`**（支持 **`--mapping-csv`** 手工覆盖）。  
 > 作品上传落 **`files`** 表时 **`sender_id` 可为空**（不强制主站用户）。
 
-#### 竞赛第二套帐号：四类角色
+#### 竞赛第二套帐号：角色一览
 
-| 角色（`role` / JWT claim） | 说明 | 赛制与运维 | 报名/组队/作品 | 查看名单与作品范围 | 评分 |
-|---------------------------|------|------------|----------------|-------------------|------|
-| **`super_admin`（管理员）** | 竞赛系统最高权限 | ✅ 创建/发布/修改/删除/锁定（停止报名） | ❌ | ✅ 可看全竞赛作品、`GET …/participants/*` | ❌ |
-| **`advisor`（指导老师）** | 与 `teacher` 并存，竞赛侧权限一致 | ❌ 无 `MANAGE_COMPETITIONS` | ✅ 可建队、拉人、`PATCH` 队名、踢队员；❌ **不能**报名、`join_team`/`leave`/`transfer`、`POST`/`upload` 作品 | ✅ 可看 `GET …/teams`、**只读** `GET …/participants/*`；❌ **不能**看别人作品详情/下载、本赛全量 `GET …/submissions` | ❌ |
-| **`teacher`（教师）** | 与 `advisor` 并存，竞赛侧权限一致 | ❌ 无 `MANAGE_COMPETITIONS` | ✅ 可建队、拉人、`PATCH` 队名、踢队员；❌ **不能**报名、`join_team`/`leave`/`transfer`、`POST`/`upload` 作品 | ✅ 可看 `GET …/teams`、**只读** `GET …/participants/*`；❌ **不能**看别人作品详情/下载、本赛全量 `GET …/submissions` | ❌ |
-| **`expert`（专家）** | 必须由管理员核验并指派到具体竞赛后才可批改 | ❌ | ❌ | ✅ 被指派的竞赛：**全量 submissions**、花名册、`GET`/下载；✅ **`scores/summary`、`scores/rankings`** | ✅ 仅被指派的 **`expert_verified=true`** 帐号可 `PUT`/`PATCH …/review-grade` |
-| **`student`（学生）** | — | ❌ | ✅ 报名、自建队、`join`、`transfer`、`leave`；组队提交作品 **必须由队长** 调用 `POST …/submissions*` | ✅ 仅本人个人作品或与本人相关的队伍提交；❌ participants 名册 | ❌ |
+| 角色（`role` / JWT claim） | 说明 | 赛制与运维 | 报名/组队/作品 | 查看名单与作品范围 | 评分 | 校审 |
+|---------------------------|------|------------|----------------|-------------------|------|------|
+| **`super_admin`（管理员）** | 竞赛系统最高权限 | ✅ 创建/发布/修改/删除/锁定（停止报名） | ❌ | ✅ 可看全竞赛作品、`GET …/participants/*` | ❌ | ❌ |
+| **`school_admin`（校管理员）** | 可自助注册；须提交资料（含照片）并经 **`super_admin`** 审核通过后方可组队校审 | ❌ | ❌ | ✅ 审核通过后 `GET …/school-admin/teams`；未通过前仅 `GET …/school-admin/application/me` | ❌ | ✅ 审核通过后 `PUT …/teams/{id}/school-review` |
+| **`advisor`（指导老师）** | 与 `teacher` 并存，竞赛侧权限一致 | ❌ 无 `MANAGE_COMPETITIONS` | ✅ 可建队、拉人、`PATCH` 队名、踢队员；❌ **不能**报名、`join_team`/`leave`/`transfer`、`POST`/`upload` 作品 | ✅ 可看 `GET …/teams`、**只读** `GET …/participants/*`；❌ **不能**看别人作品详情/下载、本赛全量 `GET …/submissions` | ❌ | ❌ |
+| **`teacher`（教师）** | 与 `advisor` 并存，竞赛侧权限一致 | ❌ 无 `MANAGE_COMPETITIONS` | ✅ 可建队、拉人、`PATCH` 队名、踢队员；❌ **不能**报名、`join_team`/`leave`/`transfer`、`POST`/`upload` 作品 | ✅ 可看 `GET …/teams`、**只读** `GET …/participants/*`；❌ **不能**看别人作品详情/下载、本赛全量 `GET …/submissions` | ❌ | ❌ |
+| **`expert`（专家）** | 必须由管理员核验并指派到具体竞赛后才可批改 | ❌ | ❌ | ✅ 被指派的竞赛：**全量 submissions**、花名册、`GET`/下载；✅ **`scores/summary`、`scores/rankings`** | ✅ 仅被指派的 **`expert_verified=true`** 帐号可 `PUT`/`PATCH …/review-grade` | ❌ |
+| **`student`（学生）** | — | ❌ | ✅ 报名、自建队、`join`、`transfer`、`leave`；组队提交作品 **必须由队长** 调用 `POST …/submissions*`（须队伍 **校审通过**） | ✅ 仅本人个人作品或与本人相关的队伍提交；❌ participants 名册 | ❌ | ❌ |
+
+**校管理员准入流程**：用户 **`POST /api/alt-identity/register`** 选择 **`role=school_admin`** 后可正常登录，但 **不可** 查看组队校审列表；须 **`POST …/school-admin/application`** 上传 **照片** 及联系方式等资料 → **`super_admin`** 通过 **`GET …/admin/school-admin-applications`** 查看待审列表并 **`PUT …/admin/school-admin-applications/{user_id}`** 通过/驳回 → 通过后 **`school_admin_verified=true`**，方可执行组队校审。
+
+**组队校审流程**：学生/指导老师 **`POST …/teams` 建队** 后，队伍状态为 **`pending_school_review`**（待校审），须本校 **已核验** 的 **`school_admin`** 审核通过（`active`）后方可组队提交作品；驳回（`rejected`）后相关组队报名自动退赛。
 
 **专家注册与指派**：用户可在 **`POST /api/alt-identity/register`** 选择 **`role=expert`**，注册成功时 **`expert_verified=false`**，**不可登录**（`POST /api/alt-identity/session` 返回 **403**）。管理员通过 **`GET /api/v1/competitions/experts`** 拉取 **全部专家帐号**（含各专家已指派的竞赛 id 列表）；列表页点「指派」弹窗选择竞赛后 **`POST …/competitions/{cid}/experts/{expert_user_id}`**，取消指派用 **`DELETE`** 同路径。核验身份：**`PATCH …/admin/alt-users/{id}`** 设 **`expert_verified=true`**（须先于指派）。同一专家可指派多场竞赛，同一竞赛可有多名专家。
 
@@ -2303,7 +2308,7 @@ Content-Type: application/json
 | teacher_id | string | | 可选 |
 | school | string | ✓ | **相对主站多出的字段**：学校名称，1–200 字符，去空白后非空 |
 
-**说明**：**`super_admin`** 不可自助注册。选 **`expert`** 时注册成功但 **`expert_verified` 恒为 `false`**，须等管理员核验（§8.0.6）并指派赛事（§8.0.7）后方可登录评分。`teacher` 与 `advisor` 在竞赛侧并存，不做自动角色转换。
+**说明**：**`super_admin`** 不可自助注册。选 **`expert`** 时注册成功但 **`expert_verified` 恒为 `false`**，须等管理员核验（§8.0.6）并指派赛事（§8.0.7）后方可登录评分。选 **`school_admin`** 时可正常登录，但须提交资料（§8.11.5.1）并经超级管理员审核通过（§8.11.5.2）后方可组队校审。`teacher` 与 `advisor` 在竞赛侧并存，不做自动角色转换。
 
 **响应**（201）：与主站 **`UserResponse`** 形态一致（`id`、`username`、`email`、`full_name`、`role`、`is_active`、`student_id`、`teacher_id`、`created_at`），并包含 **`school`**、**`expert_verified`**（专家注册为 **`false`**，其它角色一般为 **`false`**）。
 
@@ -2402,8 +2407,9 @@ curl -s "http://localhost:8000/api/alt-identity/me" ^
 **请求体 JSON**（均可选字段，但至少传其一）：
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| role | string | `student` \| `advisor` \| `expert` \| `super_admin` |
+| role | string | `student` \| `advisor` \| `teacher` \| `expert` \| `school_admin` \| `super_admin` |
 | expert_verified | bool | **`true`** 仅当 **`role`** 为 **`expert`** 时有意义 |
+| school_admin_verified | bool | **`true`** 仅当 **`role`** 为 **`school_admin`** 时有意义 |
 
 **响应**（200）：`{ "id", "role", "expert_verified" }`。改角后客户端应 **`POST /session` 重新登录** 换新 JWT。
 
@@ -3122,7 +3128,7 @@ curl -X POST "http://localhost:8000/api/v1/competitions/1/withdraw?track=individ
 #### 8.9 查看竞赛队伍列表
 **端点**: `GET /api/v1/competitions/{competition_id}/teams`
 
-**描述**: 获取某竞赛下活跃队伍及其成员列表（**学生选队**、**管理员/指导老师查看队况**等）。**`division_mode=dual`** 时须按学历组别分别查询，每次只返回该组队伍。
+**描述**: 获取某竞赛下队伍及其成员列表。**`advisor`/`teacher`** 仅返回本人创建的队伍（含 `pending_school_review` / `active` / `rejected`），响应含 `created_by_advisor_id`、`advisor_name`；其他角色默认仅 `active` 队伍。**`division_mode=dual`** 时须按学历组别分别查询，每次只返回该组队伍。
 
 **权限**: `VIEW_COMPETITIONS`（**不**隐含作品或花名册权限；花名册须 §8.10 / §8.11）。
 
@@ -3301,6 +3307,104 @@ curl -L "http://localhost:8000/api/v1/competitions/1/teams/export?division=under
 - `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
 - `Content-Disposition: attachment; filename="competition_<id>_teams.xlsx"`（single）或 `competition_<id>_teams_<division>.xlsx`（dual）
 
+#### 8.11.5 校管理员：资料申请与组队人员审核
+
+##### 8.11.5.1 校管理员提交资料申请
+
+**端点**: `POST /api/v1/competitions/school-admin/application`  
+**权限**: **`school_admin`**（第二套 JWT）  
+**格式**: `multipart/form-data`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| photo | file | ✓ | 申请照片（png/jpg/jpeg/gif/webp，≤5MB） |
+| contact | string | | 联系方式 |
+| remark | string | | 申请备注 |
+
+**说明**：注册为校管理员后可登录，但 **未提交资料或资料未通过前** 无法查看组队校审列表。`pending` 状态下不可重复提交；`rejected` 后可重新提交。
+
+**查看本人申请状态**：`GET /api/v1/competitions/school-admin/application/me`  
+**下载本人照片**：`GET /api/v1/competitions/school-admin/application/photo`
+
+##### 8.11.5.2 超级管理员审核校管申请
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| GET | `/api/v1/competitions/admin/school-admin-applications` | 校管申请列表（默认 `status=pending`） |
+| GET | `/api/v1/competitions/admin/school-admin-applications/{user_id}/photo` | 查看申请照片 |
+| PUT | `/api/v1/competitions/admin/school-admin-applications/{user_id}` | 通过/驳回 |
+
+**审核请求体**：`{ "action": "approve" \| "reject", "feedback": "可选备注" }`
+
+也可通过 **`PATCH …/admin/alt-users/{id}`** 设 **`school_admin_verified=true`** 手动核验。
+
+##### 8.11.5.3 校管理员组队审核列表
+
+**端点**: `GET /api/v1/competitions/school-admin/teams`  
+**权限**: **`school_admin`** 且 **`school_admin_verified=true`**；帐号须配置 **`school`** 字段。
+
+**查询参数**：
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| status | string | `pending_school_review` | 队伍状态筛选：`pending_school_review` / `active` / `rejected` |
+| competition_id | int | | 可选，按竞赛 id 筛选 |
+
+**描述**：返回 **本校**（与校管理员 `school` 匹配）的组队审核列表。列表字段含：**竞赛名**、**开始时间**、**结束时间**、**学校**、**指导老师**、**队伍名**、**队长**、**队员**、**状态**。
+
+**响应示例**（200）：
+```json
+{
+  "total": 1,
+  "items": [
+    {
+      "team_id": 10,
+      "competition_id": 1,
+      "competition_name": "2026 程序设计大赛",
+      "competition_start_at": "2026-06-01T00:00:00+08:00",
+      "competition_end_at": "2026-06-30T23:59:59+08:00",
+      "school": "示例大学",
+      "advisor_name": "张老师",
+      "advisor_id": 5,
+      "team_name": "筑梦队",
+      "captain_name": "李同学",
+      "captain_id": 7,
+      "members": [
+        {"user_id": 7, "username": "stu7", "full_name": "李同学", "is_captain": true},
+        {"user_id": 8, "username": "stu8", "full_name": "王同学", "is_captain": false}
+      ],
+      "status": "pending_school_review",
+      "review_feedback": null,
+      "reviewed_at": null,
+      "created_at": "2026-06-10T08:00:00+08:00"
+    }
+  ]
+}
+```
+
+**审核操作**
+
+**端点**: `PUT /api/v1/competitions/teams/{team_id}/school-review`  
+**权限**: 仅 **`school_admin`**；只能审核 **本校** 且状态为 **`pending_school_review`** 的队伍。
+
+**请求体**：
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| action | string | ✓ | `approve`（通过）或 `reject`（驳回） |
+| feedback | string | | 审核备注或驳回原因 |
+
+**响应**（200）：`{ "team_id", "status", "reviewed_at", "review_feedback" }`。通过后 `status` 为 `active`；驳回为 `rejected`，相关组队报名自动 `withdrawn`。
+
+**curl 示例**：
+```bash
+curl "http://localhost:8000/api/v1/competitions/school-admin/teams" \
+  -H "Authorization: Bearer <school_admin_alt_token>"
+
+curl -X PUT "http://localhost:8000/api/v1/competitions/teams/10/school-review" \
+  -H "Authorization: Bearer <school_admin_alt_token>" \
+  -H "Content-Type: application/json" \
+  -d "{\"action\":\"approve\",\"feedback\":\"审核通过\"}"
+```
+
 #### 8.12 创建队伍（学生自建队长 / 指导老师组班）
 
 **端点**: `POST /api/v1/competitions/teams`  
@@ -3315,10 +3419,12 @@ curl -L "http://localhost:8000/api/v1/competitions/1/teams/export?division=under
 | name | string | | 可选队名（展示用）；**学生**不传则服务端可为空/`null`；指导老师可顺带命名 |
 | initial_member_ids | array\<int\> \| null | 视角色 | 成员 **`alt_auth_users.id`** 列表 |
 | captain_student_id | int \| null | 指导老师建队时与 `initial_member_ids` 联用 | **`advisor`**：**队长必须在** `initial_member_ids` 中；本字段若省略则默认 **`initial_member_ids`** 的首元素为队长。若填写则必须与列表中某一元素一致。**`student`** 自建：**忽略**，队长恒为本人 |
+| advisor_id | int \| null | | **学生自建选填**（与 `advisor_name` 二选一）：指导老师 `alt_auth_users.id`，须为 `advisor`/`teacher` 角色 |
+| advisor_name | string \| null | | **学生自建选填**（与 `advisor_id` 二选一）：指导老师姓名，**始终写入**队伍 `advisor_name` 供校审展示；若与系统 `advisor`/`teacher` 账号 `full_name`/`username` 精确匹配则同时写入 `created_by_advisor_id`。指导老师自建队时**忽略** |
 
 **学生 `student`**：当前账号尚未在本赛存在**组队赛道**有效报名（`enrollment_scope=team`）；**允许**已有个人的 `individual` 报名后再建队。可先只建空队仅有本人队长，或通过 `initial_member_ids` 顺带拉入其他同学（写入 `team_members` 与组队赛道 `enrolled`；对方须未在组队赛道报名，但可已有个人的 individual 报名）。
 
-**指导老师 `advisor`**：`initial_member_ids` **至少一人**（不可仅空列表）；指导老师本人 **不可**写入队员名单。**所列学生均未在本赛组队赛道处于 `enrolled`**。服务端记录 **`created_by_advisor_id`**；后续 **§8.12.2 邀请**、**§8.12.3 踢人**、**§8.12.1 改队名** 可与队长共同参与队务。
+**指导老师 `advisor` / `teacher`**：`initial_member_ids` **至少一人**（不可仅空列表）；指导老师本人 **不可**写入队员名单。**所列学生均未在本赛组队赛道处于 `enrolled`**。服务端**自动**将当前登录老师写入 **`created_by_advisor_id`**（请求体中的 `advisor_id`/`advisor_name` **忽略**）；后续 **§8.12.2 邀请**、**§8.12.3 踢人**、**§8.12.1 改队名** 可与队长共同参与队务。
 
 **请求示例（学生自建）**：
 ```bash
@@ -3326,6 +3432,14 @@ curl -X POST "http://localhost:8000/api/v1/competitions/teams" \
   -H "Authorization: Bearer <alt_access_token>" \
   -H "Content-Type: application/json" \
   -d '{"competition_id":1,"name":"筑梦队"}'
+```
+
+**请求示例（学生自建并指定指导老师）**：
+```bash
+curl -X POST "http://localhost:8000/api/v1/competitions/teams" \
+  -H "Authorization: Bearer <alt_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"competition_id":1,"name":"筑梦队","advisor_name":"张老师"}'
 ```
 
 **请求示例（指导老师组班）**：
@@ -3343,10 +3457,12 @@ curl -X POST "http://localhost:8000/api/v1/competitions/teams" \
   "competition_id": 1,
   "name": "筑梦队",
   "captain_id": 7,
-  "status": "active",
+  "status": "pending_school_review",
   "created_at": "2026-03-18T07:00:00.000000"
 }
 ```
+
+> 建队后状态为 **`pending_school_review`**，须本校校管理员审核通过（**§8.11.5**）后方可组队提交作品。
 
 #### 8.12.1 修改队名（队长或指导老师）
 
@@ -3385,10 +3501,12 @@ curl -X DELETE "http://localhost:8000/api/v1/competitions/teams/10/members/8" \
   -H "Authorization: Bearer <alt_access_token>"
 ```
 
-#### 8.13 加入队伍（学生自助申请）
+#### 8.13 申请加入队伍（学生）
 
 **端点**: `POST /api/v1/competitions/teams/{team_id}/members`  
 **权限**: `MANAGE_TEAMS`，且 **`student` 专享**（403：指导老师/管理员不可「自己加队」）。
+
+**说明**：提交入队**申请**（`status=pending`），**不会**立即成为队员；须队长或建队指导老师在 **§8.13.2** 审核通过后正式入队并写入组队赛道报名。
 
 **路径参数**：`team_id`（int）
 
@@ -3401,13 +3519,35 @@ curl -X POST "http://localhost:8000/api/v1/competitions/teams/10/members" \
 **响应示例**（201）：
 ```json
 {
-  "id": 123,
+  "id": 5,
   "team_id": 10,
   "user_id": 8,
-  "is_captain": false,
-  "joined_at": "2026-03-18T07:00:00.000000"
+  "username": "stu08",
+  "full_name": "李同学",
+  "status": "pending",
+  "created_at": "2026-03-18T07:00:00.000000",
+  "reviewed_at": null,
+  "reviewed_by_id": null
 }
 ```
+
+#### 8.13.1 查看入队申请（队长 / 建队指导老师）
+
+**端点**: `GET /api/v1/competitions/teams/{team_id}/join-requests`  
+**权限**: `MANAGE_TEAMS`；须为 **队长** 或 **建队指导老师**（`created_by_advisor_id`）。
+
+**Query**：`status`（默认 `pending`；可选 `approved` / `rejected`）
+
+**响应**：`TeamJoinRequestResponse[]`（含 `full_name` / `username`）
+
+#### 8.13.2 审核入队申请（同意 / 拒绝）
+
+**端点**: `POST /api/v1/competitions/teams/{team_id}/join-requests/{request_id}/review`  
+**权限**: 同 **§8.13.1**
+
+**请求体**：`{ "action": "approve" }` 或 `{ "action": "reject" }`
+
+**同意**：写入 `team_members` 与组队赛道 `enrolled`（与 §8.12.2 邀请效果一致）。**拒绝**：仅更新申请状态。
 
 #### 8.14 队长转让（学生）
 
@@ -4410,6 +4550,14 @@ export default api;
 | 锁定报名 | PUT | `/api/v1/competitions/{competition_id}/lock` |
 | 发布竞赛 | PUT | `/api/v1/competitions/{competition_id}/publish` |
 | 管理员改第二套帐号 / 核验专家 | PATCH | `/api/v1/competitions/admin/alt-users/{target_user_id}` |
+| 校管提交资料申请 | POST | `/api/v1/competitions/school-admin/application` |
+| 校管查看本人申请 | GET | `/api/v1/competitions/school-admin/application/me` |
+| 校管申请照片（本人） | GET | `/api/v1/competitions/school-admin/application/photo` |
+| 超管校管申请列表 | GET | `/api/v1/competitions/admin/school-admin-applications` |
+| 超管审核校管申请 | PUT | `/api/v1/competitions/admin/school-admin-applications/{user_id}` |
+| 超管查看校管申请照片 | GET | `/api/v1/competitions/admin/school-admin-applications/{user_id}/photo` |
+| 校管理员组队审核列表 | GET | `/api/v1/competitions/school-admin/teams` |
+| 校管理员审核队伍 | PUT | `/api/v1/competitions/teams/{team_id}/school-review` |
 | 全部专家列表 | GET | `/api/v1/competitions/experts` |
 | 指派专家到竞赛 | POST | `/api/v1/competitions/{competition_id}/experts/{expert_user_id}` |
 | 取消专家指派 | DELETE | `/api/v1/competitions/{competition_id}/experts/{expert_user_id}` |
@@ -4441,6 +4589,6 @@ export default api;
 
 ---
 
-**文档版本**: v4.2.0  
-**最后更新**: 2026-05-29  
+**文档版本**: v4.3.0  
+**最后更新**: 2026-06-10  
 **服务端口**: 8000

@@ -72,6 +72,15 @@
           <CompetitionExpertAssignment
             v-else-if="currentSection === 'expert-assignment' && isSuperAdmin && competitionBootstrapDone"
           />
+          <CompetitionSchoolAdminApplications
+            v-else-if="currentSection === 'school-admin-applications' && isSuperAdmin && competitionBootstrapDone"
+          />
+          <CompetitionSchoolAdminApplication
+            v-else-if="currentSection === 'school-admin-application' && isSchoolAdmin && competitionBootstrapDone"
+          />
+          <CompetitionSchoolAdminTeamReview
+            v-else-if="currentSection === 'school-admin-review' && isSchoolAdmin && competitionBootstrapDone"
+          />
           <MyCompetitionEnrollments
             v-else-if="currentSection === 'my-enrollments' && isAltStudentAccount && competitionBootstrapDone"
           />
@@ -85,6 +94,9 @@
 import { mixinDevice } from '@/utils/mixin'
 import CompetitionRegistrationSystem from '@/views/manus/CompetitionRegistrationSystem.vue'
 import CompetitionExpertAssignment from '@/views/manus/CompetitionExpertAssignment.vue'
+import CompetitionSchoolAdminApplications from '@/views/manus/CompetitionSchoolAdminApplications.vue'
+import CompetitionSchoolAdminApplication from '@/views/manus/CompetitionSchoolAdminApplication.vue'
+import CompetitionSchoolAdminTeamReview from '@/views/manus/CompetitionSchoolAdminTeamReview.vue'
 import MyCompetitionEnrollments from '@/views/manus/MyCompetitionEnrollments.vue'
 import ManuAltIdentityPanel from '@/views/manus/ManuAltIdentityPanel.vue'
 import {
@@ -93,6 +105,7 @@ import {
   ALT_PROFILE_KEY,
   isAltCompetitionTeacherOrAdmin,
   isAltCompetitionSuperAdmin,
+  isAltCompetitionSchoolAdmin,
   isAltCompetitionStudent,
   fetchAltIdentityMe,
   applyAltIdentityMeToStorage
@@ -101,6 +114,9 @@ import { sanitizeCompetitionReturnPath } from '@/utils/competitionAuthFlow'
 
 const SECTION_LIST = 'competition-list'
 const SECTION_EXPERTS = 'expert-assignment'
+const SECTION_SCHOOL_ADMIN_APPS = 'school-admin-applications'
+const SECTION_SCHOOL_ADMIN_APPLICATION = 'school-admin-application'
+const SECTION_SCHOOL_ADMIN_REVIEW = 'school-admin-review'
 const SECTION_MINE = 'my-enrollments'
 
 export default {
@@ -108,6 +124,9 @@ export default {
   components: {
     CompetitionRegistrationSystem,
     CompetitionExpertAssignment,
+    CompetitionSchoolAdminApplications,
+    CompetitionSchoolAdminApplication,
+    CompetitionSchoolAdminTeamReview,
     MyCompetitionEnrollments,
     ManuAltIdentityPanel
   },
@@ -140,14 +159,23 @@ export default {
       void this.altGateTick
       return isAltCompetitionSuperAdmin()
     },
+    isSchoolAdmin () {
+      void this.altGateTick
+      return isAltCompetitionSchoolAdmin()
+    },
     visibleCatalogItems () {
       const all = [
-        { key: SECTION_LIST, icon: 'unordered-list', title: '竞赛列表与报名' },
+        { key: SECTION_LIST, icon: 'unordered-list', title: '竞赛列表与报名', hideForSchoolAdmin: true },
         { key: SECTION_EXPERTS, icon: 'team', title: '专家指派', superAdminOnly: true },
+        { key: SECTION_SCHOOL_ADMIN_APPS, icon: 'audit', title: '校管审核', superAdminOnly: true },
+        { key: SECTION_SCHOOL_ADMIN_APPLICATION, icon: 'idcard', title: '申请校管', schoolAdminOnly: true },
+        { key: SECTION_SCHOOL_ADMIN_REVIEW, icon: 'audit', title: '校审', schoolAdminOnly: true },
         { key: SECTION_MINE, icon: 'solution', title: '我报名的竞赛', studentOnly: true }
       ]
       return all.filter(row => {
+        if (row.hideForSchoolAdmin && this.isSchoolAdmin) return false
         if (row.superAdminOnly && !this.isSuperAdmin) return false
+        if (row.schoolAdminOnly && !this.isSchoolAdmin) return false
         if (row.studentOnly && !this.isAltStudentAccount) return false
         return true
       })
@@ -180,12 +208,13 @@ export default {
         if (ok) {
           this.competitionBootstrapDone = false
           document.body.classList.remove('userLayout')
-          this.currentSection = SECTION_LIST
           await this.refreshAltIdentityProfile()
+          this.currentSection = this.resolveDefaultSection()
           this.competitionBootstrapDone = true
           this.$nextTick(() => {
             this.consumeRedirectAfterAltIfPresent()
             this.applyExpertUserIdQuerySection()
+            this.syncSectionWithCatalog()
           })
         } else {
           this.competitionBootstrapDone = false
@@ -198,6 +227,9 @@ export default {
       this.syncSectionWithCatalog()
     },
     isAltStudentAccount () {
+      this.syncSectionWithCatalog()
+    },
+    isSchoolAdmin () {
       this.syncSectionWithCatalog()
     }
   },
@@ -233,8 +265,11 @@ export default {
     onAltGateSessionChanged () {
       this.altGateTick++
       if (getStoredAltToken()) {
-        this.currentSection = SECTION_LIST
-        this.$nextTick(() => this.consumeRedirectAfterAltIfPresent())
+        this.currentSection = this.resolveDefaultSection()
+        this.$nextTick(() => {
+          this.consumeRedirectAfterAltIfPresent()
+          this.syncSectionWithCatalog()
+        })
       }
     },
     /** 主站重新登录后经 redirectAfterAlt 进入本页：独立账号就绪后跳回原竞赛界面 */
@@ -254,6 +289,15 @@ export default {
       if (this.visibleCatalogItems.some(i => i.key === SECTION_EXPERTS)) {
         this.currentSection = SECTION_EXPERTS
       }
+    },
+    /** 登录后默认展示的侧栏页（校管理员不进入竞赛列表） */
+    resolveDefaultSection () {
+      if (this.isSchoolAdmin && this.visibleCatalogItems.some(i => i.key === SECTION_SCHOOL_ADMIN_APPLICATION)) {
+        return SECTION_SCHOOL_ADMIN_APPLICATION
+      }
+      const keys = this.visibleCatalogItems.map(i => i.key)
+      if (keys.includes(SECTION_LIST)) return SECTION_LIST
+      return keys[0] || SECTION_LIST
     },
     onAltAvatarMenu ({ key }) {
       if (key !== 'logout') return
