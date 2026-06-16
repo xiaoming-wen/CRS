@@ -725,17 +725,49 @@ def _display_user_name(u: Optional[AltAuthUserRecord], fallback_id: Optional[int
     return str(fallback_id) if fallback_id is not None else str(u.id)
 
 
-def _team_detail_responses(adb: Session, teams: list[Team]) -> list[TeamDetailResponse]:
-    advisor_ids = {t.created_by_advisor_id for t in teams if t.created_by_advisor_id is not None}
-    users_by_id = _alt_users_by_id(adb, advisor_ids)
-    out: list[TeamDetailResponse] = []
-    for team in teams:
-        base = TeamDetailResponse.model_validate(team)
-        display_name = _team_advisor_display_name(team, users_by_id)
-        if display_name:
-            base = base.model_copy(update={"advisor_name": display_name})
-        out.append(base)
+def _build_team_member_user_responses(
+    members: list[TeamMember],
+    users_by_id: dict[int, AltAuthUserRecord],
+) -> list[TeamMemberWithUserResponse]:
+    out: list[TeamMemberWithUserResponse] = []
+    for m in sorted(members, key=lambda x: (not x.is_captain, x.joined_at or utc_now(), x.id)):
+        u = users_by_id.get(m.user_id)
+        out.append(
+            TeamMemberWithUserResponse(
+                id=m.id,
+                team_id=m.team_id,
+                user_id=m.user_id,
+                username=u.username if u else "",
+                full_name=u.full_name if u else None,
+                is_captain=m.is_captain,
+                joined_at=m.joined_at,
+            )
+        )
     return out
+
+
+def _team_detail_response(adb: Session, team: Team) -> TeamDetailResponse:
+    member_uids = {m.user_id for m in team.members}
+    advisor_ids = {team.created_by_advisor_id} if team.created_by_advisor_id is not None else set()
+    users_by_id = _alt_users_by_id(adb, member_uids | advisor_ids | {team.captain_id})
+    members_out = _build_team_member_user_responses(team.members, users_by_id)
+    display_name = _team_advisor_display_name(team, users_by_id)
+    advisor_name = display_name if display_name else getattr(team, "advisor_name", None)
+    return TeamDetailResponse(
+        id=team.id,
+        competition_id=team.competition_id,
+        name=team.name,
+        captain_id=team.captain_id,
+        created_by_advisor_id=team.created_by_advisor_id,
+        advisor_name=advisor_name,
+        status=TeamStatus(team.status),
+        created_at=team.created_at,
+        members=members_out,
+    )
+
+
+def _team_detail_responses(adb: Session, teams: list[Team]) -> list[TeamDetailResponse]:
+    return [_team_detail_response(adb, team) for team in teams]
 
 
 @router.get("/{competition_id}/teams/export")
@@ -1801,7 +1833,8 @@ async def list_teams(
     q = db.query(Team).filter(Team.competition_id == competition_id)
     if role_eff in {"advisor", "teacher"}:
         teams = (
-            q.filter(
+            q.options(joinedload(Team.members))
+            .filter(
                 Team.created_by_advisor_id == identity.id,
                 Team.status.in_(
                     [
@@ -1816,7 +1849,8 @@ async def list_teams(
         )
     else:
         teams = (
-            q.filter(Team.status == TeamStatus.ACTIVE)
+            q.options(joinedload(Team.members))
+            .filter(Team.status == TeamStatus.ACTIVE)
             .order_by(Team.created_at.desc())
             .all()
         )
@@ -2115,33 +2149,39 @@ async def create_team(
     return team
 
 
-@router.get("/teams/{team_id}", response_model=TeamResponse)
+@router.get("/teams/{team_id}", response_model=TeamDetailResponse)
 async def get_team(
     team_id: int,
     db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """队员/队长/建队指导老师查看本队详情（含校审状态 pending_school_review / active / rejected）。"""
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
-    team = db.query(Team).filter(Team.id == team_id).first()
+    team = (
+        db.query(Team)
+        .options(joinedload(Team.members))
+        .filter(Team.id == team_id)
+        .first()
+    )
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     _get_competition(db, team.competition_id)
 
     role_eff = _effective_alt_role(identity.role)
     if role_eff == "super_admin":
-        return team
+        return _team_detail_response(adb, team)
     if team.captain_id == identity.id:
-        return team
+        return _team_detail_response(adb, team)
     if _team_advisor_managed(team, identity.id):
-        return team
+        return _team_detail_response(adb, team)
     member = (
         db.query(TeamMember)
         .filter(TeamMember.team_id == team_id, TeamMember.user_id == identity.id)
         .first()
     )
     if member:
-        return team
+        return _team_detail_response(adb, team)
     raise HTTPException(status_code=403, detail="Not a member of this team")
 
 

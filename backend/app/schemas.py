@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pydantic import BaseModel, Field, EmailStr, PlainSerializer, computed_field, field_validator
 from typing import Optional, List, Dict, Any, Annotated, Literal
 from datetime import datetime
@@ -693,10 +695,9 @@ class TeamDetailResponse(BaseModel):
     advisor_name: Optional[str] = Field(None, description="建队指导老师姓名（展示用）")
     status: TeamStatus
     created_at: UtcDatetime
-    members: List[TeamMemberResponse] = []
+    members: List[TeamMemberWithUserResponse] = []
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": False}
 
 
 class IndividualParticipantItem(BaseModel):

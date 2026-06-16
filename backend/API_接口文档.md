@@ -3128,7 +3128,7 @@ curl -X POST "http://localhost:8000/api/v1/competitions/1/withdraw?track=individ
 #### 8.9 查看竞赛队伍列表
 **端点**: `GET /api/v1/competitions/{competition_id}/teams`
 
-**描述**: 获取某竞赛下队伍及其成员列表。**`advisor`/`teacher`** 仅返回本人创建的队伍（含 `pending_school_review` / `active` / `rejected`），响应含 `created_by_advisor_id`、`advisor_name`；其他角色默认仅 `active` 队伍。**`division_mode=dual`** 时须按学历组别分别查询，每次只返回该组队伍。
+**描述**: 获取某竞赛下队伍及其成员列表；`members` 每项含 **`username` / `full_name`**（队长以 `is_captain=true` 标识）。**`advisor`/`teacher`** 仅返回本人创建的队伍（含 `pending_school_review` / `active` / `rejected`），响应含 `created_by_advisor_id`、`advisor_name`；其他角色默认仅 `active` 队伍。**`division_mode=dual`** 时须按学历组别分别查询，每次只返回该组队伍。
 
 **权限**: `VIEW_COMPETITIONS`（**不**隐含作品或花名册权限；花名册须 §8.10 / §8.11）。
 
@@ -3163,6 +3163,8 @@ curl "http://localhost:8000/api/v1/competitions/1/teams?division=undergraduate" 
         "id": 101,
         "team_id": 10,
         "user_id": 7,
+        "username": "stu7",
+        "full_name": "李同学",
         "is_captain": true,
         "joined_at": "2026-03-18T07:00:00.000000"
       },
@@ -3170,6 +3172,8 @@ curl "http://localhost:8000/api/v1/competitions/1/teams?division=undergraduate" 
         "id": 102,
         "team_id": 10,
         "user_id": 8,
+        "username": "stu8",
+        "full_name": "王同学",
         "is_captain": false,
         "joined_at": "2026-03-18T07:01:00.000000"
       }
@@ -3274,7 +3278,7 @@ curl "http://localhost:8000/api/v1/competitions/1/participants/teams?division=vo
 ]
 ```
 
-> 兼容：原 `GET /api/v1/competitions/{id}/teams` 仍可用，成员项不含 `username`；新接口更适合「名单展示」。
+> **说明**：`GET /api/v1/competitions/{id}/teams` 与 `GET /api/v1/competitions/teams/{team_id}` 的 `members` 均含 `username` / `full_name`；§8.11 `participants/teams` 额外含 `sequence_no` 等花名册字段，且权限更严格。
 
 #### 8.11.1 导出队伍信息 Excel（管理员）
 
@@ -3463,6 +3467,13 @@ curl -X POST "http://localhost:8000/api/v1/competitions/teams" \
 ```
 
 > 建队后状态为 **`pending_school_review`**，须本校校管理员审核通过（**§8.11.5**）后方可组队提交作品。
+
+#### 8.12.0 查看单支队伍详情（含成员用户名）
+
+**端点**: `GET /api/v1/competitions/teams/{team_id}`  
+**权限**: `VIEW_COMPETITIONS`；须为 **队员**、**队长**、**建队指导老师** 或 **`super_admin`**
+
+**描述**: 返回队伍基本信息及 **`members`** 列表（含 `username`、`full_name`、`is_captain`）。结构与 **§8.9** 单条记录一致。
 
 #### 8.12.1 修改队名（队长或指导老师）
 

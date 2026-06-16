@@ -742,7 +742,7 @@
             >
               <a-descriptions size="small" bordered :column="2">
                 <a-descriptions-item label="队名">{{ advisorSelectedTeam.name || '（未设置）' }}</a-descriptions-item>
-                <a-descriptions-item label="队长 ID">{{ advisorSelectedTeam.captain_id }}</a-descriptions-item>
+                <a-descriptions-item label="队长">{{ advisorSelectedTeamCaptainLabel }}</a-descriptions-item>
                 <a-descriptions-item label="状态">{{ participantTeamStatusText(advisorSelectedTeam.status) }}</a-descriptions-item>
                 <a-descriptions-item label="指导老师">{{ advisorSelectedTeamAdvisorLabel }}</a-descriptions-item>
               </a-descriptions>
@@ -800,7 +800,8 @@
                   style="justify-content: space-between; padding: 6px 0"
                 >
                   <span>
-                    用户 ID {{ m.user_id }}
+                    {{ formatTeamMemberDisplayName(m) }}
+                    <span v-if="m.user_id != null" class="muted" style="margin-left: 4px">(ID {{ m.user_id }})</span>
                     <a-tag v-if="m.is_captain" color="blue" style="margin-left: 8px">队长</a-tag>
                   </span>
                   <a-button
@@ -1251,6 +1252,46 @@
                   </a-button>
                 </div>
               </a-spin>
+            </a-form-item>
+            <a-form-item
+              v-if="showCaptainTeamMembersInEnrollModal"
+              label="队员"
+            >
+              <a-spin :spinning="myTeamMembersLoading">
+                <a-empty
+                  v-if="!myTeamMembersLoading && myTeamMembers.length === 0"
+                  description="暂无队员"
+                />
+                <div
+                  v-for="m in myTeamMembers"
+                  :key="'my-tm-' + m.id + '-' + m.user_id"
+                  class="team-member-row"
+                >
+                  <span class="team-member-name">
+                    {{ formatTeamMemberDisplayName(m) }}
+                    <span v-if="m.user_id != null" class="muted" style="margin-left: 4px">(ID {{ m.user_id }})</span>
+                    <a-tag v-if="m.is_captain" color="blue" style="margin-left: 8px">队长</a-tag>
+                  </span>
+                  <a-button
+                    v-if="!m.is_captain && !competitionTeamRemoveMemberBlocked"
+                    size="small"
+                    type="link"
+                    danger
+                    :loading="captainRemovingUserId === m.user_id"
+                    :disabled="captainRemovingUserId != null && captainRemovingUserId !== m.user_id"
+                    @click="handleCaptainRemoveTeamMember(m)"
+                  >
+                    移除
+                  </a-button>
+                </div>
+              </a-spin>
+              <p
+                v-if="competitionTeamRemoveMemberBlocked && myTeamMembers.length"
+                class="muted"
+                style="margin: 8px 0 0; font-size: 13px"
+              >
+                {{ competitionTeamRemoveMemberBlockedMessage || '当前不可移除队员' }}
+              </p>
             </a-form-item>
             <div v-if="showTeamSchoolReviewStatusInEnrollModal" class="team-school-review-status-row">
               <span class="team-school-review-status-label">校审状态：</span>
@@ -2089,6 +2130,9 @@ export default {
       teamJoinRequests: [],
       teamJoinRequestsLoading: false,
       teamJoinRequestReviewingId: null,
+      myTeamMembers: [],
+      myTeamMembersLoading: false,
+      captainRemovingUserId: null,
       studentTeamInviteId: null,
       studentTeamRemoveMemberId: null,
       transferTeamId: null,
@@ -2608,6 +2652,9 @@ export default {
     showCaptainTeamJoinRequestsInEnrollModal () {
       return this.enrollMode === 'team' && this.isCurrentTeamCaptain && !!this.myTeamId
     },
+    showCaptainTeamMembersInEnrollModal () {
+      return this.enrollMode === 'team' && this.isCurrentTeamCaptain && !!this.myTeamId
+    },
     /** 当前竞赛已存在队伍关联（已报名队伍或已有 team_id） */
     studentHasTeamForCurrentCompetition () {
       return !!this.currentTeamEnrollmentRow || !!this.myTeamId
@@ -2926,6 +2973,16 @@ export default {
       if (!t || !Array.isArray(t.members)) return []
       return t.members
     },
+    advisorSelectedTeamCaptainLabel () {
+      const t = this.advisorSelectedTeam
+      if (!t) return '-'
+      const captain = (t.members || []).find(m => m && m.is_captain)
+      if (captain) {
+        const name = this.formatTeamMemberDisplayName(captain)
+        return captain.user_id != null ? `${name}（ID ${captain.user_id}）` : name
+      }
+      return t.captain_id != null ? `用户 #${t.captain_id}` : '-'
+    },
     canOperateAdvisorSelectedTeam () {
       return this.canAdvisorOperateTeam(this.advisorSelectedTeam)
     },
@@ -3142,10 +3199,14 @@ export default {
           if (this.showCaptainTeamJoinRequestsInEnrollModal) {
             void this.refreshTeamJoinRequests()
           }
+          if (this.showCaptainTeamMembersInEnrollModal) {
+            void this.refreshMyTeamMembers()
+          }
         })
       }
       if (!visible) {
         this.teamJoinRequests = []
+        this.myTeamMembers = []
       }
     },
     initialViewDivision (val) {
@@ -4439,6 +4500,62 @@ export default {
       return req.user_id != null ? `用户 #${req.user_id}` : '未知队员'
     },
 
+    formatTeamMemberDisplayName (member) {
+      if (!member || typeof member !== 'object') return '未知'
+      const name = String(member.full_name || member.username || '').trim()
+      if (name) return name
+      return member.user_id != null ? `用户 #${member.user_id}` : '未知'
+    },
+
+    async refreshMyTeamMembers () {
+      if (!this.showCaptainTeamMembersInEnrollModal) {
+        this.myTeamMembers = []
+        return
+      }
+      const teamId = Number(this.myTeamId)
+      if (!Number.isFinite(teamId) || teamId <= 0) {
+        this.myTeamMembers = []
+        return
+      }
+      this.myTeamMembersLoading = true
+      try {
+        const res = await getCompetitionTeam(teamId)
+        this.myTeamMembers = Array.isArray(res && res.members) ? res.members : []
+        this.applyMyTeamInfoFromTeam(res)
+      } catch (e) {
+        this.myTeamMembers = []
+        this.$message.error('获取队员列表失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.myTeamMembersLoading = false
+      }
+    },
+
+    async handleCaptainRemoveTeamMember (member) {
+      if (!member || member.is_captain) return
+      if (!this.isCurrentTeamCaptain) {
+        this.$message.warning('仅队长可移除队员')
+        return
+      }
+      if (this.competitionTeamRemoveMemberBlocked) {
+        this.$message.warning(this.competitionTeamRemoveMemberBlockedMessage || '当前不可移除队员')
+        return
+      }
+      if (!this.myTeamId || member.user_id == null) return
+      const userId = Number(member.user_id)
+      if (!Number.isFinite(userId) || userId <= 0) return
+      this.captainRemovingUserId = userId
+      try {
+        await removeCompetitionTeamMember(this.myTeamId, userId)
+        this.$message.success(`已移除队员「${this.formatTeamMemberDisplayName(member)}」`)
+        await this.refreshMyTeamMembers()
+        await this.refreshActiveCompetitionMyEnrollKind()
+      } catch (e) {
+        this.$message.error('移除失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.captainRemovingUserId = null
+      }
+    },
+
     async refreshTeamJoinRequests () {
       if (!this.showCaptainTeamJoinRequestsInEnrollModal) {
         this.teamJoinRequests = []
@@ -4476,6 +4593,7 @@ export default {
           this.$message.success(`已拒绝「${studentName}」的入队申请`)
         }
         await this.refreshTeamJoinRequests()
+        await this.refreshMyTeamMembers()
       } catch (e) {
         const verb = action === 'approve' ? '同意' : '拒绝'
         this.$message.error(`${verb}入队申请失败：` + this.getApiErrorMessage(e, '未知错误'))
@@ -4544,6 +4662,7 @@ export default {
         this.studentTeamInviteId = null
         this.studentDivisionIndexCompetitionId = null
         await this.refreshActiveCompetitionMyEnrollKind()
+        await this.refreshMyTeamMembers()
       } catch (e) {
         const mapped = this.mapTeamInviteDetailToUserMessage(this.getEnrollDetailRaw(e))
         this.$message.error(mapped || ('邀请失败：' + this.getApiErrorMessage(e, '未知错误')))
@@ -4576,6 +4695,7 @@ export default {
         this.$message.success('已移除队员')
         this.studentTeamRemoveMemberId = null
         await this.refreshActiveCompetitionMyEnrollKind()
+        await this.refreshMyTeamMembers()
       } catch (e) {
         this.$message.error('移除失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {
@@ -6301,6 +6421,9 @@ export default {
       this.myTeamName = name || null
       const fromAdvisor = team && team.advisor_name != null ? String(team.advisor_name).trim() : ''
       this.myTeamAdvisorName = fromAdvisor || null
+      if (team && Array.isArray(team.members)) {
+        this.myTeamMembers = team.members
+      }
     },
 
     async refreshMyTeamStatus () {
@@ -6308,6 +6431,7 @@ export default {
         this.myTeamStatus = null
         this.myTeamName = null
         this.myTeamAdvisorName = null
+        this.myTeamMembers = []
         return
       }
       const tid = Number(this.myTeamId)
@@ -6315,6 +6439,7 @@ export default {
         this.myTeamStatus = null
         this.myTeamName = null
         this.myTeamAdvisorName = null
+        this.myTeamMembers = []
         return
       }
       try {
@@ -7212,6 +7337,19 @@ export default {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+}
+
+.team-member-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.team-member-name {
+  font-size: 13px;
 }
 .team-join-request-name {
   min-width: 80px;
