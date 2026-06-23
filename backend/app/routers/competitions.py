@@ -927,7 +927,69 @@ async def list_competitions(
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
-    return db.query(Competition).order_by(Competition.created_at.desc()).all()
+    q = db.query(Competition)
+    if _effective_alt_role(identity.role) == "expert":
+        assigned_ids = [
+            int(row[0])
+            for row in db.query(CompetitionExpertAssignment.competition_id)
+            .filter(CompetitionExpertAssignment.expert_id == identity.id)
+            .all()
+        ]
+        if not assigned_ids:
+            return []
+        q = q.filter(Competition.id.in_(assigned_ids))
+    return q.order_by(Competition.created_at.desc()).all()
+
+
+@router.get("/experts", response_model=CompetitionExpertsListResponse)
+async def list_all_experts(
+    db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """
+    管理员获取全部第二套专家帐号（``role=expert``），含各专家已指派的竞赛 id 列表。
+    指派 / 取消指派仍使用 ``POST|DELETE /{competition_id}/experts/{expert_user_id}``。
+    """
+    _require_super_admin_identity(identity)
+
+    expert_rows = (
+        adb.query(AltAuthUserRecord)
+        .filter(AltAuthUserRecord.role == "expert")
+        .order_by(AltAuthUserRecord.id.asc())
+        .all()
+    )
+    expert_ids = [u.id for u in expert_rows]
+
+    assignments_by_expert: dict[int, List[int]] = {eid: [] for eid in expert_ids}
+    if expert_ids:
+        assign_rows = (
+            db.query(
+                CompetitionExpertAssignment.expert_id,
+                CompetitionExpertAssignment.competition_id,
+            )
+            .filter(CompetitionExpertAssignment.expert_id.in_(expert_ids))
+            .all()
+        )
+        for expert_id, comp_id in assign_rows:
+            assignments_by_expert.setdefault(int(expert_id), []).append(int(comp_id))
+
+    items: List[CompetitionExpertListItem] = []
+    for u in expert_rows:
+        cids = sorted(set(assignments_by_expert.get(u.id, [])))
+        items.append(
+            CompetitionExpertListItem(
+                expert_user_id=u.id,
+                username=u.username or "",
+                email=u.email,
+                full_name=u.full_name,
+                school=u.school,
+                expert_verified=bool(getattr(u, "expert_verified", False)),
+                assigned_competition_ids=cids,
+            )
+        )
+
+    return CompetitionExpertsListResponse(total=len(items), items=items)
 
 
 @router.get("/{competition_id}", response_model=CompetitionResponse)
@@ -1019,57 +1081,6 @@ async def my_enrollments(
             data.competition = CompetitionResponse.model_validate(comp)
         results.append(data)
     return results
-
-
-@router.get("/experts", response_model=CompetitionExpertsListResponse)
-async def list_all_experts(
-    db: Session = Depends(get_db),
-    adb: Session = Depends(get_alt_auth_db),
-    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
-):
-    """
-    管理员获取全部第二套专家帐号（``role=expert``），含各专家已指派的竞赛 id 列表。
-    指派 / 取消指派仍使用 ``POST|DELETE /{competition_id}/experts/{expert_user_id}``。
-    """
-    _require_super_admin_identity(identity)
-
-    expert_rows = (
-        adb.query(AltAuthUserRecord)
-        .filter(AltAuthUserRecord.role == "expert")
-        .order_by(AltAuthUserRecord.id.asc())
-        .all()
-    )
-    expert_ids = [u.id for u in expert_rows]
-
-    assignments_by_expert: dict[int, List[int]] = {eid: [] for eid in expert_ids}
-    if expert_ids:
-        assign_rows = (
-            db.query(
-                CompetitionExpertAssignment.expert_id,
-                CompetitionExpertAssignment.competition_id,
-            )
-            .filter(CompetitionExpertAssignment.expert_id.in_(expert_ids))
-            .all()
-        )
-        for expert_id, comp_id in assign_rows:
-            assignments_by_expert.setdefault(int(expert_id), []).append(int(comp_id))
-
-    items: List[CompetitionExpertListItem] = []
-    for u in expert_rows:
-        cids = sorted(set(assignments_by_expert.get(u.id, [])))
-        items.append(
-            CompetitionExpertListItem(
-                expert_user_id=u.id,
-                username=u.username or "",
-                email=u.email,
-                full_name=u.full_name,
-                school=u.school,
-                expert_verified=bool(getattr(u, "expert_verified", False)),
-                assigned_competition_ids=cids,
-            )
-        )
-
-    return CompetitionExpertsListResponse(total=len(items), items=items)
 
 
 @router.put("/{competition_id}/publish", response_model=CompetitionResponse)

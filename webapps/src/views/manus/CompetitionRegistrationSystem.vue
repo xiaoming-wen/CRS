@@ -122,7 +122,7 @@
         class="competition-detail-below-list competition-detail-transparent-tables"
         :class="{ 'competition-detail-below-list--solo': standaloneDetailMode }"
       >
-        <!-- 详情头图：学生 / 指导老师独立详情页展示 -->
+        <!-- 详情头图：独立详情页（各角色统一展示） -->
         <div
           v-if="showStandaloneCompetitionBriefingLayout"
           class="competition-hero-banner"
@@ -217,11 +217,11 @@
         </a-card>
 
         <a-card
-          v-else-if="activeCompetition"
+          v-if="activeCompetition && showWorkbenchCompetitionInfoList"
           size="small"
           class="sub-card competition-info-card"
           :bordered="true"
-          title="竞赛信息"
+          title="竞赛信息列表"
         >
           <a-descriptions :column="2" size="small" bordered>
             <a-descriptions-item label="竞赛ID">{{ activeCompetition.id }}</a-descriptions-item>
@@ -2105,6 +2105,7 @@ import {
   saveSubmissionReviewGradeCache,
   getSubmissionReviewGradeCache
 } from '@/utils/competitionSubmissionCycle'
+import { buildAbsoluteRouteUrl } from '@/utils/openRouteInNewTab'
 import {
   getStoredAltToken,
   isAltCompetitionStudent,
@@ -2113,6 +2114,7 @@ import {
   isAltCompetitionExpertVerified,
   isAltCompetitionExpert,
   isAltExpertAssignedToCompetition,
+  getAltAssignedCompetitionIds,
   hasAltPermission,
   getAltProfileFromStorage,
   fetchAltIdentityMe,
@@ -2486,9 +2488,13 @@ export default {
     showAdvisorTeamPanel () {
       return this.isAdvisorOrTeacher && this.canManageTeams
     },
-    /** 独立详情页（分享链接）：未登录也展示与学生一致的头图 + DIRECTIONS 卡片 */
+    /** 独立详情页：学生/指导老师/访客展示头图 + DIRECTIONS */
     showStandaloneCompetitionBriefingLayout () {
-      return this.standaloneDetailMode
+      return this.standaloneDetailMode && !this.isCompetitionWorkbench
+    },
+    /** 超级管理员/专家：独立详情页顶部展示竞赛信息列表 */
+    showWorkbenchCompetitionInfoList () {
+      return this.standaloneDetailMode && this.isCompetitionWorkbench
     },
     /** 分享链接未登录访客 */
     standaloneGuestMode () {
@@ -2645,9 +2651,18 @@ export default {
       return this.competitions.find(c => String(c.id) === String(this.activeCompetitionId)) || null
     },
     filteredCompetitions () {
+      let list = this.competitions || []
+      if (this.isUsingAltIdentity && this.isCompetitionExpert) {
+        const assigned = new Set(
+          getAltAssignedCompetitionIds()
+            .map(id => Number(id))
+            .filter(n => Number.isFinite(n))
+        )
+        list = list.filter(c => assigned.has(Number(c.id)))
+      }
       const keyword = (this.keyword || '').trim().toLowerCase()
-      if (!keyword) return this.competitions
-      return this.competitions.filter(c => {
+      if (!keyword) return list
+      return list.filter(c => {
         const name = (c.name || '').toLowerCase()
         const desc = (c.description || c.rules_text || '').toLowerCase()
         return name.includes(keyword) || desc.includes(keyword)
@@ -3629,14 +3644,16 @@ export default {
     navigateCompetitionDetailInNewTab (id, division) {
       if (id == null) return
       try {
-        const query = { id: String(id) }
+        const query = { id: String(id), fromList: '1' }
         const div = this.normalizeViewDivision(division)
         if (div) query.division = div
-        const r = this.$router.resolve({
-          name: 'ManuCompetitionDetail',
-          query
-        })
-        if (r && r.href) window.open(r.href, '_blank')
+        const location = { name: 'ManuCompetitionDetail', query }
+        const url = buildAbsoluteRouteUrl(this.$router, location)
+        // 勿用 openRouteInNewTab 的返回值判断成败：noopener 下常为 null，但新标签已打开
+        const opened = window.open(url, '_blank')
+        if (!opened) {
+          this.$message.warning('无法打开新标签页，请检查浏览器是否拦截了弹窗')
+        }
       } catch (e) {
         this.$message.error('无法打开竞赛详情页')
       }
@@ -3649,17 +3666,10 @@ export default {
         const query = { id: String(id), share: '1' }
         const div = this.normalizeViewDivision(division)
         if (div) query.division = div
-        const r = this.$router.resolve({
+        return buildAbsoluteRouteUrl(this.$router, {
           name: 'ManuCompetitionDetail',
           query
         })
-        const href = r && r.href ? String(r.href) : ''
-        if (!href) return ''
-        if (/^https?:\/\//i.test(href)) return href
-        const { origin, pathname } = window.location
-        const base = `${origin}${pathname || '/'}`
-        if (href.startsWith('#')) return `${base}${href}`
-        return `${origin}${href.startsWith('/') ? href : `/${href}`}`
       } catch (e) {
         return ''
       }
@@ -3746,7 +3756,11 @@ export default {
         try {
           this.$router.replace({
             name: 'ManuCompetitionDetail',
-            query: { id: String(id), division: div }
+            query: {
+              id: String(id),
+              division: div,
+              fromList: this.$route.query.fromList != null ? String(this.$route.query.fromList) : '1'
+            }
           }).catch(() => {})
         } catch (e) { /* noop */ }
         void this.fetchStudentBriefingQr()

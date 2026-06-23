@@ -1,34 +1,33 @@
 <template>
   <div class="competition-detail-standalone-root">
-    <div class="detail-back-bar">
-      <div v-if="numericId" class="detail-toolbar-right">
-        <!-- 未登录：登录 / 注册 -->
-        <template v-if="!altLoggedIn">
-          <a-button type="primary" ghost class="detail-toolbar-btn" @click="openLoginModal">
-            登录
-          </a-button>
-          <a-button type="primary" ghost class="detail-toolbar-btn" @click="openRegisterModal">
-            注册
-          </a-button>
-        </template>
-        <!-- 已登录学生：报名 / 作品 / 退出 -->
-        <template v-else-if="isCompetitionStudentRole">
-          <a-button type="primary" ghost class="detail-toolbar-btn" @click="onToolbarEnroll">
-            报名
-          </a-button>
-          <a-button type="primary" ghost class="detail-toolbar-btn" @click="onToolbarWorks">
-            作品
-          </a-button>
-          <a-button type="primary" ghost class="detail-toolbar-btn" @click="onToolbarLogout">
-            退出
-          </a-button>
-        </template>
-        <!-- 已登录其他角色（指导老师等）：退出 -->
-        <template v-else>
-          <a-button type="primary" ghost class="detail-toolbar-btn" @click="onToolbarLogout">
-            退出
-          </a-button>
-        </template>
+    <div v-if="showDetailTopBar" class="detail-back-bar">
+      <a-button
+        v-if="showStandaloneBackButton"
+        type="link"
+        class="back-to-list-btn"
+        @click="goToCompetitionList"
+      >
+        <a-icon type="left" />
+        返回竞赛列表
+      </a-button>
+      <div v-if="showStandaloneGuestToolbar" class="detail-toolbar-right">
+        <a-button type="primary" ghost class="detail-toolbar-btn" @click="openLoginModal">
+          登录
+        </a-button>
+        <a-button type="primary" ghost class="detail-toolbar-btn" @click="openRegisterModal">
+          注册
+        </a-button>
+      </div>
+      <div v-else-if="showStandaloneStudentToolbar" class="detail-toolbar-right">
+        <a-button type="primary" ghost class="detail-toolbar-btn" @click="onToolbarEnroll">
+          报名
+        </a-button>
+        <a-button type="primary" ghost class="detail-toolbar-btn" @click="onToolbarWorks">
+          作品
+        </a-button>
+        <a-button type="primary" ghost class="detail-toolbar-btn" @click="onToolbarLogout">
+          退出
+        </a-button>
       </div>
     </div>
     <a-alert
@@ -92,8 +91,14 @@ import ManuAltIdentityRegisterPanel from '@/views/manus/ManuAltIdentityRegisterP
 import {
   getStoredAltToken,
   isAltCompetitionStudent,
-  clearAltIdentityStorage
+  isAltCompetitionSuperAdmin,
+  isAltCompetitionExpert,
+  isAltCompetitionAdvisorOrTeacher,
+  clearAltIdentityStorage,
+  fetchAltIdentityMe,
+  applyAltIdentityMeToStorage
 } from '@/api/altIdentity'
+import { buildAbsoluteRouteUrl } from '@/utils/openRouteInNewTab'
 
 export default {
   name: 'CompetitionDetailStandalone',
@@ -113,6 +118,9 @@ export default {
   },
   mounted () {
     window.addEventListener('alt-identity-changed', this.bumpToolbarIdentityTick)
+    this.$nextTick(() => {
+      void this.ensureWorkbenchDetailAutoSession()
+    })
   },
   beforeDestroy () {
     window.removeEventListener('alt-identity-changed', this.bumpToolbarIdentityTick)
@@ -189,6 +197,59 @@ export default {
       if (c && typeof c.openStandaloneMyWorksModal === 'function') {
         c.openStandaloneMyWorksModal()
       }
+    },
+    goToCompetitionList () {
+      const listHref = this.resolveCompetitionListHref()
+      const listHash = '#/manu/competition-list'
+
+      try {
+        if (window.opener && typeof window.opener.focus === 'function' && !window.opener.closed) {
+          try {
+            if (listHref) {
+              window.opener.location.assign(listHref)
+            } else {
+              window.opener.location.hash = listHash
+            }
+          } catch (e) {
+            /* 跨域等 */
+          }
+          window.opener.focus()
+          window.close()
+          return
+        }
+      } catch (e) {
+        /* ignore */
+      }
+
+      if (listHref) {
+        window.location.assign(listHref)
+      } else {
+        window.location.hash = listHash
+      }
+    },
+    resolveCompetitionListHref () {
+      try {
+        return buildAbsoluteRouteUrl(this.$router, { path: '/manu/competition-list' })
+      } catch (e) {
+        return null
+      }
+    },
+    /** 从竞赛列表打开详情页时，超级管理员/专家沿用列表页已登录的独立账号 */
+    async ensureWorkbenchDetailAutoSession () {
+      if (!this.numericId || !this.isFromCompetitionList || this.isShareLink) return
+      if (!this.isWorkbenchDetailRole || !getStoredAltToken()) return
+      try {
+        const me = await fetchAltIdentityMe()
+        applyAltIdentityMeToStorage(me)
+        this.bumpToolbarIdentityTick()
+        const sys = this.$refs.registrationSys
+        if (sys && typeof sys.bootstrapStandaloneDetail === 'function') {
+          await sys.bootstrapStandaloneDetail()
+        }
+      } catch (e) {
+        const msg = e && e.message ? e.message : ''
+        if (msg) console.warn('[CompetitionDetailStandalone] workbench auto session failed:', msg)
+      }
     }
   },
   computed: {
@@ -208,6 +269,11 @@ export default {
       const s = this.$route.query.share
       return s === '1' || s === 1 || s === true || s === 'true'
     },
+    /** 由竞赛列表「查看详情」打开（非分享链接复制） */
+    isFromCompetitionList () {
+      const v = this.$route.query.fromList
+      return v === '1' || v === 1 || v === true || v === 'true'
+    },
     shareSessionStorageKey () {
       const id = this.numericId != null ? String(this.numericId) : 'x'
       const div = this.initialViewDivision || ''
@@ -215,12 +281,13 @@ export default {
     },
     altLoggedIn () {
       void this.toolbarIdentityTick
-      if (this.isShareLink) {
+      if (this.isShareLink && !this.isFromCompetitionList) {
         return this.shareSessionActive && !!getStoredAltToken()
       }
       return !!getStoredAltToken()
     },
     shareGuestModeForChild () {
+      if (this.isFromCompetitionList) return false
       return this.isShareLink && !this.shareSessionActive
     },
     isCompetitionStudentRole () {
@@ -228,6 +295,42 @@ export default {
       if (getStoredAltToken()) return isAltCompetitionStudent()
       const roles = this.$store.getters.roles || []
       return roles.includes('student')
+    },
+    isWorkbenchDetailRole () {
+      void this.toolbarIdentityTick
+      if (getStoredAltToken()) {
+        return isAltCompetitionSuperAdmin() || isAltCompetitionExpert()
+      }
+      const roles = this.$store.getters.roles || []
+      return roles.includes('super_admin')
+    },
+    isAdvisorOrTeacherRole () {
+      void this.toolbarIdentityTick
+      if (getStoredAltToken()) return isAltCompetitionAdvisorOrTeacher()
+      const roles = this.$store.getters.roles || []
+      return roles.includes('advisor') || roles.includes('teacher')
+    },
+    showStandaloneBackButton () {
+      return (
+        this.numericId != null &&
+        this.isFromCompetitionList &&
+        this.isWorkbenchDetailRole &&
+        !this.isCompetitionStudentRole &&
+        !this.isAdvisorOrTeacherRole
+      )
+    },
+    showStandaloneGuestToolbar () {
+      return this.numericId != null && this.isShareLink && !this.altLoggedIn
+    },
+    showStandaloneStudentToolbar () {
+      return this.numericId != null && this.isCompetitionStudentRole
+    },
+    showDetailTopBar () {
+      return (
+        this.showStandaloneBackButton ||
+        this.showStandaloneGuestToolbar ||
+        this.showStandaloneStudentToolbar
+      )
     }
   }
 }
@@ -250,7 +353,6 @@ export default {
   padding: 4px 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 12px 16px;
 }
@@ -260,10 +362,28 @@ export default {
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .detail-toolbar-btn {
   height: 32px;
+}
+
+.back-to-list-btn {
+  padding-left: 0;
+  height: auto;
+  font-size: 15px;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.back-to-list-btn:hover,
+.back-to-list-btn:focus {
+  color: rgba(255, 255, 255, 0.88) !important;
+}
+
+.back-to-list-btn ::v-deep .anticon {
+  color: inherit;
 }
 
 .standalone-auth-hint {
