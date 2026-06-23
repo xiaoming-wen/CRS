@@ -5,7 +5,8 @@ import { axios } from '@/utils/request'
  *
  * 鉴权：须由全局 axios 拦截器在请求头附带 **第二套 Alt JWT**（`POST /api/alt-identity/session` 签发），
  * 与主站 `access_token` **不可混用**。竞赛相关整型 ID（student_id / submitter_id / captain_id 等）
- * 语义均为 **alt_auth_users.id**，非主库 users.id。
+ * 语义均为 **alt_auth_users.id**（8 位数字，10000000–99999999），非主库 users.id。
+ * 竞赛 ID（competition_id）同为 8 位数字，在竞赛表内唯一。
  * URL 以 `/v1/competitions/...` 书写；开发环境经 devServer 代理到 `/api`。
  */
 
@@ -90,7 +91,8 @@ export function getCompetitions () {
   })
 }
 
-// 8.1.1 获取竞赛详情（单条；含 division_mode / qr_layout / qr_codes，供详情页与组别弹窗判断）
+// 8.1.1 获取竞赛详情（单条；含 division_mode / qr_layout / qr_codes）
+// 分享链接未登录时可匿名访问已发布竞赛，无需 Bearer
 export function getCompetition (competitionId) {
   return axios({
     url: `/v1/competitions/${encodeURIComponent(competitionId)}`,
@@ -98,7 +100,7 @@ export function getCompetition (competitionId) {
   })
 }
 
-/** 竞赛二维码图（GET，一般为 image/png）；dual 分开展示时可传 division */
+/** 竞赛二维码图（GET，一般为 image/png）；dual 分开展示时可传 division；已发布竞赛可匿名访问 */
 export function getCompetitionQrCode (competitionId, options = {}) {
   const params = {}
   const div = options && options.division

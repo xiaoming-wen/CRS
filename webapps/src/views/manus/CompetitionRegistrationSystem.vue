@@ -107,6 +107,10 @@
             </template>
             <template slot="listActions" slot-scope="text, record">
               <a @click.stop.prevent="openCompetitionDetailInNewTab(record.id)">查看详情</a>
+              <template v-if="isSuperAdmin">
+                <a-divider type="vertical" />
+                <a @click.stop.prevent="openCompetitionUrlModal(record)">URL</a>
+              </template>
             </template>
           </a-table>
         </div>
@@ -118,9 +122,9 @@
         class="competition-detail-below-list competition-detail-transparent-tables"
         :class="{ 'competition-detail-below-list--solo': standaloneDetailMode }"
       >
-        <!-- 详情头图：学生端展示；教师/管理员独立详情页不展示（直接进入竞赛信息） -->
+        <!-- 详情头图：学生 / 指导老师独立详情页展示 -->
         <div
-          v-if="isStudent"
+          v-if="showStandaloneCompetitionBriefingLayout"
           class="competition-hero-banner"
           :class="{ 'competition-hero-banner--solo': standaloneDetailMode }"
         >
@@ -159,9 +163,9 @@
           </div>
         </div>
 
-        <!-- 学生独立详情：赛题说明（参考赛事说明页：双栏、网格底、章节编号） -->
+        <!-- 独立详情：赛题说明（参考赛事说明页：双栏、网格底、章节编号） -->
         <a-card
-          v-if="activeCompetition && isStudent && standaloneDetailMode"
+          v-if="activeCompetition && showStandaloneCompetitionBriefingLayout"
           size="small"
           class="sub-card competition-briefing-card competition-info-card"
           :bordered="false"
@@ -235,6 +239,15 @@
         </a-card>
 
         <a-divider />
+
+        <a-alert
+          v-if="standaloneGuestMode"
+          type="info"
+          show-icon
+          message="请先登录"
+          description="登录后可报名、提交作品；指导老师登录后可在此页组班与管理队伍。点击右上角「登录」或「注册」。"
+          style="margin-top: 8px"
+        />
 
         <!-- 学生区（非独立详情页：内联展示） -->
         <div v-if="isStudent && !standaloneDetailMode">
@@ -406,8 +419,9 @@
                     <a-input-number v-model="transferTeamId" :min="1" placeholder="队伍ID" style="width: 180px" />
                     <a-input-number
                       v-model="newCaptainId"
-                      :min="1"
-                      placeholder="新队长用户ID"
+                      :min="eightDigitIdMin"
+                      :max="eightDigitIdMax"
+                      placeholder="新队长用户ID（8位）"
                       style="width: 180px"
                     />
                     <a-button
@@ -437,8 +451,9 @@
                     <div class="row">
                       <a-input-number
                         v-model="studentTeamInviteId"
-                        :min="1"
-                        placeholder="队员用户ID"
+                        :min="eightDigitIdMin"
+                        :max="eightDigitIdMax"
+                        placeholder="队员用户ID（8位）"
                         style="width: 220px"
                         :disabled="competitionTeamCreateInviteBlocked"
                       />
@@ -456,8 +471,9 @@
                     <div class="row">
                       <a-input-number
                         v-model="studentTeamRemoveMemberId"
-                        :min="1"
-                        placeholder="待移除队员用户ID"
+                        :min="eightDigitIdMin"
+                        :max="eightDigitIdMax"
+                        placeholder="待移除队员用户ID（8位）"
                         style="width: 220px"
                         :disabled="competitionTeamRemoveMemberBlocked"
                       />
@@ -667,8 +683,9 @@
                   <a-form-item label="队长学生 ID">
                     <a-input-number
                       v-model="advisorCreateForm.captain_student_id"
-                      :min="1"
-                      placeholder="默认同队员列表首人"
+                      :min="eightDigitIdMin"
+                      :max="eightDigitIdMax"
+                      placeholder="8位学生用户ID"
                       style="width: 100%"
                       :disabled="advisorTeamActionsDisabled || !allowTeam"
                     />
@@ -678,7 +695,7 @@
                   <a-form-item label="初始队员 ID（必填，逗号分隔）" required>
                     <a-input
                       v-model="advisorCreateForm.initial_member_ids_text"
-                      placeholder="如：7,8,9"
+                      placeholder="如：12345678,87654321（8位用户ID，逗号分隔）"
                       :disabled="advisorTeamActionsDisabled || !allowTeam"
                     />
                   </a-form-item>
@@ -773,8 +790,9 @@
                   <a-form-item label="邀请学生 ID">
                     <a-input-number
                       v-model="advisorInviteStudentId"
-                      :min="1"
-                      placeholder=""
+                      :min="eightDigitIdMin"
+                      :max="eightDigitIdMax"
+                      placeholder="8位学生用户ID"
                       style="width: 180px"
                       :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled"
                     />
@@ -1045,7 +1063,7 @@
         </div>
 
         <a-empty
-          v-if="!isStudent && !showAdvisorTeamPanel && !isCompetitionWorkbench && !showExpertNotAssignedHint"
+          v-if="!standaloneGuestMode && !isStudent && !showAdvisorTeamPanel && !isCompetitionWorkbench && !showExpertNotAssignedHint"
           style="margin-top: 16px"
           :description="roleNoPermissionDescription"
         />
@@ -1321,8 +1339,9 @@
                 <a-input-number v-model="transferTeamId" :min="1" placeholder="队伍ID" style="width: 180px" />
                 <a-input-number
                   v-model="newCaptainId"
-                  :min="1"
-                  placeholder="新队长用户ID"
+                  :min="eightDigitIdMin"
+                  :max="eightDigitIdMax"
+                  placeholder="新队长用户ID（8位）"
                   style="width: 180px"
                 />
                 <a-button
@@ -1352,8 +1371,9 @@
                 <div class="row">
                   <a-input-number
                     v-model="studentTeamInviteId"
-                    :min="1"
-                    placeholder="学生用户ID（alt_auth_users.id）"
+                    :min="eightDigitIdMin"
+                    :max="eightDigitIdMax"
+                    placeholder="学生用户ID（8位）"
                     style="width: 220px"
                     :disabled="competitionTeamCreateInviteBlocked"
                   />
@@ -1371,8 +1391,9 @@
                 <div class="row">
                   <a-input-number
                     v-model="studentTeamRemoveMemberId"
-                    :min="1"
-                    placeholder="待移除队员用户ID"
+                    :min="eightDigitIdMin"
+                    :max="eightDigitIdMax"
+                    placeholder="待移除队员用户ID（8位）"
                     style="width: 220px"
                     :disabled="competitionTeamRemoveMemberBlocked"
                   />
@@ -1961,6 +1982,31 @@
       />
     </a-modal>
 
+    <!-- 超级管理员：竞赛详情页外链（dual 分本科/高职两行） -->
+    <a-modal
+      :visible="showCompetitionUrlModal"
+      title="竞赛详情链接"
+      :footer="null"
+      width="620px"
+      @cancel="closeCompetitionUrlModal"
+    >
+      <p v-if="competitionUrlModalTitle" class="competition-url-modal__name">
+        {{ competitionUrlModalTitle }}
+      </p>
+      <div
+        v-for="line in competitionUrlModalLines"
+        :key="line.label + line.url"
+        class="competition-url-modal__line"
+      >
+        <div class="competition-url-modal__label">{{ line.label }}</div>
+        <div class="competition-url-modal__url-row">
+          <a-input :value="line.url" readonly class="competition-url-modal__input" />
+          <a-button type="link" size="small" @click="copyCompetitionDetailUrl(line.url)">复制</a-button>
+        </div>
+      </div>
+      <p v-if="!competitionUrlModalLines.length" class="muted">暂无可用链接</p>
+    </a-modal>
+
     <!-- 双组别竞赛：选择本科组 / 高职组后进入对应详情（§8.7 division 由详情页隐式带入报名） -->
     <a-modal
       :visible="showDivisionPickModal"
@@ -2031,6 +2077,13 @@ import {
 } from '@/api/competition'
 import { validateImageContainsQrCode } from '@/utils/qrImageValidate'
 import {
+  EIGHT_DIGIT_ID_MIN,
+  EIGHT_DIGIT_ID_MAX,
+  EIGHT_DIGIT_ID_HINT,
+  parseEightDigitIdsFromText,
+  validateEightDigitUserId
+} from '@/utils/eightDigitId'
+import {
   markCompetitionWithdrawnForResubmit,
   saveCompetitionEnrollmentDivision,
   resolveEnrollmentDivision,
@@ -2083,11 +2136,23 @@ export default {
     initialViewDivision: {
       type: String,
       default: null
+    },
+    /** 超级管理员复制的分享链接（query share=1） */
+    shareLinkMode: {
+      type: Boolean,
+      default: false
+    },
+    /** 分享链接页当前会话尚未登录，强制访客态 */
+    shareGuestMode: {
+      type: Boolean,
+      default: false
     }
   },
   data () {
     return {
       keyword: '',
+      eightDigitIdMin: EIGHT_DIGIT_ID_MIN,
+      eightDigitIdMax: EIGHT_DIGIT_ID_MAX,
       competitions: [],
       competitionsLoading: false,
       competitionsError: '',
@@ -2208,6 +2273,11 @@ export default {
       activeViewDivision: null,
       showDivisionPickModal: false,
       divisionPickTarget: null,
+
+      /** 超级管理员：竞赛详情外链弹窗 */
+      showCompetitionUrlModal: false,
+      competitionUrlModalTitle: '',
+      competitionUrlModalLines: [],
 
       // 教师/管理员
       adminCreateLoading: false,
@@ -2365,6 +2435,7 @@ export default {
   },
   computed: {
     isUsingAltIdentity () {
+      if (this.shareGuestMode) return false
       return !!getStoredAltToken()
     },
     isStudent () {
@@ -2414,6 +2485,14 @@ export default {
     },
     showAdvisorTeamPanel () {
       return this.isAdvisorOrTeacher && this.canManageTeams
+    },
+    /** 独立详情页（分享链接）：未登录也展示与学生一致的头图 + DIRECTIONS 卡片 */
+    showStandaloneCompetitionBriefingLayout () {
+      return this.standaloneDetailMode
+    },
+    /** 分享链接未登录访客 */
+    standaloneGuestMode () {
+      return this.standaloneDetailMode && (this.shareGuestMode || !this.isUsingAltIdentity)
     },
     isCompetitionExpert () {
       return this.isUsingAltIdentity && isAltCompetitionExpert()
@@ -2521,7 +2600,7 @@ export default {
         { title: '开始时间', dataIndex: 'start_at', key: 'start_at', width: 120 },
         { title: '结束时间', dataIndex: 'end_at', key: 'end_at', width: 120 },
         { title: '参赛方式', dataIndex: 'modes', key: 'modes', width: 168 },
-        { title: '操作', key: 'actions', width: 100, fixed: 'right', scopedSlots: { customRender: 'listActions' } }
+        { title: '操作', key: 'actions', width: this.isSuperAdmin ? 148 : 100, fixed: 'right', scopedSlots: { customRender: 'listActions' } }
       ]
     },
     competitionListTableData () {
@@ -3137,7 +3216,7 @@ export default {
           void this.ensureCompetitionDetail(newId).then(() => {
             if (String(this.activeCompetitionId) !== String(newId)) return
             this.syncDualDivisionContextAfterCompetitionSelect()
-            if (this.isStudent) void this.fetchStudentBriefingQr()
+            if (this.showStandaloneCompetitionBriefingLayout) void this.fetchStudentBriefingQr()
           })
         }
       } else if (!this.isCompetitionDualDivision(this.activeCompetition)) {
@@ -3147,15 +3226,9 @@ export default {
         this.$nextTick(() => this.syncDualDivisionContextAfterCompetitionSelect())
       }
 
-      this.revokeStudentBriefingQrObjectUrl()
-      if (
-        newId !== null &&
-        newId !== undefined &&
-        newId !== '' &&
-        this.isStudent &&
-        this.standaloneDetailMode &&
-        !this.isCompetitionDualDivision(this.activeCompetition)
-      ) {
+      if (newId === null || newId === undefined || newId === '') {
+        this.revokeStudentBriefingQrObjectUrl()
+      } else if (this.showStandaloneCompetitionBriefingLayout) {
         void this.fetchStudentBriefingQr()
       }
 
@@ -3523,7 +3596,12 @@ export default {
         this.divisionPickTarget = null
         return
       }
-      if (this.activeViewDivision) return
+      if (this.activeViewDivision) {
+        if (this.showStandaloneCompetitionBriefingLayout) {
+          void this.fetchStudentBriefingQr()
+        }
+        return
+      }
       if (this.standaloneDetailMode) {
         this.divisionPickTarget = comp
         this.showDivisionPickModal = true
@@ -3564,6 +3642,97 @@ export default {
       }
     },
 
+    /** 生成竞赛详情页完整 URL（供超级管理员复制分享；带 share=1 表示默认未登录访客页） */
+    buildCompetitionDetailPageUrl (id, division) {
+      if (id == null || id === '') return ''
+      try {
+        const query = { id: String(id), share: '1' }
+        const div = this.normalizeViewDivision(division)
+        if (div) query.division = div
+        const r = this.$router.resolve({
+          name: 'ManuCompetitionDetail',
+          query
+        })
+        const href = r && r.href ? String(r.href) : ''
+        if (!href) return ''
+        if (/^https?:\/\//i.test(href)) return href
+        const { origin, pathname } = window.location
+        const base = `${origin}${pathname || '/'}`
+        if (href.startsWith('#')) return `${base}${href}`
+        return `${origin}${href.startsWith('/') ? href : `/${href}`}`
+      } catch (e) {
+        return ''
+      }
+    },
+
+    buildCompetitionDetailUrlEntries (comp) {
+      const id = comp && comp.id
+      if (id == null || id === '') return []
+      if (this.isCompetitionDualDivision(comp)) {
+        return [
+          {
+            label: '本科组',
+            url: this.buildCompetitionDetailPageUrl(id, 'undergraduate')
+          },
+          {
+            label: '高职组',
+            url: this.buildCompetitionDetailPageUrl(id, 'vocational')
+          }
+        ]
+      }
+      return [
+        {
+          label: '竞赛详情',
+          url: this.buildCompetitionDetailPageUrl(id, null)
+        }
+      ]
+    },
+
+    showCompetitionUrlModalWithComp (comp) {
+      const id = comp && comp.id
+      if (id == null || id === '') return
+      this.competitionUrlModalTitle = (comp && comp.name) ? comp.name : `竞赛 #${id}`
+      this.competitionUrlModalLines = this.buildCompetitionDetailUrlEntries(comp)
+      this.showCompetitionUrlModal = true
+    },
+
+    async openCompetitionUrlModal (record) {
+      if (!this.isSuperAdmin || !record || record.id == null) return
+      let comp = this.findCompetitionById(record.id)
+      if (!comp || comp.division_mode == null) {
+        comp = await this.ensureCompetitionDetail(record.id) || comp
+      }
+      this.showCompetitionUrlModalWithComp(comp || { id: record.id, name: record.name })
+    },
+
+    closeCompetitionUrlModal () {
+      this.showCompetitionUrlModal = false
+      this.competitionUrlModalTitle = ''
+      this.competitionUrlModalLines = []
+    },
+
+    async copyCompetitionDetailUrl (url) {
+      const text = String(url || '').trim()
+      if (!text) return
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text)
+        } else {
+          const ta = document.createElement('textarea')
+          ta.value = text
+          ta.style.position = 'fixed'
+          ta.style.opacity = '0'
+          document.body.appendChild(ta)
+          ta.select()
+          document.execCommand('copy')
+          document.body.removeChild(ta)
+        }
+        this.$message.success('已复制到剪贴板')
+      } catch (e) {
+        this.$message.error('复制失败，请手动选择链接复制')
+      }
+    },
+
     confirmDivisionPick (division) {
       const div = this.normalizeViewDivision(division)
       if (!div) return
@@ -3597,6 +3766,13 @@ export default {
     onAltIdentityChanged () {
       this.syncEnrollProfileDefaults()
       this.$forceUpdate()
+      if (this.standaloneDetailMode && this.initialCompetitionId != null && String(this.initialCompetitionId).trim() !== '') {
+        void this.bootstrapStandaloneDetail()
+        return
+      }
+      if (this.showStandaloneCompetitionBriefingLayout && this.activeCompetitionId) {
+        void this.fetchStudentBriefingQr()
+      }
     },
     async refreshAltExpertProfile () {
       if (!getStoredAltToken() || !isAltCompetitionExpert()) return
@@ -3616,13 +3792,23 @@ export default {
       this.manualCompetitionId = null
       this.applyActiveViewDivisionFromRoute()
       await this.refreshAltExpertProfile()
-      await this.fetchCompetitions()
+      if (this.isUsingAltIdentity) {
+        await this.fetchCompetitions()
+      } else {
+        this.competitions = []
+        this.competitionsError = ''
+      }
       const raw = this.initialCompetitionId
       if (raw != null && String(raw).trim() !== '') {
         this.selectCompetition(raw)
         await this.ensureCompetitionDetail(raw)
       }
-      this.$nextTick(() => this.syncDualDivisionContextAfterCompetitionSelect())
+      this.$nextTick(() => {
+        this.syncDualDivisionContextAfterCompetitionSelect()
+        if (this.showStandaloneCompetitionBriefingLayout && this.activeCompetitionId) {
+          void this.fetchStudentBriefingQr()
+        }
+      })
     },
 
     /** 竞赛详情独立页顶部「报名」：打开报名与组队弹窗（供父组件 ref 调用） */
@@ -3672,13 +3858,16 @@ export default {
       this.studentBriefingQrRemoteUrl = ''
     },
     async fetchStudentBriefingQr () {
-      this.revokeStudentBriefingQrObjectUrl()
-      if (!this.activeCompetitionId || !this.isStudent || !this.standaloneDetailMode) return
+      if (!this.activeCompetitionId || !this.showStandaloneCompetitionBriefingLayout) return
       let comp = this.activeCompetition
       if (!comp || comp.division_mode == null) {
         comp = await this.ensureCompetitionDetail(this.activeCompetitionId) || comp
       }
-      if (this.isCompetitionDualDivision(comp) && !this.activeViewDivision) return
+      if (this.isCompetitionDualDivision(comp)) {
+        const layout = String(comp.qr_layout || 'shared').toLowerCase()
+        if (layout === 'separate' && !this.activeViewDivision) return
+      }
+      this.revokeStudentBriefingQrObjectUrl()
       const objectUrl = await this.loadCompetitionQrForCurrentView(
         this.activeCompetitionId,
         comp,
@@ -4604,6 +4793,7 @@ export default {
 
     async handleTransferCaptain () {
       if (!this.transferTeamId || !this.newCaptainId) return
+      if (!this.warnInvalidEightDigitUserId(this.newCaptainId, '新队长用户ID')) return
       this.teamLoading = true
       try {
         await transferTeamCaptain(this.transferTeamId, { team_id: this.transferTeamId, new_captain_id: this.newCaptainId })
@@ -4650,10 +4840,7 @@ export default {
       if (!this.assertNotEnrolledInOtherDivision()) return
       if (!this.assertCompetitionOpenForTeamCreateOrInvite()) return
       const studentId = Number(this.studentTeamInviteId)
-      if (!Number.isFinite(studentId) || studentId <= 0) {
-        this.$message.warning('请填写有效的学生用户ID')
-        return
-      }
+      if (!this.warnInvalidEightDigitUserId(studentId, '学生用户ID')) return
       if (!(await this.assertInviteeSameDivisionAsView(studentId))) return
       this.teamLoading = true
       try {
@@ -4685,10 +4872,7 @@ export default {
         return
       }
       const userId = Number(this.studentTeamRemoveMemberId)
-      if (!Number.isFinite(userId) || userId <= 0) {
-        this.$message.warning('请填写待移除队员的用户ID')
-        return
-      }
+      if (!this.warnInvalidEightDigitUserId(userId, '待移除队员用户ID')) return
       this.teamLoading = true
       try {
         await removeCompetitionTeamMember(this.myTeamId, userId)
@@ -4704,12 +4888,16 @@ export default {
     },
 
     parseAltUserIds (text) {
-      const raw = String(text || '').trim()
-      if (!raw) return []
-      return raw
-        .split(/[,，\s]+/)
-        .map(s => Number(String(s).trim()))
-        .filter(n => Number.isFinite(n) && n > 0)
+      return parseEightDigitIdsFromText(text)
+    },
+
+    warnInvalidEightDigitUserId (value, label = '用户ID') {
+      const msg = validateEightDigitUserId(value, label)
+      if (msg) {
+        this.$message.warning(msg)
+        return false
+      }
+      return true
     },
 
     getTeamCreatorAdvisorId (team) {
@@ -4802,7 +4990,7 @@ export default {
       }
       const memberIds = this.parseAltUserIds(this.advisorCreateForm.initial_member_ids_text)
       if (!memberIds.length) {
-        this.$message.warning('请填写至少一名队员的学生 ID（alt_auth_users.id）')
+        this.$message.warning(`请填写至少一名队员的学生 ID（${EIGHT_DIGIT_ID_HINT}）`)
         return
       }
       const uniqueIds = [...new Set(memberIds)]
@@ -4811,6 +4999,7 @@ export default {
         captainId = uniqueIds[0]
       } else {
         captainId = Number(captainId)
+        if (!this.warnInvalidEightDigitUserId(captainId, '队长学生ID')) return
       }
       if (!uniqueIds.includes(captainId)) {
         this.$message.warning('队长 ID 必须在队员 ID 列表中')
@@ -4885,10 +5074,7 @@ export default {
       if (!this.assertSelectedAdvisorTeamMatchesView()) return
       if (!this.assertCompetitionOpenForTeamCreateOrInvite()) return
       const studentId = Number(this.advisorInviteStudentId)
-      if (!Number.isFinite(studentId) || studentId <= 0) {
-        this.$message.warning('请填写有效的学生 ID')
-        return
-      }
+      if (!this.warnInvalidEightDigitUserId(studentId, '学生ID')) return
       if (!(await this.assertInviteeSameDivisionAsView(studentId))) return
       this.advisorTeamOpLoading = true
       try {
@@ -5800,7 +5986,10 @@ export default {
         this.$message.success('创建成功，竞赛ID：' + (res && res.id ? res.id : '未知'))
         this.showCreateCompetitionModal = false
         this.resetCreateCompetitionForm()
-        this.fetchCompetitions()
+        await this.fetchCompetitions()
+        if (this.isSuperAdmin && res && res.id != null) {
+          this.showCompetitionUrlModalWithComp(res)
+        }
       } catch (e) {
         this.$message.error('创建失败：' + (e && e.message ? e.message : '未知错误'))
       } finally {
@@ -7512,5 +7701,31 @@ export default {
   .ant-empty-description {
     color: rgba(255, 255, 255, 0.65);
   }
+}
+
+.competition-url-modal__name {
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+
+.competition-url-modal__line + .competition-url-modal__line {
+  margin-top: 14px;
+}
+
+.competition-url-modal__label {
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.competition-url-modal__url-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.competition-url-modal__input {
+  flex: 1;
+  min-width: 0;
 }
 </style>

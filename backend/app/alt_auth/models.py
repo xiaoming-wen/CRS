@@ -26,7 +26,7 @@ class AltAuthUserRecord(Base):
 
 
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=False)
 
 
 

@@ -91,6 +91,14 @@ async def startup_event():
     except Exception as e:
         logging.getLogger(__name__).warning("Alt-auth DB init skipped: %s", e)
 
+    try:
+        from app.alt_auth.database import engine as alt_auth_engine
+        from app.eight_digit_id_migrate import run_eight_digit_id_migrations
+
+        run_eight_digit_id_migrations(user_engine, alt_auth_engine)
+    except Exception as e:
+        logging.getLogger(__name__).warning("8-digit id migration skipped: %s", e)
+
 app.include_router(alt_identity_router, prefix="/api/alt-identity")
 app.include_router(competitions.router, prefix="/api/v1")
 

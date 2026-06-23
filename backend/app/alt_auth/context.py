@@ -55,3 +55,30 @@ async def get_current_alt_identity(
             detail="Alt-identity account is inactive",
         )
     return row
+
+
+async def get_optional_alt_identity(
+    credentials: Annotated[
+        Optional[HTTPAuthorizationCredentials], Depends(_alt_bearer)
+    ],
+    db: Annotated[Session, Depends(get_alt_auth_db)],
+) -> Optional[AltAuthUserRecord]:
+    """
+    可选的第二套 JWT：无 Authorization 或令牌无效时返回 None（不抛 401）。
+    用于分享链接等匿名可读接口。
+    """
+    if credentials is None or (credentials.scheme or "").lower() != "bearer":
+        return None
+    payload = decode_alt_access_token_strict(credentials.credentials)
+    if payload is None:
+        return None
+    uid_s = payload.get("sub")
+    try:
+        uid = int(uid_s)
+    except (TypeError, ValueError):
+        return None
+
+    row = db.query(AltAuthUserRecord).filter(AltAuthUserRecord.id == uid).first()
+    if row is None or not row.is_active:
+        return None
+    return row

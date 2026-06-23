@@ -27,6 +27,7 @@ def ensure_default_alt_auth_admin(log: Optional[logging.Logger] = None) -> None:
     from app.alt_auth.database import SessionAltAuth
     from app.alt_auth.models import AltAuthUserRecord
     from app.alt_auth.password_codec import hash_password_plain
+    from app.eight_digit_id import allocate_eight_digit_id
 
     db = SessionAltAuth()
     try:
@@ -38,6 +39,7 @@ def ensure_default_alt_auth_admin(log: Optional[logging.Logger] = None) -> None:
             return
 
         row = AltAuthUserRecord(
+            id=allocate_eight_digit_id(db, AltAuthUserRecord),
             username=ALT_DEFAULT_ADMIN_USERNAME,
             email=ALT_DEFAULT_ADMIN_EMAIL,
             full_name="System Administrator",

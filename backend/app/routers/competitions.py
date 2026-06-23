@@ -13,8 +13,9 @@ from app.datetime_utils import utc_now, ensure_utc
 import os
 import uuid
 
+from app.eight_digit_id import allocate_eight_digit_id, validate_eight_digit_id
 from app.database import get_db
-from app.alt_auth.context import get_current_alt_identity
+from app.alt_auth.context import get_current_alt_identity, get_optional_alt_identity
 from app.alt_auth.database import get_alt_auth_db
 from app.alt_auth.models import AltAuthUserRecord
 from app.permissions import Permission, require_permission
@@ -149,6 +150,7 @@ def _can_view_full_participant_rosters(db: Session, competition_id: int, identit
 
 
 def _ensure_alt_principal_is_student(adb: Session, user_id: int) -> AltAuthUserRecord:
+    validate_eight_digit_id(user_id, label="用户ID")
     row = adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.id == user_id).first()
     if row is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -158,6 +160,7 @@ def _ensure_alt_principal_is_student(adb: Session, user_id: int) -> AltAuthUserR
 
 
 def _ensure_alt_principal_is_advisor(adb: Session, user_id: int) -> AltAuthUserRecord:
+    validate_eight_digit_id(user_id, label="用户ID")
     row = adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.id == user_id).first()
     if row is None:
         raise HTTPException(status_code=404, detail="指导老师用户不存在")
@@ -560,10 +563,36 @@ async def _save_qr_code_upload(upload: StarletteUploadFile, competition_id: int)
 
 
 def _get_competition(db: Session, competition_id: int) -> Competition:
+    validate_eight_digit_id(competition_id, label="竞赛ID")
     competition = db.query(Competition).filter(Competition.id == competition_id).first()
     if not competition:
         raise HTTPException(status_code=404, detail="Competition not found")
     return competition
+
+
+# 分享链接匿名可读：仅已发布或已锁定（closed）的竞赛
+_SHAREABLE_COMPETITION_STATUSES = ("published", "closed")
+
+
+def _ensure_competition_shareable(competition: Competition) -> None:
+    """未登录访客仅可查看已发布/已结束竞赛，草稿等返回 404 避免泄露。"""
+    if competition.status not in _SHAREABLE_COMPETITION_STATUSES:
+        raise HTTPException(status_code=404, detail="Competition not found")
+
+
+def _resolve_competition_qr_storage_path(
+    competition: Competition, division: Optional[str] = None
+) -> Optional[str]:
+    """按 division_mode / qr_layout / division 解析二维码存储路径。"""
+    mode = str(getattr(competition, "division_mode", None) or "single").lower()
+    layout = str(getattr(competition, "qr_layout", None) or "shared").lower()
+    if mode == "dual" and layout == "separate":
+        if division == "undergraduate":
+            return competition.qr_code_path_undergraduate or competition.qr_code_path
+        if division == "vocational":
+            return competition.qr_code_path_vocational or competition.qr_code_path
+        return None
+    return competition.qr_code_path
 
 
 def _is_enrollment_closed(competition: Competition) -> bool:
@@ -871,6 +900,7 @@ async def create_competition(
         )
 
     comp = Competition(
+        id=allocate_eight_digit_id(db, Competition),
         name=competition.name,
         description=competition.description,
         rules_text=competition.rules_text,
@@ -900,18 +930,61 @@ async def list_competitions(
     return db.query(Competition).order_by(Competition.created_at.desc()).all()
 
 
+@router.get("/{competition_id}", response_model=CompetitionResponse)
+async def get_competition_detail(
+    competition_id: int,
+    db: Session = Depends(get_db),
+    identity: Optional[AltAuthUserRecord] = Depends(get_optional_alt_identity),
+):
+    """
+    获取单条竞赛详情（§8.1.1）。
+
+    - **已登录**：须具备 VIEW_COMPETITIONS，可查看含草稿在内的竞赛。
+    - **未登录**：仅可查看 status 为 published / closed 的竞赛（分享链接场景，无需 Bearer）。
+    """
+    competition = _get_competition(db, competition_id)
+    if identity is None:
+        _ensure_competition_shareable(competition)
+    else:
+        require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+    return competition
+
+
 @router.get("/{competition_id}/qr-code")
 async def get_competition_qr_code(
     competition_id: int,
+    division: Optional[str] = Query(
+        None,
+        description="dual 且 qr_layout=separate 时必填：undergraduate | vocational",
+    ),
     db: Session = Depends(get_db),
-    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+    identity: Optional[AltAuthUserRecord] = Depends(get_optional_alt_identity),
 ):
-    """下载/查看创建竞赛时上传的二维码图片（需登录且具备 VIEW_COMPETITIONS）。"""
-    require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+    """
+    下载/查看竞赛二维码图片。
+
+    - **已登录**：须具备 VIEW_COMPETITIONS。
+    - **未登录**：仅已发布/已结束竞赛可读（分享链接，无需 Bearer）。
+    """
     competition = _get_competition(db, competition_id)
-    if not competition.qr_code_path:
-        raise HTTPException(status_code=404, detail="No QR code for this competition")
-    fs_path = _resolve_qr_fs_path(competition.qr_code_path)
+    if identity is None:
+        _ensure_competition_shareable(competition)
+    else:
+        require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+
+    if division is not None and division not in ("undergraduate", "vocational"):
+        raise HTTPException(
+            status_code=400,
+            detail="division must be undergraduate or vocational",
+        )
+
+    stored = _resolve_competition_qr_storage_path(competition, division)
+    if not stored:
+        raise HTTPException(
+            status_code=404,
+            detail="No QR code for this competition (division may be required)",
+        )
+    fs_path = _resolve_qr_fs_path(stored)
     if not os.path.isfile(fs_path):
         raise HTTPException(status_code=404, detail="QR code file missing on server")
     mime, _ = mimetypes.guess_type(fs_path)

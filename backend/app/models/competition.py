@@ -33,7 +33,7 @@ class CompetitionDivision(str):
 class Competition(Base):
     __tablename__ = "competitions"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=False)
     name = Column(String(200), nullable=False)
     description = Column(Text)
     rules_text = Column(Text)

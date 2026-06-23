@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 
 from app.alt_auth.database import get_alt_auth_db
+from app.eight_digit_id import allocate_eight_digit_id
 from app.database import get_db
 
 from app.alt_auth.models import AltAuthUserRecord
@@ -189,6 +190,8 @@ async def alt_identity_register(
 
 
         row = AltAuthUserRecord(
+
+            id=allocate_eight_digit_id(db, AltAuthUserRecord),
 
             username=username,
 

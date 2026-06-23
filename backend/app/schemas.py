@@ -6,11 +6,29 @@ from datetime import datetime
 from enum import Enum
 
 from app.datetime_utils import serialize_datetime_for_api_response
+from app.eight_digit_id import EIGHT_DIGIT_ID_MIN, EIGHT_DIGIT_ID_MAX
 
 
 # 仅影响 JSON 序列化；展示时区见 API_RESPONSE_DATETIME_TZ（默认 Asia/Shanghai）
 UtcDatetime = Annotated[datetime, PlainSerializer(serialize_datetime_for_api_response, when_used="json")]
 OptionalUtcDatetime = Annotated[Optional[datetime], PlainSerializer(serialize_datetime_for_api_response, when_used="json")]
+
+EightDigitCompetitionId = Annotated[
+    int,
+    Field(
+        ge=EIGHT_DIGIT_ID_MIN,
+        le=EIGHT_DIGIT_ID_MAX,
+        description=f"8位竞赛ID（{EIGHT_DIGIT_ID_MIN}–{EIGHT_DIGIT_ID_MAX}）",
+    ),
+]
+EightDigitAltUserId = Annotated[
+    int,
+    Field(
+        ge=EIGHT_DIGIT_ID_MIN,
+        le=EIGHT_DIGIT_ID_MAX,
+        description=f"8位竞赛用户ID，即 alt_auth_users.id（{EIGHT_DIGIT_ID_MIN}–{EIGHT_DIGIT_ID_MAX}）",
+    ),
+]
 
 
 class UserRole(str, Enum):
@@ -524,7 +542,7 @@ class CompetitionResponse(CompetitionBase):
 
 
 class CompetitionEnrollmentCreate(BaseModel):
-    competition_id: int
+    competition_id: EightDigitCompetitionId
     # team_id 为空表示“个人参赛”
     team_id: Optional[int] = None
     division: Optional[CompetitionDivision] = Field(
@@ -604,19 +622,19 @@ class MyEnrollmentResponse(BaseModel):
 
 
 class TeamCreate(BaseModel):
-    competition_id: int
+    competition_id: EightDigitCompetitionId
     division: Optional[CompetitionDivision] = Field(
         None,
         description="学历组别；dual 竞赛必填，须与详情页所选组别一致",
     )
     # 若不传/传空则由服务端逻辑创建成员并设为队长（学生自建队通常为本人）
-    initial_member_ids: Optional[List[int]] = None
+    initial_member_ids: Optional[List[EightDigitAltUserId]] = None
     name: Optional[str] = Field(None, max_length=200, description="队名（展示用），可由队长后续修改")
-    captain_student_id: Optional[int] = Field(
+    captain_student_id: Optional[EightDigitAltUserId] = Field(
         None,
         description="指导老师建队时必须指定队长 user_id（且须出现在 initial_member_ids 中）；学生自建忽略",
     )
-    advisor_id: Optional[int] = Field(
+    advisor_id: Optional[EightDigitAltUserId] = Field(
         None,
         description="指导老师用户 ID（学生自建队选填，与 advisor_name 二选一）；须为 advisor/teacher 角色",
     )
@@ -652,7 +670,7 @@ class TeamPatch(BaseModel):
 
 
 class TeamInviteMember(BaseModel):
-    student_id: int = Field(..., description="加入队伍的 alt_auth 学生主体 id")
+    student_id: EightDigitAltUserId = Field(..., description="加入队伍的 alt_auth 学生主体 id")
 
 
 class TeamMemberResponse(BaseModel):
@@ -908,7 +926,7 @@ class TeamMemberCreate(BaseModel):
 
 class TeamTransferCaptain(BaseModel):
     team_id: int
-    new_captain_id: int = Field(..., description="新队长在 team_members 中的 user_id，即 alt_auth_users.id")
+    new_captain_id: EightDigitAltUserId = Field(..., description="新队长在 team_members 中的 user_id，即 alt_auth_users.id")
 
 
 class SubmissionCreate(BaseModel):

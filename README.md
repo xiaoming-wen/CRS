@@ -75,3 +75,9 @@ npm run build
 ```
 
 产物在 `webapps/dist/`。
+
+## 生产部署（域名）
+
+使用 **`www.chaoxiangedu.com`** 对外访问的完整说明（DNS、Nginx、分享链接、API 前缀、检查清单）见：
+
+**[docs/deployment-chaoxiangedu.md](docs/deployment-chaoxiangedu.md)**
