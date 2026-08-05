@@ -6,10 +6,17 @@ import logging
 
 from sqlalchemy import text
 
+from app.db_compat import is_sqlite
+
 logger = logging.getLogger(__name__)
 
 
 def migrate_competition_team_join_requests(engine) -> None:
+    # MySQL 等新库由 metadata.create_all 建表；此脚本仅兼容旧 SQLite
+    if not is_sqlite(engine):
+        logger.info("team_join_requests: skip SQLite-only DDL on %s", engine.dialect.name)
+        return
+
     with engine.connect() as conn:
         conn.execute(
             text(

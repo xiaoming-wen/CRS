@@ -26,12 +26,19 @@ export function extractRegisterError (err) {
 function formatConflictContent (msg, status) {
   const m = (msg || '').trim()
   const userMention = /用户名|username/i.test(m) && /(已|exist|taken|duplicate|占用|注册|使用)/i.test(m)
+  const phoneMention = /手机|电话|phone|mobile/i.test(m) && /(已|exist|taken|duplicate|占用|注册|使用)/i.test(m)
   const emailMention = /邮箱|邮件|e-?mail/i.test(m) && /(已|exist|taken|duplicate|占用|注册|使用)/i.test(m)
+  if (userMention && phoneMention) {
+    return '该用户名与手机号已被注册，请更换后重试。'
+  }
   if (userMention && emailMention) {
     return '该用户名与邮箱已被注册，请更换后重试。'
   }
   if (userMention) {
     return '该用户名已被注册，请更换用户名后重试。'
+  }
+  if (phoneMention) {
+    return '该手机号已被注册，请更换手机号后重试。'
   }
   if (emailMention) {
     return '该邮箱已被注册，请更换邮箱后重试。'
@@ -39,14 +46,14 @@ function formatConflictContent (msg, status) {
   if (status === 409 || /unique|duplicate|constraint/i.test(m)) {
     return m || '注册信息与他人重复，请修改后重试。'
   }
-  return m || '该用户名或邮箱已被注册，请更换后重试。'
+  return m || '该用户名或手机号已被注册，请更换后重试。'
 }
 
 function isConflictMessage (msg) {
   const m = (msg || '').trim()
   if (!m) return false
   if (/已注册|已被使用|已存在|already exists|duplicate|unique constraint|占用|被占用/i.test(m)) return true
-  if ((/用户名|邮箱|username|email/i.test(m)) && (/已|exist|duplicate|taken|注册|使用/i.test(m))) return true
+  if ((/用户名|手机|电话|邮箱|username|phone|mobile|email/i.test(m)) && (/已|exist|duplicate|taken|注册|使用/i.test(m))) return true
   return false
 }
 

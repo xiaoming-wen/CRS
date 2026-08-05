@@ -3,7 +3,7 @@
     <a-card :bordered="false" class="section-card">
       <a-spin :spinning="applicationLoading">
         <a-alert
-          v-if="!canReviewTeams"
+          v-if="isSchoolMode && !canReviewTeams"
           type="warning"
           show-icon
           message="暂不可校审"
@@ -12,9 +12,12 @@
         />
 
         <template v-else>
-          <a-alert type="info" show-icon message="组队校审" style="margin-bottom: 16px">
+          <a-alert type="info" show-icon :message="alertTitle" style="margin-bottom: 16px">
             <template slot="description">
-              审核本校学生/指导老师创建的组队申请。通过后队伍状态为「已通过」，方可组队参赛；驳回后相关报名自动退赛。
+              <div>{{ alertDescription }}</div>
+              <div v-if="isSchoolMode" style="margin-top: 6px">
+                校管「代建队报名」创建后队伍直接为「已通过」；学生/老师自建仍进入待校审。
+              </div>
             </template>
           </a-alert>
 
@@ -24,11 +27,28 @@
               style="width: 180px; margin-right: 8px"
               @change="loadTeams"
             >
+              <a-select-option value="all">所有</a-select-option>
               <a-select-option value="pending_school_review">待校审</a-select-option>
               <a-select-option value="active">已通过</a-select-option>
               <a-select-option value="rejected">已驳回</a-select-option>
             </a-select>
+            <a-input-search
+              v-model="schoolKeyword"
+              allow-clear
+              placeholder="搜索学校"
+              style="width: 220px; margin-right: 8px"
+              @search="loadTeams"
+              @pressEnter="loadTeams"
+            />
             <a-button :loading="teamsLoading" @click="loadTeams">刷新</a-button>
+            <a-button
+              v-if="isSchoolMode"
+              type="primary"
+              style="margin-left: 8px"
+              @click="openProxyTeamModal"
+            >
+              代建队报名
+            </a-button>
           </div>
 
           <a-table
@@ -105,6 +125,68 @@
         <a-textarea v-model="rejectFeedback" :rows="3" placeholder="选填" />
       </a-form-item>
     </a-modal>
+
+    <a-modal
+      :visible="proxyTeamVisible"
+      title="代建队报名"
+      :confirm-loading="proxyTeamLoading"
+      ok-text="创建并报名"
+      cancel-text="取消"
+      destroy-on-close
+      width="640px"
+      @ok="submitProxyTeam"
+      @cancel="closeProxyTeamModal"
+    >
+      <a-form :label-col="{ span: 6 }" :wrapper-col="{ span: 17 }">
+        <a-form-item label="竞赛" required>
+          <a-select
+            v-model="proxyTeamForm.competition_id"
+            show-search
+            option-filter-prop="children"
+            placeholder="选择竞赛"
+            :loading="competitionsLoading"
+            style="width: 100%"
+          >
+            <a-select-option
+              v-for="c in teamCompetitions"
+              :key="c.id"
+              :value="c.id"
+            >
+              {{ c.name }}
+            </a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="队名">
+          <a-input v-model="proxyTeamForm.team_name" placeholder="选填" />
+        </a-form-item>
+        <a-form-item label="组别" required>
+          <a-radio-group v-model="proxyTeamForm.division">
+            <a-radio-button value="undergraduate">本科</a-radio-button>
+            <a-radio-button value="vocational">高职</a-radio-button>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item label="赛道" required>
+          <a-radio-group v-model="proxyTeamForm.work_track">
+            <a-radio-button value="works">作品</a-radio-button>
+            <a-radio-button value="software">软件</a-radio-button>
+            <a-radio-button value="hardware">硬件</a-radio-button>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item label="队长用户名" required>
+          <a-input v-model="proxyTeamForm.captain_username" placeholder="学生用户名" />
+        </a-form-item>
+        <a-form-item label="队员用户名" required>
+          <a-textarea
+            v-model="proxyTeamForm.member_usernames_text"
+            :rows="3"
+            placeholder="多名用逗号或换行分隔；可含队长"
+          />
+        </a-form-item>
+        <a-form-item label="指导老师用户名">
+          <a-input v-model="proxyTeamForm.advisor_username" placeholder="选填" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
@@ -112,7 +194,10 @@
 import {
   getSchoolAdminApplicationMe,
   getSchoolAdminTeams,
-  schoolReviewTeam
+  listAdminTeamReviews,
+  schoolReviewTeam,
+  schoolAdminProxyCreateTeam,
+  getCompetitions
 } from '@/api/competition'
 
 const TEAM_STATUS_MAP = {
@@ -121,24 +206,64 @@ const TEAM_STATUS_MAP = {
   rejected: { text: '已驳回', color: 'red' }
 }
 
+function emptyProxyTeamForm () {
+  return {
+    competition_id: undefined,
+    team_name: '',
+    division: 'undergraduate',
+    work_track: 'works',
+    captain_username: '',
+    member_usernames_text: '',
+    advisor_username: ''
+  }
+}
+
 export default {
   name: 'CompetitionSchoolAdminTeamReview',
+  props: {
+    mode: {
+      type: String,
+      default: 'school',
+      validator: v => v === 'school' || v === 'super'
+    }
+  },
   data () {
     return {
       applicationLoading: false,
       canReviewTeams: false,
       teamsLoading: false,
-      teamStatusFilter: 'pending_school_review',
+      teamStatusFilter: 'all',
+      schoolKeyword: '',
       teamItems: [],
       reviewLoadingId: null,
       reviewAction: null,
       rejectModalVisible: false,
       rejectModalLoading: false,
       rejectModalTeam: null,
-      rejectFeedback: ''
+      rejectFeedback: '',
+      competitionsLoading: false,
+      competitions: [],
+      proxyTeamVisible: false,
+      proxyTeamLoading: false,
+      proxyTeamForm: emptyProxyTeamForm()
     }
   },
   computed: {
+    isSchoolMode () {
+      return this.mode !== 'super'
+    },
+    alertTitle () {
+      return this.isSchoolMode ? '组队校审' : '队伍校审'
+    },
+    alertDescription () {
+      if (this.isSchoolMode) {
+        return '审核本校学生/指导老师创建的组队申请。通过后队伍状态为「已通过」，方可组队参赛；驳回后相关报名自动退赛。校管与超管共享同一审核状态。'
+      }
+      return '查看各校组队申请并执行通过/驳回。与校管共享同一队伍状态：任一方审核后双方列表同步更新。'
+    },
+    teamCompetitions () {
+      return (this.competitions || []).filter(c => c && c.allow_team !== false)
+    },
     teamColumns () {
       return [
         { title: '竞赛', dataIndex: 'competition_name', key: 'competition_name', width: 160, ellipsis: true },
@@ -159,8 +284,13 @@ export default {
   },
   methods: {
     async bootstrap () {
-      await this.checkReviewPermission()
-      if (this.canReviewTeams) {
+      if (this.isSchoolMode) {
+        await this.checkReviewPermission()
+        if (this.canReviewTeams) {
+          await this.loadTeams()
+        }
+      } else {
+        this.canReviewTeams = true
         await this.loadTeams()
       }
     },
@@ -193,6 +323,12 @@ export default {
     teamStatusColor (status) {
       return (TEAM_STATUS_MAP[status] || { color: 'default' }).color
     },
+    parseUsernameList (text) {
+      return String(text || '')
+        .split(/[\s,，;；]+/)
+        .map(s => s.trim())
+        .filter(Boolean)
+    },
     async checkReviewPermission () {
       this.applicationLoading = true
       try {
@@ -213,13 +349,35 @@ export default {
     async loadTeams () {
       this.teamsLoading = true
       try {
-        const res = await getSchoolAdminTeams({ status: this.teamStatusFilter })
+        const params = {
+          status: this.teamStatusFilter,
+          school: (this.schoolKeyword || '').trim() || undefined
+        }
+        const res = this.isSchoolMode
+          ? await getSchoolAdminTeams(params)
+          : await listAdminTeamReviews({
+            ...params,
+            keyword: params.school
+          })
         this.teamItems = this.parseTeamsList(res)
       } catch (e) {
         this.teamItems = []
         this.$message.error('加载组队列表失败：' + this.getApiErrorMessage(e))
       } finally {
         this.teamsLoading = false
+      }
+    },
+    async ensureCompetitionsLoaded () {
+      if (this.competitions.length) return
+      this.competitionsLoading = true
+      try {
+        const res = await getCompetitions()
+        this.competitions = Array.isArray(res) ? res : (Array.isArray(res && res.items) ? res.items : [])
+      } catch (e) {
+        this.competitions = []
+        this.$message.error('加载竞赛列表失败：' + this.getApiErrorMessage(e))
+      } finally {
+        this.competitionsLoading = false
       }
     },
     async handleReviewTeam (record, action, feedback) {
@@ -236,6 +394,7 @@ export default {
         await this.loadTeams()
       } catch (e) {
         this.$message.error('审核失败：' + this.getApiErrorMessage(e))
+        throw e
       } finally {
         this.reviewLoadingId = null
         this.reviewAction = null
@@ -266,6 +425,65 @@ export default {
         return Promise.reject(e)
       } finally {
         this.rejectModalLoading = false
+      }
+    },
+    async openProxyTeamModal () {
+      this.proxyTeamForm = emptyProxyTeamForm()
+      this.proxyTeamVisible = true
+      await this.ensureCompetitionsLoaded()
+    },
+    closeProxyTeamModal () {
+      this.proxyTeamVisible = false
+      this.proxyTeamLoading = false
+      this.proxyTeamForm = emptyProxyTeamForm()
+    },
+    async submitProxyTeam () {
+      const form = this.proxyTeamForm
+      const competitionId = Number(form.competition_id)
+      const captainUsername = String(form.captain_username || '').trim()
+      let memberUsernames = this.parseUsernameList(form.member_usernames_text)
+      if (!Number.isFinite(competitionId) || competitionId <= 0) {
+        this.$message.warning('请选择竞赛')
+        return Promise.reject()
+      }
+      if (!captainUsername) {
+        this.$message.warning('请填写队长用户名')
+        return Promise.reject()
+      }
+      if (!memberUsernames.length) {
+        memberUsernames = [captainUsername]
+      } else {
+        const hasCaptain = memberUsernames.some(
+          u => String(u).trim().toLowerCase() === captainUsername.toLowerCase()
+        )
+        if (!hasCaptain) {
+          memberUsernames = [captainUsername, ...memberUsernames]
+        }
+      }
+      const payload = {
+        competition_id: competitionId,
+        team_name: (form.team_name || '').trim() || undefined,
+        captain_username: captainUsername,
+        member_usernames: memberUsernames,
+        division: form.division,
+        work_track: form.work_track
+      }
+      const advisorUsername = String(form.advisor_username || '').trim()
+      if (advisorUsername) {
+        payload.advisor_username = advisorUsername
+      }
+      this.proxyTeamLoading = true
+      try {
+        await schoolAdminProxyCreateTeam(payload)
+        this.$message.success('代建队成功，队伍已通过并完成报名')
+        this.closeProxyTeamModal()
+        this.teamStatusFilter = 'active'
+        await this.loadTeams()
+      } catch (e) {
+        this.$message.error('代建队失败：' + this.getApiErrorMessage(e))
+        return Promise.reject(e)
+      } finally {
+        this.proxyTeamLoading = false
       }
     }
   }

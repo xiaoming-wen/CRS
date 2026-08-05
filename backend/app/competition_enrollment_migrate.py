@@ -3,34 +3,37 @@
 from __future__ import annotations
 
 import logging
+
 from sqlalchemy import text
+
+from app.db_compat import is_sqlite, table_columns
 
 logger = logging.getLogger(__name__)
 
 
 def migrate_competition_enrollment_dual_track(engine) -> None:
     with engine.connect() as conn:
-        info = conn.execute(text("PRAGMA table_info(competition_enrollments)")).fetchall()
-        if not info:
+        cols = table_columns(conn, "competition_enrollments")
+        if not cols:
             return
-        cols = {row[1] for row in info}
-        ddl_row = conn.execute(
-            text(
-                "SELECT sql FROM sqlite_master WHERE type='table' "
-                "AND name='competition_enrollments'"
+
+        # 旧 SQLite 库可能需整表重建；MySQL 新库由 create_all 直接建出正确结构
+        if is_sqlite(conn):
+            ddl_row = conn.execute(
+                text(
+                    "SELECT sql FROM sqlite_master WHERE type='table' "
+                    "AND name='competition_enrollments'"
+                )
+            ).fetchone()
+            ddl = (ddl_row[0] or "") if ddl_row else ""
+            needs_rebuild = "uq_competition_student_scope" not in ddl and (
+                "uq_competition_student" in ddl or "enrollment_scope" not in cols
             )
-        ).fetchone()
-        ddl = (ddl_row[0] or "") if ddl_row else ""
-
-        needs_rebuild = "uq_competition_student_scope" not in ddl and (
-            "uq_competition_student" in ddl or "enrollment_scope" not in cols
-        )
-
-        if needs_rebuild:
-            _rebuild_enrollments_table(conn)
-            conn.commit()
-            logger.info("competition_enrollments migrated to dual-track (individual + team)")
-            return
+            if needs_rebuild:
+                _rebuild_enrollments_table(conn)
+                conn.commit()
+                logger.info("competition_enrollments migrated to dual-track (individual + team)")
+                return
 
         if "enrollment_scope" not in cols:
             try:
@@ -54,8 +57,8 @@ def migrate_competition_enrollment_dual_track(engine) -> None:
 
 
 def _rebuild_enrollments_table(conn) -> None:
-    info = conn.execute(text("PRAGMA table_info(competition_enrollments)")).fetchall()
-    col_names = [row[1] for row in info]
+    cols = table_columns(conn, "competition_enrollments")
+    col_names = list(cols)
     optional = {
         "student_no": "VARCHAR(50)",
         "real_name": "VARCHAR(100)",
@@ -74,7 +77,6 @@ def _rebuild_enrollments_table(conn) -> None:
             opt_insert.append(name)
 
     opt_cols_sql = ", ".join(f"{n} {optional[n]}" for n in opt_insert)
-    opt_cols_part = f", {opt_cols_sql}" if opt_cols_sql else ""
     opt_select_sql = ", ".join(opt_select)
     opt_insert_sql = ", ".join(opt_insert)
     opt_part = f", {opt_select_sql}" if opt_select_sql else ""

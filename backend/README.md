@@ -39,7 +39,7 @@
 
 ```bash
 # 安装 Python 依赖
-pip3 install -r requirements.txt
+pip3 install -r requirement
 ```
 
 ### 3. 配置环境变量
@@ -57,7 +57,7 @@ copy .env.example .env
 **主要配置**（详见 [.env.example](.env.example)）：
 - **AI 模型**：`DASHSCOPE_API_KEY`、`DEEPSEEK_API_KEY`、`VOLCENGINE_API_KEY`
 - **语音**：`XUNFEI_APP_ID`、`XUNFEI_SECRET_KEY`（讯飞语音转写，可选）
-- **用户系统**：`SECRET_KEY`、`DATABASE_URL`、`ACCESS_TOKEN_EXPIRE_MINUTES`
+- **用户系统**：`SECRET_KEY`、`DATABASE_URL`、`ACCESS_s.txtTOKEN_EXPIRE_MINUTES`
 - **文件存储**：`STORAGE_TYPE`（local/oss）、`SERVER_URL`（大模型需访问文件时须填公网地址）、OSS 相关（选填）
 - **双数据库**：`DATABASE_URL`（用户库）、`CONVERT_URL_DATABASE_URL`（文件元数据库）
 
@@ -449,17 +449,29 @@ curl http://your-public-url/api/video/xxx
 
 ## 🗄️ 数据库说明
 
-### 双数据库架构
+### 数据库架构（默认 MySQL）
 
-项目使用双数据库架构：
+默认使用本机 MySQL（驱动 `pymysql`），库名与连接串见 `.env.example`：
 
-1. **用户管理数据库**（`user_management.db`）
-   - 存储用户、资源、文件、报告、知识库等数据
-   - 配置：`DATABASE_URL=sqlite:///./user_management.db`
+1. **主业务库** `competition_user`
+   - 存储用户、竞赛、文件元数据、报告、知识库等
+   - 配置：`DATABASE_URL=mysql+pymysql://root:root@127.0.0.1:3306/competition_user?charset=utf8mb4`
 
-2. **文件转换数据库**（`videos.db`）
+2. **第二套认证库** `competition_alt_auth`
+   - 竞赛侧独立账号（`alt_auth_users`）
+   - 配置：`ALT_AUTH_DATABASE_URL=mysql+pymysql://root:root@127.0.0.1:3306/competition_alt_auth?charset=utf8mb4`
+
+3. **文件转换库** `competition_videos`（可选）
    - 存储上传的视频、音频、图片文件元数据
-   - 配置：`CONVERT_URL_DATABASE_URL=sqlite:///./videos.db`
+   - 配置：`CONVERT_URL_DATABASE_URL=mysql+pymysql://root:root@127.0.0.1:3306/competition_videos?charset=utf8mb4`
+
+首次使用前请先建库（密码按本机 MySQL 修改）：
+
+```bash
+mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS competition_user DEFAULT CHARSET utf8mb4; CREATE DATABASE IF NOT EXISTS competition_alt_auth DEFAULT CHARSET utf8mb4; CREATE DATABASE IF NOT EXISTS competition_videos DEFAULT CHARSET utf8mb4;"
+```
+
+仍可改回 SQLite：在 `.env` 中将 URL 设为 `sqlite:///./user_management.db` 等即可。
 
 ### 初始化数据库
 

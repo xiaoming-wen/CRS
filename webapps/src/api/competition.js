@@ -91,6 +91,42 @@ export function getCompetitions () {
   })
 }
 
+/** 初赛：可晋级决赛的队伍候选 */
+export function getPromotionCandidates (competitionId) {
+  return axios({
+    url: `/v1/competitions/${encodeURIComponent(competitionId)}/promotions/candidates`,
+    method: 'get'
+  })
+}
+
+/** 初赛或决赛：晋级名单 */
+export function getCompetitionPromotions (competitionId) {
+  return axios({
+    url: `/v1/competitions/${encodeURIComponent(competitionId)}/promotions`,
+    method: 'get'
+  })
+}
+
+/** 从初赛晋级队伍到决赛 */
+export function createCompetitionPromotions (competitionId, payload) {
+  return axios({
+    url: `/v1/competitions/${encodeURIComponent(competitionId)}/promotions`,
+    method: 'post',
+    data: payload || {},
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+/** 撤销晋级 */
+export function revokeCompetitionPromotion (competitionId, promotionId) {
+  return axios({
+    url: `/v1/competitions/${encodeURIComponent(competitionId)}/promotions/${encodeURIComponent(promotionId)}`,
+    method: 'delete'
+  })
+}
+
 // 8.1.1 获取竞赛详情（单条；含 division_mode / qr_layout / qr_codes）
 // 分享链接未登录时可匿名访问已发布竞赛，无需 Bearer
 export function getCompetition (competitionId) {
@@ -141,13 +177,103 @@ export function getCompetitionParticipantsTeams (competitionId, options = {}) {
   })
 }
 
-// 8.11.1 导出队伍信息 Excel（dual 须传 division）
+// 8.11.1 导出对照表 Excel（学生ID/队伍ID/队名/成员/学校）
+// options.scope: current | paired | both
 export function exportCompetitionTeamsExcel (competitionId, options = {}) {
+  const params = {
+    ...buildCompetitionDivisionParams(options)
+  }
+  const scope = options && options.scope
+  if (scope != null && String(scope).trim() !== '') {
+    params.scope = String(scope).trim()
+  }
   return axios({
     url: `/v1/competitions/${competitionId}/teams/export`,
     method: 'get',
-    params: buildCompetitionDivisionParams(options),
+    params,
     responseType: 'blob'
+  })
+}
+
+/** 管理员：Excel 导入决赛晋级名单（列：队伍ID，可选队伍名） */
+export function importCompetitionPromotionsExcel (competitionId, file) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return axios({
+    url: `/v1/competitions/${encodeURIComponent(competitionId)}/promotions/import`,
+    method: 'post',
+    data: fd,
+    timeout: 120000
+  })
+}
+
+/** 查看某队 5 题答案上传槽位 */
+export function getCompetitionQuestionAnswersBoard (competitionId, teamId) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/question-answers`,
+    method: 'get',
+    params: { team_id: teamId }
+  })
+}
+
+/** 管理员/专家：按队伍查看 5 题答案上传概览（作品列表） */
+export function getCompetitionQuestionAnswersOverview (competitionId) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/question-answers/overview`,
+    method: 'get'
+  })
+}
+
+/** 队员上传指定题号答案（覆盖同队同题） */
+export function uploadCompetitionQuestionAnswer (competitionId, questionNo, formData) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/questions/${questionNo}/answers/upload`,
+    method: 'post',
+    data: formData,
+    timeout: 600000
+  })
+}
+
+/** 下载单题答案文件 */
+export function downloadCompetitionQuestionAnswer (competitionId, answerId) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/question-answers/${answerId}/download`,
+    method: 'get',
+    responseType: 'blob',
+    timeout: 600000
+  })
+}
+
+/** 删除单题答案（队员可删本队答案） */
+export function deleteCompetitionQuestionAnswer (competitionId, answerId) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/question-answers/${answerId}`,
+    method: 'delete'
+  })
+}
+
+/** 正式上传作品：将本队已选答案全部提交（管理员/专家列表才可见） */
+export function submitCompetitionQuestionAnswers (competitionId, teamId) {
+  const fd = new FormData()
+  fd.append('team_id', String(teamId))
+  return axios({
+    url: `/v1/competitions/${competitionId}/question-answers/submit`,
+    method: 'post',
+    data: fd
+  })
+}
+
+/**
+ * 赛后导出答案 zip（一键）：
+ * mode=by_team → 外层含「队伍ID.zip」；by_question → 外层含「第N题.zip」
+ */
+export function exportCompetitionQuestionAnswers (competitionId, mode) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/question-answers/export`,
+    method: 'get',
+    params: { mode },
+    responseType: 'blob',
+    timeout: 600000
   })
 }
 
@@ -198,6 +324,10 @@ export function enrollCompetition (payload) {
   const division = trimStr(raw.division)
   if (division === 'undergraduate' || division === 'vocational') {
     body.division = division
+  }
+  const workTrack = trimStr(raw.work_track)
+  if (workTrack === 'works' || workTrack === 'software' || workTrack === 'hardware') {
+    body.work_track = workTrack
   }
   const optionalKeys = ['student_no', 'real_name', 'college', 'grade', 'contact']
   for (const k of optionalKeys) {
@@ -447,6 +577,39 @@ export function downloadCompetitionSubmissionFile (submissionId) {
   })
 }
 
+/** 超级管理员：按组别上传/覆盖竞赛试卷（竞赛须已 published/closed） */
+export function uploadCompetitionExamPaper (competitionId, formData) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/exam-papers`,
+    method: 'post',
+    data: formData,
+    timeout: 600000
+  })
+}
+
+/** 查询竞赛各组别试卷是否已发布 */
+export function getCompetitionExamPapers (competitionId) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/exam-papers`,
+    method: 'get'
+  })
+}
+
+/** 下载已发布试卷（已报名学生 / 关联指导老师；dual 须传 division） */
+export function downloadCompetitionExamPaper (competitionId, options = {}) {
+  const params = {}
+  if (options.division != null && options.division !== '') {
+    params.division = options.division
+  }
+  return axios({
+    url: `/v1/competitions/${competitionId}/exam-papers/download`,
+    method: 'get',
+    params,
+    responseType: 'blob',
+    timeout: 600000
+  })
+}
+
 // 8.17 评分/审核（仅已核验且已指派 expert；权限 REVIEW_SUBMISSIONS）首次评分
 export function reviewCompetitionSubmissionGrade (submissionId, payload) {
   // payload: { score: number, feedback?: string }
@@ -538,11 +701,17 @@ export function getCompetitionExperts (competitionId) {
   })
 }
 
-// 8.0.7 管理员：指派专家（目标须 expert 且 expert_verified=true）
-export function assignCompetitionExpert (competitionId, expertUserId) {
+// 8.0.7 管理员：指派专家（目标须 expert 且 expert_verified=true；须传 team_ids）
+export function assignCompetitionExpert (competitionId, expertUserId, payload = {}) {
+  const body = payload && typeof payload === 'object' ? payload : {}
+  const teamIds = Array.isArray(body.team_ids) ? body.team_ids : (Array.isArray(payload) ? payload : [])
   return axios({
     url: `/v1/competitions/${encodeURIComponent(competitionId)}/experts/${encodeURIComponent(expertUserId)}`,
-    method: 'post'
+    method: 'post',
+    data: { team_ids: teamIds },
+    headers: {
+      'Content-Type': 'application/json'
+    }
   })
 }
 
@@ -584,8 +753,14 @@ export function getSchoolAdminApplicationPhoto () {
 export function listSchoolAdminApplications (options = {}) {
   const params = {}
   const status = options && options.status
-  if (status != null && String(status).trim() !== '') {
+  if (status != null && String(status).trim() !== '' && String(status).trim().toLowerCase() !== 'all') {
     params.status = String(status).trim()
+  } else if (status != null && String(status).trim().toLowerCase() === 'all') {
+    params.status = 'all'
+  }
+  const keyword = options && (options.keyword != null ? options.keyword : options.school)
+  if (keyword != null && String(keyword).trim() !== '') {
+    params.keyword = String(keyword).trim()
   }
   return axios({
     url: '/v1/competitions/admin/school-admin-applications',
@@ -619,8 +794,16 @@ export function reviewSchoolAdminApplication (userId, payload) {
 export function getSchoolAdminTeams (options = {}) {
   const params = {}
   const status = options && options.status
-  if (status != null && String(status).trim() !== '') {
+  if (status != null && String(status).trim() !== '' && String(status).trim().toLowerCase() !== 'all') {
     params.status = String(status).trim()
+  }
+  const school = options && options.school
+  if (school != null && String(school).trim() !== '') {
+    params.school = String(school).trim()
+  }
+  const username = options && options.username
+  if (username != null && String(username).trim() !== '') {
+    params.username = String(username).trim()
   }
   const competitionId = options && options.competition_id
   const cid = Number(competitionId)
@@ -634,11 +817,62 @@ export function getSchoolAdminTeams (options = {}) {
   })
 }
 
+// 超级管理员：全部学校组队校审列表
+export function listAdminTeamReviews (options = {}) {
+  const params = {}
+  const status = options && options.status
+  if (status != null && String(status).trim() !== '') {
+    params.status = String(status).trim()
+  }
+  const school = options && options.school
+  if (school != null && String(school).trim() !== '') {
+    params.school = String(school).trim()
+  }
+  const keyword = options && options.keyword
+  if (keyword != null && String(keyword).trim() !== '') {
+    params.keyword = String(keyword).trim()
+  }
+  const competitionId = options && options.competition_id
+  const cid = Number(competitionId)
+  if (Number.isFinite(cid) && cid > 0) {
+    params.competition_id = cid
+  }
+  return axios({
+    url: '/v1/competitions/admin/team-reviews',
+    method: 'get',
+    params
+  })
+}
+
 // 8.11.5.3 校管理员：审核队伍
 export function schoolReviewTeam (teamId, payload) {
   return axios({
     url: `/v1/competitions/teams/${encodeURIComponent(teamId)}/school-review`,
     method: 'put',
+    data: payload || {},
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+/** 校管代建队（直接已通过并报名） */
+export function schoolAdminProxyCreateTeam (payload) {
+  return axios({
+    url: '/v1/competitions/school-admin/proxy-teams',
+    method: 'post',
+    data: payload || {},
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+/** 校管补报名（队伍全员或个人） */
+export function schoolAdminProxyEnroll (payload) {
+  return axios({
+    url: '/v1/competitions/school-admin/proxy-enroll',
+    method: 'post',
     data: payload || {},
     headers: {
       'Content-Type': 'application/json'

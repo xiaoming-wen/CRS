@@ -466,6 +466,24 @@ class CompetitionDivision(str, Enum):
     VOCATIONAL = "vocational"
 
 
+class CompetitionWorkTrack(str, Enum):
+    WORKS = "works"
+    SOFTWARE = "software"
+    HARDWARE = "hardware"
+
+
+class CompetitionStage(str, Enum):
+    SINGLE = "single"
+    PRELIMINARY = "preliminary"
+    FINAL = "final"
+
+
+class CompetitionStageMode(str, Enum):
+    """创建竞赛时的赛程模式。"""
+    SINGLE = "single"
+    PRELIM_FINAL = "prelim_final"
+
+
 class CompetitionQrSlot(BaseModel):
     path: Optional[str] = None
     image_url: Optional[str] = None
@@ -475,6 +493,19 @@ class CompetitionQrCodes(BaseModel):
     shared: Optional[CompetitionQrSlot] = None
     undergraduate: Optional[CompetitionQrSlot] = None
     vocational: Optional[CompetitionQrSlot] = None
+
+
+class CompetitionExamPaperSlot(BaseModel):
+    published: bool = False
+    filename: Optional[str] = None
+    download_url: Optional[str] = None
+
+
+class CompetitionExamPapers(BaseModel):
+    """按组别试卷元信息（不暴露本地路径）。"""
+    default: Optional[CompetitionExamPaperSlot] = None
+    undergraduate: Optional[CompetitionExamPaperSlot] = None
+    vocational: Optional[CompetitionExamPaperSlot] = None
 
 
 class SubmissionStatus(str, Enum):
@@ -490,7 +521,7 @@ class CompetitionBase(BaseModel):
     rules_text: Optional[str] = None
     start_at: OptionalUtcDatetime = None
     end_at: OptionalUtcDatetime = None
-    allow_individual: bool = True
+    allow_individual: bool = False
     allow_team: bool = True
 
 
@@ -502,6 +533,18 @@ class CompetitionCreate(CompetitionBase):
     qr_layout: CompetitionQrLayout = Field(
         CompetitionQrLayout.SHARED,
         description="dual 时有效：shared=两组共用一个码；separate=各传一张",
+    )
+    stage_mode: CompetitionStageMode = Field(
+        CompetitionStageMode.SINGLE,
+        description="single=单阶段；prelim_final=一次创建初赛+决赛两场",
+    )
+    final_start_at: OptionalUtcDatetime = Field(
+        None,
+        description="stage_mode=prelim_final 时决赛开始时间",
+    )
+    final_end_at: OptionalUtcDatetime = Field(
+        None,
+        description="stage_mode=prelim_final 时决赛结束时间",
     )
 
 
@@ -516,6 +559,18 @@ class CompetitionUpdate(BaseModel):
     allow_team: Optional[bool] = None
     division_mode: Optional[CompetitionDivisionMode] = None
     qr_layout: Optional[CompetitionQrLayout] = None
+    stage_mode: Optional[CompetitionStageMode] = Field(
+        None,
+        description="single→prelim_final 可为单阶段竞赛补建决赛；已是初赛/决赛时不可改回 single",
+    )
+    final_start_at: OptionalUtcDatetime = Field(
+        None,
+        description="初赛竞赛：更新关联决赛的开始时间",
+    )
+    final_end_at: OptionalUtcDatetime = Field(
+        None,
+        description="初赛竞赛：更新关联决赛的结束时间",
+    )
 
 
 class CompetitionResponse(CompetitionBase):
@@ -525,6 +580,12 @@ class CompetitionResponse(CompetitionBase):
     updated_at: UtcDatetime
     division_mode: CompetitionDivisionMode = CompetitionDivisionMode.SINGLE
     qr_layout: CompetitionQrLayout = CompetitionQrLayout.SHARED
+    series_id: Optional[int] = Field(None, description="初赛/决赛同系列 ID")
+    stage: CompetitionStage = Field(
+        CompetitionStage.SINGLE,
+        description="single | preliminary | final",
+    )
+    paired_competition_id: Optional[int] = Field(None, description="对端竞赛 id")
     qr_code_path: Optional[str] = Field(None, description="共用/单组别二维码相对路径")
     qr_code_path_undergraduate: Optional[str] = Field(None, description="本科组二维码（dual+separate）")
     qr_code_path_vocational: Optional[str] = Field(None, description="高职组二维码（dual+separate）")
@@ -536,9 +597,68 @@ class CompetitionResponse(CompetitionBase):
         None,
         description="兼容字段：single 或 dual+shared 时的二维码 URL",
     )
+    exam_papers: Optional[CompetitionExamPapers] = Field(
+        None,
+        description="各组别试卷是否已发布及下载地址（元信息）",
+    )
 
     class Config:
         from_attributes = True
+
+
+class CompetitionPromotionCreate(BaseModel):
+    team_ids: List[int] = Field(default_factory=list, description="初赛队伍 id 列表")
+    student_ids: List[EightDigitAltUserId] = Field(
+        default_factory=list,
+        description="初赛个人赛道学生 id（可选）",
+    )
+
+
+class CompetitionPromotionImportItemResult(BaseModel):
+    row: int
+    team_id: Optional[int] = None
+    team_name: Optional[str] = None
+    status: str = Field(..., description="promoted / skipped / error")
+    detail: Optional[str] = None
+
+
+class CompetitionPromotionImportResult(BaseModel):
+    imported: int = 0
+    skipped: int = 0
+    failed: int = 0
+    items: List[CompetitionPromotionImportItemResult] = Field(default_factory=list)
+
+
+class CompetitionPromotionResponse(BaseModel):
+    id: int
+    from_competition_id: int
+    to_competition_id: int
+    source_team_id: Optional[int] = None
+    source_student_id: Optional[int] = None
+    final_team_id: Optional[int] = None
+    source_team_name: Optional[str] = None
+    final_team_name: Optional[str] = None
+    promoted_by: int
+    created_at: UtcDatetime
+
+    class Config:
+        from_attributes = True
+
+
+class CompetitionPromotionCandidateTeam(BaseModel):
+    team_id: int
+    name: Optional[str] = None
+    division: Optional[str] = None
+    work_track: Optional[str] = None
+    captain_id: int
+    status: str
+    already_promoted: bool = False
+
+
+class CompetitionPromotionCandidatesResponse(BaseModel):
+    from_competition_id: int
+    to_competition_id: int
+    teams: List[CompetitionPromotionCandidateTeam] = Field(default_factory=list)
 
 
 class CompetitionEnrollmentCreate(BaseModel):
@@ -547,7 +667,11 @@ class CompetitionEnrollmentCreate(BaseModel):
     team_id: Optional[int] = None
     division: Optional[CompetitionDivision] = Field(
         None,
-        description="学历组别；dual 竞赛必填（由详情页隐式传入）。undergraduate / vocational",
+        description="组别：报名时必选 undergraduate（本科）/ vocational（高职）",
+    )
+    work_track: Optional[CompetitionWorkTrack] = Field(
+        None,
+        description="赛道：报名时必选 works（作品）/ software（软件）/ hardware（硬件）",
     )
 
     # 参赛学生信息（报名时填写）
@@ -574,6 +698,10 @@ class CompetitionEnrollmentResponse(BaseModel):
     division: CompetitionDivision = Field(
         CompetitionDivision.DEFAULT,
         description="学历组别：default / undergraduate / vocational",
+    )
+    work_track: Optional[CompetitionWorkTrack] = Field(
+        None,
+        description="赛道 works / software / hardware",
     )
     is_captain: bool
 
@@ -625,7 +753,11 @@ class TeamCreate(BaseModel):
     competition_id: EightDigitCompetitionId
     division: Optional[CompetitionDivision] = Field(
         None,
-        description="学历组别；dual 竞赛必填，须与详情页所选组别一致",
+        description="组别：建队时必选 undergraduate（本科）/ vocational（高职）",
+    )
+    work_track: Optional[CompetitionWorkTrack] = Field(
+        None,
+        description="赛道：建队时必选 works（作品）/ software（软件）/ hardware（硬件）",
     )
     # 若不传/传空则由服务端逻辑创建成员并设为队长（学生自建队通常为本人）
     initial_member_ids: Optional[List[EightDigitAltUserId]] = None
@@ -650,6 +782,7 @@ class TeamResponse(BaseModel):
     competition_id: int
     name: Optional[str] = None
     division: CompetitionDivision = CompetitionDivision.DEFAULT
+    work_track: Optional[CompetitionWorkTrack] = None
     captain_id: int
     created_by_advisor_id: Optional[int] = Field(
         None,
@@ -765,6 +898,20 @@ class TeamParticipantDetailResponse(BaseModel):
     members: List[TeamMemberWithUserResponse] = Field(default_factory=list)
 
 
+class CompetitionExpertAssignedTeam(BaseModel):
+    """专家在某竞赛下被指派的队伍。"""
+
+    competition_id: int
+    team_id: int
+    team_name: Optional[str] = None
+
+
+class CompetitionExpertAssignRequest(BaseModel):
+    """指派专家到竞赛下的队伍（至少一支）。"""
+
+    team_ids: List[int] = Field(..., min_length=1, description="该竞赛下至少一支队伍 id")
+
+
 class CompetitionExpertListItem(BaseModel):
     """第二套帐号中 role=expert 的专家条目。"""
 
@@ -777,6 +924,10 @@ class CompetitionExpertListItem(BaseModel):
     assigned_competition_ids: List[int] = Field(
         default_factory=list,
         description="该专家已被指派的竞赛 id 列表（可多场；空列表表示尚未指派任何竞赛）",
+    )
+    assigned_teams: List[CompetitionExpertAssignedTeam] = Field(
+        default_factory=list,
+        description="该专家已被指派可评阅的队伍（按竞赛+队伍）",
     )
 
 
@@ -837,6 +988,58 @@ class TeamSchoolReviewResult(BaseModel):
     status: TeamStatus
     reviewed_at: OptionalUtcDatetime = None
     review_feedback: Optional[str] = None
+
+
+class SchoolAdminProxyTeamCreate(BaseModel):
+    """校管代建队：创建后直接 active，并为成员写入组队报名。"""
+
+    competition_id: EightDigitCompetitionId
+    team_name: Optional[str] = Field(None, max_length=200, description="队名")
+    captain_username: str = Field(..., min_length=1, max_length=100, description="队长学生用户名")
+    member_usernames: List[str] = Field(
+        ...,
+        min_length=1,
+        description="队员用户名列表（可含队长）；至少一名",
+    )
+    division: Optional[CompetitionDivision] = Field(
+        None,
+        description="组别：undergraduate / vocational",
+    )
+    work_track: Optional[CompetitionWorkTrack] = Field(
+        None,
+        description="赛道：works / software / hardware",
+    )
+    advisor_username: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="可选指导老师用户名",
+    )
+
+
+class SchoolAdminProxyEnrollRequest(BaseModel):
+    """校管代报名：队伍赛道传 team_id；个人赛道传 student_id。"""
+
+    competition_id: EightDigitCompetitionId
+    team_id: Optional[int] = Field(None, description="队伍赛道：为本校队伍全员补报名")
+    student_id: Optional[EightDigitAltUserId] = Field(
+        None,
+        description="个人赛道：为本校学生补个人报名",
+    )
+    division: Optional[CompetitionDivision] = Field(
+        None,
+        description="组别：undergraduate / vocational（个人报名必填；队伍报名沿用队伍组别）",
+    )
+    work_track: Optional[CompetitionWorkTrack] = Field(
+        None,
+        description="赛道：works / software / hardware（个人报名必填；队伍报名可沿用队伍赛道）",
+    )
+
+
+class SchoolAdminProxyEnrollResult(BaseModel):
+    competition_id: int
+    enrolled_count: int = 0
+    team_id: Optional[int] = None
+    student_ids: List[int] = Field(default_factory=list)
 
 
 class SchoolAdminApplicationStatus(str, Enum):
@@ -973,6 +1176,65 @@ class SubmissionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class CompetitionQuestionAnswerResponse(BaseModel):
+    id: int
+    competition_id: int
+    team_id: int
+    question_no: int = Field(..., ge=1, le=5, description="题号 1~5")
+    submitter_id: int
+    file_id: int
+    filename: Optional[str] = None
+    status: str = Field("draft", description="draft | submitted")
+    uploaded_at: UtcDatetime
+    submitted_at: OptionalUtcDatetime = None
+
+    class Config:
+        from_attributes = True
+
+
+class CompetitionQuestionAnswerSlot(BaseModel):
+    """前端展示用：每题一个上传槽位。"""
+
+    question_no: int
+    uploaded: bool = False
+    submitted: bool = False
+    answer: Optional[CompetitionQuestionAnswerResponse] = None
+
+
+class CompetitionQuestionAnswersBoard(BaseModel):
+    competition_id: int
+    team_id: int
+    question_count: int = 5
+    submitted_count: int = 0
+    draft_count: int = 0
+    slots: List[CompetitionQuestionAnswerSlot] = Field(default_factory=list)
+
+
+class CompetitionQuestionAnswersTeamOverview(BaseModel):
+    """管理员/专家：某队 5 题上传概览（仅含已正式提交的答案）。"""
+
+    team_id: int
+    team_name: Optional[str] = None
+    captain_id: Optional[int] = None
+    status: Optional[str] = None
+    uploaded_count: int = 0
+    question_count: int = 5
+    slots: List[CompetitionQuestionAnswerSlot] = Field(default_factory=list)
+
+
+class CompetitionQuestionAnswersOverviewResponse(BaseModel):
+    competition_id: int
+    question_count: int = 5
+    items: List[CompetitionQuestionAnswersTeamOverview] = Field(default_factory=list)
+
+
+class CompetitionQuestionAnswersSubmitResult(BaseModel):
+    competition_id: int
+    team_id: int
+    submitted_count: int
+    slots: List[CompetitionQuestionAnswerSlot] = Field(default_factory=list)
 
 
 class SubmissionListResponse(BaseModel):

@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import logging
+
 from sqlalchemy import text
+
+from app.db_compat import table_columns
 
 logger = logging.getLogger(__name__)
 
 
 def migrate_competition_division(engine) -> None:
     with engine.connect() as conn:
-        info = conn.execute(text("PRAGMA table_info(competitions)")).fetchall()
-        if info:
-            cols = {row[1] for row in info}
+        cols = table_columns(conn, "competitions")
+        if cols:
             for col, ddl in (
                 ("division_mode", "VARCHAR(20) NOT NULL DEFAULT 'single'"),
                 ("qr_layout", "VARCHAR(20) NOT NULL DEFAULT 'shared'"),
@@ -27,10 +29,9 @@ def migrate_competition_division(engine) -> None:
                         conn.rollback()
 
         for table in ("competition_enrollments", "teams", "submissions"):
-            tinfo = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
-            if not tinfo:
+            tcols = table_columns(conn, table)
+            if not tcols:
                 continue
-            tcols = {row[1] for row in tinfo}
             if "division" not in tcols:
                 try:
                     conn.execute(

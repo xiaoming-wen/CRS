@@ -9,6 +9,7 @@ from typing import Dict, Set
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from app.db_compat import disable_foreign_keys, enable_foreign_keys
 from app.eight_digit_id import (
     EIGHT_DIGIT_ID_MAX,
     EIGHT_DIGIT_ID_MIN,
@@ -63,7 +64,7 @@ def migrate_competition_ids_to_eight_digit(engine: Engine) -> None:
         if not mapping:
             return
         logger.info("Migrating %s competition id(s) to 8-digit format", len(mapping))
-        conn.execute(text("PRAGMA foreign_keys=OFF"))
+        disable_foreign_keys(conn)
         for old_id, new_id in mapping.items():
             for table, col in _COMPETITION_FK_COLUMNS:
                 if not conn.dialect.has_table(conn, table):
@@ -76,7 +77,7 @@ def migrate_competition_ids_to_eight_digit(engine: Engine) -> None:
                 text("UPDATE competitions SET id = :new WHERE id = :old"),
                 {"new": new_id, "old": old_id},
             )
-        conn.execute(text("PRAGMA foreign_keys=ON"))
+        enable_foreign_keys(conn)
         conn.commit()
 
 
@@ -91,7 +92,7 @@ def migrate_alt_user_ids_to_eight_digit(alt_engine: Engine, main_engine: Engine)
             return
         logger.info("Migrating %s alt_auth user id(s) to 8-digit format", len(mapping))
 
-        alt_conn.execute(text("PRAGMA foreign_keys=OFF"))
+        disable_foreign_keys(alt_conn)
         for old_id, new_id in mapping.items():
             alt_conn.execute(
                 text(
@@ -105,11 +106,11 @@ def migrate_alt_user_ids_to_eight_digit(alt_engine: Engine, main_engine: Engine)
                 text("UPDATE alt_auth_users SET id = :new WHERE id = :old"),
                 {"new": new_id, "old": old_id},
             )
-        alt_conn.execute(text("PRAGMA foreign_keys=ON"))
+        enable_foreign_keys(alt_conn)
         alt_conn.commit()
 
     with main_engine.connect() as conn:
-        conn.execute(text("PRAGMA foreign_keys=OFF"))
+        disable_foreign_keys(conn)
         for old_id, new_id in mapping.items():
             for table, col in _ALT_USER_FK_COLUMNS_MAIN:
                 if not conn.dialect.has_table(conn, table):
@@ -118,7 +119,7 @@ def migrate_alt_user_ids_to_eight_digit(alt_engine: Engine, main_engine: Engine)
                     text(f"UPDATE {table} SET {col} = :new WHERE {col} = :old"),
                     {"new": new_id, "old": old_id},
                 )
-        conn.execute(text("PRAGMA foreign_keys=ON"))
+        enable_foreign_keys(conn)
         conn.commit()
 
 

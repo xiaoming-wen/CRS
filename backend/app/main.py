@@ -3,16 +3,17 @@
 """
 import logging
 
-import uvicorn
 from dotenv import load_dotenv
+
+load_dotenv()
+
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.alt_auth.router import router as alt_identity_router
 from app.routers import competitions
-
-load_dotenv()
 
 app = FastAPI(
     title="Competition Registration System API",
@@ -56,6 +57,21 @@ async def startup_event():
     except Exception:
         pass
 
+    for ts in (
+        "ALTER TABLE competitions ADD COLUMN exam_paper_path VARCHAR(512)",
+        "ALTER TABLE competitions ADD COLUMN exam_paper_filename VARCHAR(255)",
+        "ALTER TABLE competitions ADD COLUMN exam_paper_path_undergraduate VARCHAR(512)",
+        "ALTER TABLE competitions ADD COLUMN exam_paper_filename_undergraduate VARCHAR(255)",
+        "ALTER TABLE competitions ADD COLUMN exam_paper_path_vocational VARCHAR(512)",
+        "ALTER TABLE competitions ADD COLUMN exam_paper_filename_vocational VARCHAR(255)",
+    ):
+        try:
+            with user_engine.connect() as conn:
+                conn.execute(text(ts))
+                conn.commit()
+        except Exception:
+            pass
+
     try:
         from app.competition_division_migrate import migrate_competition_division
 
@@ -83,6 +99,34 @@ async def startup_event():
         migrate_competition_team_join_requests(user_engine)
     except Exception as e:
         logging.getLogger(__name__).warning("Team join request migration skipped: %s", e)
+
+    try:
+        from app.competition_stage_migrate import migrate_competition_stage
+
+        migrate_competition_stage(user_engine)
+    except Exception as e:
+        logging.getLogger(__name__).warning("Competition stage migration skipped: %s", e)
+
+    try:
+        from app.competition_expert_team_migrate import migrate_competition_expert_team_assignments
+
+        migrate_competition_expert_team_assignments(user_engine)
+    except Exception as e:
+        logging.getLogger(__name__).warning("Expert team assignment migration skipped: %s", e)
+
+    for ts in (
+        "ALTER TABLE competition_question_answers ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft'",
+        "ALTER TABLE competition_question_answers ADD COLUMN submitted_at DATETIME NULL",
+        "ALTER TABLE competition_enrollments ADD COLUMN work_track VARCHAR(20) NULL",
+        "ALTER TABLE teams ADD COLUMN work_track VARCHAR(20) NULL",
+
+    ):
+        try:
+            with user_engine.connect() as conn:
+                conn.execute(text(ts))
+                conn.commit()
+        except Exception:
+            pass
 
     try:
         from app.alt_auth.bootstrap import setup_alt_auth_database

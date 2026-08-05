@@ -131,10 +131,11 @@ def test_login_admin():
         return False
 
 
-def ensure_alt_user(role: str, username: str, email: str, password: str = "admin123"):
+def ensure_alt_user(role: str, username: str, email: str = None, password: str = "admin123", phone: str = None):
     """
-    幂等：先第二套登录；失败则第二套注册再登录。
+    幂等：先第二套登录；失败则发短信验证码后注册再登录。
     返回的 user_id 为 alt_auth_users.id（竞赛 student_id 等同此 id）。
+    email 参数保留兼容旧调用，已忽略。
     """
     lr = requests.post(
         f"{ALT_URL}/session",
@@ -151,12 +152,36 @@ def ensure_alt_user(role: str, username: str, email: str, password: str = "admin
             "token": data.get("access_token"),
         }
 
+    # 由用户名生成稳定测试手机号，避免冲突
+    if not phone:
+        digits = "".join(c for c in username if c.isdigit())
+        base = int(digits[-8:] or "10000001") % 100000000
+        phone = f"139{base:08d}"
+
+    code_resp = requests.post(
+        f"{ALT_URL}/send-sms-code",
+        headers={"Content-Type": "application/json"},
+        json={"phone": phone, "purpose": "register"},
+        timeout=10,
+    )
+    if code_resp.status_code != 200:
+        return {"ok": False, "created": False, "detail": code_resp.text}
+    code_data = code_resp.json() or {}
+    sms_code = code_data.get("debug_code")
+    if not sms_code:
+        return {
+            "ok": False,
+            "created": False,
+            "detail": "send-sms-code 未返回 debug_code，请开启 ALIYUN_SMS_DEBUG=true",
+        }
+
     reg = requests.post(
         f"{ALT_URL}/register",
         headers={"Content-Type": "application/json"},
         json={
             "username": username,
-            "email": email,
+            "phone": phone,
+            "sms_code": sms_code,
             "full_name": username,
             "password": password,
             "role": role,
@@ -256,15 +281,8 @@ def run():
     if ex_patch.status_code != 200:
         print_result("管理员设置专家帐号", False, f"状态码: {ex_patch.status_code}", ex_patch.text)
         sys.exit(1)
-    ex_assign = requests.post(
-        f"{BASE_URL}/competitions/{comp_id}/experts/{expert_seed['user_id']}",
-        headers=get_headers(),
-        timeout=10,
-    )
-    if ex_assign.status_code not in (200, 201):
-        print_result("指派竞赛专家", False, f"状态码: {ex_assign.status_code}", ex_assign.text)
-        sys.exit(1)
-    print_result("指派竞赛专家", True, f"expert_user_id={expert_seed['user_id']}")
+    # 指派延后到创建队伍之后（须指定 team_ids）
+    print_result("管理员设置专家帐号", True, f"expert_user_id={expert_seed['user_id']}")
 
     # 2.5) 修改竞赛规则
     update_comp = requests.put(
@@ -379,6 +397,17 @@ def run():
         sys.exit(1)
     team_id = team.json().get("id")
     print_result("创建队伍（stu2 为队长）", True, f"team_id={team_id}", team.json())
+
+    ex_assign = requests.post(
+        f"{BASE_URL}/competitions/{comp_id}/experts/{expert_seed['user_id']}",
+        headers=get_headers(),
+        json={"team_ids": [team_id]},
+        timeout=10,
+    )
+    if ex_assign.status_code not in (200, 201):
+        print_result("指派竞赛专家", False, f"状态码: {ex_assign.status_code}", ex_assign.text)
+        sys.exit(1)
+    print_result("指派竞赛专家", True, f"expert_user_id={expert_seed['user_id']} team_id={team_id}")
 
     # 4) 队长退队必须先转让：stu2 是队长，直接 leave 应返回 400
     leave = requests.post(

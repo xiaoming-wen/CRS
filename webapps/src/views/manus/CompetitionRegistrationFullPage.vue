@@ -14,7 +14,11 @@
         </div>
 
         <div class="main">
-          <ManuAltIdentityPanel mode="embedded" @session-changed="onAltGateSessionChanged" />
+          <ManuAltIdentityPanel
+            mode="embedded"
+            @session-changed="onAltGateSessionChanged"
+            @switch-to-register="goToCompetitionRegister"
+          />
         </div>
 
         <div class="footer">
@@ -75,11 +79,16 @@
           <CompetitionSchoolAdminApplications
             v-else-if="currentSection === 'school-admin-applications' && isSuperAdmin && competitionBootstrapDone"
           />
+          <CompetitionSchoolAdminTeamReview
+            v-else-if="currentSection === 'admin-team-review' && isSuperAdmin && competitionBootstrapDone"
+            mode="super"
+          />
           <CompetitionSchoolAdminApplication
             v-else-if="currentSection === 'school-admin-application' && isSchoolAdmin && competitionBootstrapDone"
           />
           <CompetitionSchoolAdminTeamReview
             v-else-if="currentSection === 'school-admin-review' && isSchoolAdmin && competitionBootstrapDone"
+            mode="school"
           />
           <MyCompetitionEnrollments
             v-else-if="currentSection === 'my-enrollments' && isAltStudentAccount && competitionBootstrapDone"
@@ -115,6 +124,7 @@ import { sanitizeCompetitionReturnPath } from '@/utils/competitionAuthFlow'
 const SECTION_LIST = 'competition-list'
 const SECTION_EXPERTS = 'expert-assignment'
 const SECTION_SCHOOL_ADMIN_APPS = 'school-admin-applications'
+const SECTION_ADMIN_TEAM_REVIEW = 'admin-team-review'
 const SECTION_SCHOOL_ADMIN_APPLICATION = 'school-admin-application'
 const SECTION_SCHOOL_ADMIN_REVIEW = 'school-admin-review'
 const SECTION_MINE = 'my-enrollments'
@@ -168,6 +178,7 @@ export default {
         { key: SECTION_LIST, icon: 'unordered-list', title: '竞赛列表与报名', hideForSchoolAdmin: true },
         { key: SECTION_EXPERTS, icon: 'team', title: '专家指派', superAdminOnly: true },
         { key: SECTION_SCHOOL_ADMIN_APPS, icon: 'audit', title: '校管审核', superAdminOnly: true },
+        { key: SECTION_ADMIN_TEAM_REVIEW, icon: 'solution', title: '队伍校审', superAdminOnly: true },
         { key: SECTION_SCHOOL_ADMIN_APPLICATION, icon: 'idcard', title: '申请校管', schoolAdminOnly: true },
         { key: SECTION_SCHOOL_ADMIN_REVIEW, icon: 'audit', title: '校审', schoolAdminOnly: true },
         { key: SECTION_MINE, icon: 'solution', title: '我报名的竞赛', studentOnly: true }
@@ -271,6 +282,9 @@ export default {
           this.syncSectionWithCatalog()
         })
       }
+    },
+    goToCompetitionRegister () {
+      this.$router.push({ name: 'ManuVideoCompetitionRegister' }).catch(() => {})
     },
     /** 主站重新登录后经 redirectAfterAlt 进入本页：独立账号就绪后跳回原竞赛界面 */
     consumeRedirectAfterAltIfPresent () {

@@ -93,6 +93,7 @@ def setup_alt_auth_database(log: Optional[logging.Logger] = None) -> None:
         "ALTER TABLE alt_auth_users ADD COLUMN school_admin_review_feedback VARCHAR(2000)",
         "ALTER TABLE alt_auth_users ADD COLUMN school_admin_reviewed_at DATETIME",
         "ALTER TABLE alt_auth_users ADD COLUMN school_admin_reviewed_by_id INTEGER",
+        "ALTER TABLE alt_auth_users ADD COLUMN phone VARCHAR(20)",
     ):
         try:
             with alt_auth_engine.connect() as conn:
@@ -100,6 +101,17 @@ def setup_alt_auth_database(log: Optional[logging.Logger] = None) -> None:
                 conn.commit()
         except Exception:
             pass
+
+    try:
+        with alt_auth_engine.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_alt_auth_users_phone ON alt_auth_users (phone)"
+                )
+            )
+            conn.commit()
+    except Exception:
+        pass
 
     try:
         with alt_auth_engine.connect() as conn:

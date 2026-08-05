@@ -19,11 +19,48 @@
         </a-button>
       </div>
       <div v-else-if="showStandaloneStudentToolbar" class="detail-toolbar-right">
-        <a-button type="primary" ghost class="detail-toolbar-btn" @click="onToolbarEnroll">
-          报名
+        <a-button
+          v-if="showExamPaperDownloadToolbar"
+          type="primary"
+          ghost
+          class="detail-toolbar-btn"
+          :loading="examPaperToolbarLoading"
+          @click="onToolbarDownloadExamPaper"
+        >
+          下载试卷
         </a-button>
-        <a-button type="primary" ghost class="detail-toolbar-btn" @click="onToolbarWorks">
-          作品
+        <a-button
+          v-if="showEnrollToolbar"
+          type="primary"
+          ghost
+          class="detail-toolbar-btn"
+          @click="onToolbarEnroll"
+        >
+          {{ enrollToolbarLabel }}
+        </a-button>
+        <a-button
+          v-if="showSubmitWorksToolbar"
+          type="primary"
+          ghost
+          class="detail-toolbar-btn"
+          @click="onToolbarWorks"
+        >
+          提交作品
+        </a-button>
+        <a-button type="primary" ghost class="detail-toolbar-btn" @click="onToolbarLogout">
+          退出
+        </a-button>
+      </div>
+      <div v-else-if="showStandaloneAdvisorToolbar" class="detail-toolbar-right">
+        <a-button
+          v-if="showExamPaperDownloadToolbar"
+          type="primary"
+          ghost
+          class="detail-toolbar-btn"
+          :loading="examPaperToolbarLoading"
+          @click="onToolbarDownloadExamPaper"
+        >
+          下载试卷
         </a-button>
         <a-button type="primary" ghost class="detail-toolbar-btn" @click="onToolbarLogout">
           退出
@@ -46,6 +83,8 @@
       :share-guest-mode="shareGuestModeForChild"
       :initial-competition-id="numericId"
       :initial-view-division="initialViewDivision"
+      @exam-papers-changed="bumpToolbarIdentityTick"
+      @enroll-block-changed="onEnrollBlockChanged"
     />
 
     <a-modal
@@ -60,7 +99,11 @@
       <p class="standalone-auth-hint">
         请使用竞赛报名系统独立账号登录。登录后将根据您的角色（学生 / 指导老师等）展示相应功能。
       </p>
-      <ManuAltIdentityPanel mode="embedded" @session-changed="onLoginSuccess" />
+      <ManuAltIdentityPanel
+        mode="embedded"
+        @session-changed="onLoginSuccess"
+        @switch-to-register="openRegisterModal"
+      />
     </a-modal>
 
     <a-modal
@@ -110,7 +153,12 @@ export default {
       showLoginModal: false,
       showRegisterModal: false,
       /** 分享链接页：本会话内是否已通过弹窗登录 */
-      shareSessionActive: false
+      shareSessionActive: false,
+      examPaperToolbarLoading: false,
+      /** 子组件报名成功后同步，用于顶栏「提交作品」显示 */
+      childHasEnrollment: false,
+      /** 当前是否决赛阶段（决赛不显示报名入口） */
+      childIsFinalStage: false
     }
   },
   created () {
@@ -129,6 +177,23 @@ export default {
     bumpToolbarIdentityTick () {
       this.toolbarIdentityTick += 1
     },
+    onEnrollBlockChanged (payload) {
+      if (payload && typeof payload === 'object') {
+        this.childHasEnrollment = !!(
+          payload.hasAnyEnrollment ||
+          payload.myEnrolledTeam ||
+          payload.myEnrolledIndividual
+        )
+        this.childIsFinalStage = !!(payload.isFinal || payload.stage === 'final')
+      } else {
+        const c = this.$refs.registrationSys
+        this.childHasEnrollment = !!(
+          c && (c.hasAnyEnrollment || c.myEnrolledTeam || c.myEnrolledIndividual)
+        )
+        this.childIsFinalStage = !!(c && c.isActiveCompetitionFinal)
+      }
+      this.bumpToolbarIdentityTick()
+    },
     /** 分享链接（share=1）：首次进入清除本地独立账号，保证默认未登录 */
     initShareLinkGuestSession () {
       if (!this.isShareLink) return
@@ -145,7 +210,9 @@ export default {
     },
     openRegisterModal () {
       this.showLoginModal = false
-      this.showRegisterModal = true
+      this.$nextTick(() => {
+        this.showRegisterModal = true
+      })
     },
     switchToLoginFromRegister () {
       this.showRegisterModal = false
@@ -177,6 +244,7 @@ export default {
         this.shareSessionActive = false
       }
       clearAltIdentityStorage()
+      this.childHasEnrollment = false
       this.bumpToolbarIdentityTick()
       this.$message.success('已退出登录')
       this.$nextTick(() => {
@@ -197,6 +265,16 @@ export default {
       if (c && typeof c.openStandaloneMyWorksModal === 'function') {
         c.openStandaloneMyWorksModal()
       }
+    },
+    onToolbarDownloadExamPaper () {
+      const c = this.$refs.registrationSys
+      if (!c || typeof c.downloadActiveExamPaper !== 'function') return
+      this.examPaperToolbarLoading = true
+      Promise.resolve(c.downloadActiveExamPaper())
+        .catch(() => {})
+        .finally(() => {
+          this.examPaperToolbarLoading = false
+        })
     },
     goToCompetitionList () {
       const listHref = this.resolveCompetitionListHref()
@@ -325,11 +403,52 @@ export default {
     showStandaloneStudentToolbar () {
       return this.numericId != null && this.isCompetitionStudentRole
     },
+    showStandaloneAdvisorToolbar () {
+      return (
+        this.numericId != null &&
+        this.isAdvisorOrTeacherRole &&
+        !this.isCompetitionStudentRole &&
+        this.altLoggedIn
+      )
+    },
+    showExamPaperDownloadToolbar () {
+      void this.toolbarIdentityTick
+      const c = this.$refs.registrationSys
+      return !!(c && c.canShowExamPaperDownload)
+    },
+    /** 决赛不开放报名；已晋级可打开「我的队伍」查看信息 */
+    showEnrollToolbar () {
+      void this.toolbarIdentityTick
+      if (this.childIsFinalStage) {
+        return !!this.childHasEnrollment
+      }
+      const c = this.$refs.registrationSys
+      if (c && c.isActiveCompetitionFinal) {
+        return !!(c.hasAnyEnrollment || c.myEnrolledTeam)
+      }
+      return true
+    },
+    enrollToolbarLabel () {
+      void this.toolbarIdentityTick
+      if (this.childIsFinalStage || (this.$refs.registrationSys && this.$refs.registrationSys.isActiveCompetitionFinal)) {
+        return '我的队伍'
+      }
+      return '报名'
+    },
+    /** 报名成功后才显示「提交作品」 */
+    showSubmitWorksToolbar () {
+      void this.toolbarIdentityTick
+      if (this.childHasEnrollment) return true
+      const c = this.$refs.registrationSys
+      if (!c) return false
+      return !!(c.hasAnyEnrollment || c.myEnrolledTeam || c.myEnrolledIndividual)
+    },
     showDetailTopBar () {
       return (
         this.showStandaloneBackButton ||
         this.showStandaloneGuestToolbar ||
-        this.showStandaloneStudentToolbar
+        this.showStandaloneStudentToolbar ||
+        this.showStandaloneAdvisorToolbar
       )
     }
   }
@@ -367,6 +486,23 @@ export default {
 
 .detail-toolbar-btn {
   height: 32px;
+  color: #fff !important;
+  background: #1a1843 !important;
+  border-color: #1a1843 !important;
+  text-shadow: none;
+}
+
+.detail-toolbar-btn:hover,
+.detail-toolbar-btn:focus {
+  color: #fff !important;
+  background: #24225a !important;
+  border-color: #24225a !important;
+}
+
+.detail-toolbar-btn:active {
+  color: #fff !important;
+  background: #100e2e !important;
+  border-color: #100e2e !important;
 }
 
 .back-to-list-btn {

@@ -30,6 +30,20 @@ class CompetitionDivision(str):
     VOCATIONAL = "vocational"
 
 
+class CompetitionWorkTrack(str):
+    """报名赛道（作品类型）。"""
+    WORKS = "works"
+    SOFTWARE = "software"
+    HARDWARE = "hardware"
+
+
+class CompetitionStage(str):
+    """赛程阶段：单阶段 / 初赛 / 决赛。"""
+    SINGLE = "single"
+    PRELIMINARY = "preliminary"
+    FINAL = "final"
+
+
 class Competition(Base):
     __tablename__ = "competitions"
 
@@ -42,7 +56,7 @@ class Competition(Base):
     start_at = Column(DateTime, nullable=True)
     end_at = Column(DateTime, nullable=True)
 
-    allow_individual = Column(Boolean, default=True, nullable=False)
+    allow_individual = Column(Boolean, default=False, nullable=False)
     allow_team = Column(Boolean, default=True, nullable=False)
 
     division_mode = Column(
@@ -56,15 +70,67 @@ class Competition(Base):
         nullable=False,
     )
 
+    # 初赛/决赛关联：同系列共享 series_id；单阶段 stage=single
+    series_id = Column(Integer, nullable=True, index=True, comment="初赛/决赛同系列 ID")
+    stage = Column(
+        String(20),
+        default=CompetitionStage.SINGLE,
+        nullable=False,
+        comment="single | preliminary | final",
+    )
+    paired_competition_id = Column(
+        Integer,
+        nullable=True,
+        index=True,
+        comment="对端竞赛 id（初赛↔决赛）",
+    )
+
     qr_code_path = Column(String(512), nullable=True)
     qr_code_path_undergraduate = Column(String(512), nullable=True)
     qr_code_path_vocational = Column(String(512), nullable=True)
+
+    # 竞赛试卷（上传即发布；dual 时本科/高职各一份）
+    exam_paper_path = Column(String(512), nullable=True)
+    exam_paper_filename = Column(String(255), nullable=True)
+    exam_paper_path_undergraduate = Column(String(512), nullable=True)
+    exam_paper_filename_undergraduate = Column(String(255), nullable=True)
+    exam_paper_path_vocational = Column(String(512), nullable=True)
+    exam_paper_filename_vocational = Column(String(255), nullable=True)
 
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     teams = relationship("Team", back_populates="competition")
     enrollments = relationship("CompetitionEnrollment", back_populates="competition")
+
+
+class CompetitionPromotion(Base):
+    """初赛队伍/个人晋级到决赛的手动晋级记录。"""
+
+    __tablename__ = "competition_promotions"
+    __table_args__ = (
+        UniqueConstraint(
+            "to_competition_id",
+            "source_team_id",
+            name="uq_promo_final_source_team",
+        ),
+        UniqueConstraint(
+            "to_competition_id",
+            "source_student_id",
+            name="uq_promo_final_source_student",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    from_competition_id = Column(Integer, ForeignKey("competitions.id"), nullable=False, index=True)
+    to_competition_id = Column(Integer, ForeignKey("competitions.id"), nullable=False, index=True)
+    # 初赛来源（二选一）
+    source_team_id = Column(Integer, ForeignKey("teams.id"), nullable=True, index=True)
+    source_student_id = Column(Integer, nullable=True, index=True, comment="初赛个人赛道学生 alt id")
+    # 晋级后在决赛侧自动创建的队伍（组队晋级时）
+    final_team_id = Column(Integer, ForeignKey("teams.id"), nullable=True, index=True)
+    promoted_by = Column(Integer, nullable=False, index=True, comment="操作人 alt_auth_users.id")
+    created_at = Column(DateTime, default=utc_now)
 
 
 class CompetitionEnrollmentStatus(str):
@@ -112,6 +178,11 @@ class CompetitionEnrollment(Base):
         nullable=False,
         comment="学历组别：default / undergraduate / vocational",
     )
+    work_track = Column(
+        String(20),
+        nullable=True,
+        comment="赛道：works / software / hardware",
+    )
 
     is_captain = Column(Boolean, default=False, nullable=False)
 
@@ -157,6 +228,11 @@ class Team(Base):
         default=CompetitionDivision.DEFAULT,
         nullable=False,
         comment="队伍所属学历组别",
+    )
+    work_track = Column(
+        String(20),
+        nullable=True,
+        comment="赛道：works / software / hardware",
     )
 
     status = Column(String(30), default=TeamStatus.PENDING_SCHOOL_REVIEW, nullable=False)
@@ -218,6 +294,52 @@ class SubmissionStatus(str):
     REJECTED = "rejected"
 
 
+# 每场竞赛固定 5 道题，队员分题上传答案
+COMPETITION_QUESTION_COUNT = 5
+
+
+class CompetitionQuestionAnswerStatus(str):
+    DRAFT = "draft"  # 已选文件，尚未点「上传作品」
+    SUBMITTED = "submitted"  # 已正式提交，管理员/专家可见
+
+
+class CompetitionQuestionAnswer(Base):
+    """
+    队伍某道题的答案文件（每队每题至多一条，重新上传覆盖）。
+    submitter_id 为实际上传的队员 alt_auth_users.id。
+    status=draft 时仅本队可见；点「上传作品」后变为 submitted，管理员/专家列表才显示。
+    """
+
+    __tablename__ = "competition_question_answers"
+    __table_args__ = (
+        UniqueConstraint(
+            "competition_id",
+            "team_id",
+            "question_no",
+            name="uq_competition_team_question_answer",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    competition_id = Column(Integer, ForeignKey("competitions.id"), nullable=False, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    question_no = Column(Integer, nullable=False, comment="题号 1~5")
+    submitter_id = Column(Integer, nullable=False, index=True, comment="上传者 alt_auth_users.id")
+    file_id = Column(Integer, ForeignKey("files.id"), nullable=False)
+    status = Column(
+        String(20),
+        default=CompetitionQuestionAnswerStatus.DRAFT,
+        nullable=False,
+        index=True,
+        comment="draft | submitted",
+    )
+    uploaded_at = Column(DateTime, default=utc_now, nullable=False)
+    submitted_at = Column(DateTime, nullable=True, comment="正式提交时间")
+
+    competition = relationship("Competition")
+    team = relationship("Team")
+
+
 class Submission(Base):
     __tablename__ = "submissions"
     __table_args__ = (
@@ -273,7 +395,7 @@ class Review(Base):
 
 class CompetitionExpertAssignment(Base):
     """
-    管理员为某竞赛指派的评委专家（仅被指派的 expert_verified 专家可批改该赛作品）。
+    管理员为某竞赛指派的评委专家（竞赛级入口；可评队伍以 CompetitionExpertTeamAssignment 为准）。
     """
 
     __tablename__ = "competition_expert_assignments"
@@ -282,4 +404,27 @@ class CompetitionExpertAssignment(Base):
     id = Column(Integer, primary_key=True, index=True)
     competition_id = Column(Integer, ForeignKey("competitions.id"), nullable=False, index=True)
     expert_id = Column(Integer, nullable=False, index=True)
+    created_at = Column(DateTime, default=utc_now)
+
+
+class CompetitionExpertTeamAssignment(Base):
+    """
+    专家在某竞赛下可评阅的队伍（须同时存在竞赛级 CompetitionExpertAssignment）。
+    无队伍指派时专家不可评任何队。
+    """
+
+    __tablename__ = "competition_expert_team_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "competition_id",
+            "expert_id",
+            "team_id",
+            name="uq_competition_expert_team",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    competition_id = Column(Integer, ForeignKey("competitions.id"), nullable=False, index=True)
+    expert_id = Column(Integer, nullable=False, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=utc_now)

@@ -13,11 +13,19 @@
           style="width: 160px; margin-right: 8px"
           @change="loadApplications"
         >
+          <a-select-option value="all">所有</a-select-option>
           <a-select-option value="pending">待审核</a-select-option>
           <a-select-option value="approved">已通过</a-select-option>
           <a-select-option value="rejected">已驳回</a-select-option>
           <a-select-option value="not_submitted">未提交</a-select-option>
         </a-select>
+        <a-input-search
+          v-model="searchKeyword"
+          allow-clear
+          placeholder="用户ID / 用户名 / 姓名 / 学校"
+          style="width: 280px; margin-right: 8px"
+          @search="onSearch"
+        />
         <a-button :loading="listLoading" @click="loadApplications">刷新</a-button>
       </div>
 
@@ -124,7 +132,8 @@ export default {
   name: 'CompetitionSchoolAdminApplications',
   data () {
     return {
-      statusFilter: 'pending',
+      statusFilter: 'all',
+      searchKeyword: '',
       listLoading: false,
       applicationItems: [],
       reviewLoadingId: null,
@@ -154,10 +163,13 @@ export default {
       ]
     },
     tableData () {
-      return (this.applicationItems || []).map(row => ({
+      const kw = (this.searchKeyword || '').trim().toLowerCase()
+      const rows = (this.applicationItems || []).map(row => ({
         ...row,
         key: `app-${row.user_id}`
       }))
+      if (!kw) return rows
+      return rows.filter((row) => this.rowMatchesKeyword(row, kw))
     }
   },
   mounted () {
@@ -191,6 +203,23 @@ export default {
     statusColor (status) {
       return (STATUS_MAP[status] || { color: 'default' }).color
     },
+    onSearch (value) {
+      if (value !== undefined && value !== null) {
+        this.searchKeyword = String(value)
+      }
+      void this.loadApplications()
+    },
+    rowMatchesKeyword (row, kw) {
+      if (!row || !kw) return true
+      const userId = row.user_id != null ? String(row.user_id) : ''
+      const username = row.username != null ? String(row.username) : ''
+      const fullName = row.full_name != null ? String(row.full_name) : ''
+      const school = row.school != null ? String(row.school) : ''
+      const fields = [userId, username, fullName, school]
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s && s !== '—')
+      return fields.some((s) => s.indexOf(kw) >= 0)
+    },
     parseList (res) {
       if (!res) return []
       const items = Array.isArray(res) ? res : (Array.isArray(res.items) ? res.items : [])
@@ -215,7 +244,10 @@ export default {
     async loadApplications () {
       this.listLoading = true
       try {
-        const res = await listSchoolAdminApplications({ status: this.statusFilter })
+        const res = await listSchoolAdminApplications({
+          status: this.statusFilter,
+          keyword: (this.searchKeyword || '').trim() || undefined
+        })
         this.applicationItems = this.parseList(res)
       } catch (e) {
         this.applicationItems = []

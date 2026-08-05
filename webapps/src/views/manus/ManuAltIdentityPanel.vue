@@ -49,11 +49,13 @@
               </a-form-item>
               <a-form-item>
                 <a-checkbox v-model="rememberMe">自动登录</a-checkbox>
-                <router-link
-                  :to="{ name: 'ManuVideoCompetitionRegister' }"
+                <a-button
+                  type="link"
+                  html-type="button"
                   class="register-link"
-                  style="float: right;"
-                >注册</router-link>
+                  style="float: right; height: auto; line-height: 1.5; padding: 0;"
+                  @click.stop.prevent="onRegisterClick"
+                >注册</a-button>
               </a-form-item>
               <a-form-item class="login-submit-item">
                 <a-button
@@ -169,6 +171,14 @@ export default {
       this.handleAltLogin()
     },
 
+    onRegisterClick () {
+      if (this.mode === 'embedded') {
+        this.$emit('switch-to-register')
+        return
+      }
+      this.$router.push({ name: 'ManuVideoCompetitionRegister' }).catch(() => {})
+    },
+
     async handleAltLogin () {
       const u = validateUsername(this.loginForm.username)
       if (!u.ok) {
@@ -275,11 +285,12 @@ export default {
 
   .register-link {
     font-size: 14px;
-    color: #1890ff;
+    color: #1890ff !important;
     text-decoration: none;
 
     &:hover {
       text-decoration: underline;
+      color: #40a9ff !important;
     }
   }
 

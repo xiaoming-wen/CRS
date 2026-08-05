@@ -20,9 +20,15 @@ class Settings:
     # 设为 UTC 或留空则输出带 Z 的 UTC；国内直连展示可保留默认 Asia/Shanghai。
     API_RESPONSE_DATETIME_TZ: str = os.getenv("API_RESPONSE_DATETIME_TZ", "Asia/Shanghai")
     
-    # Databases
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./user_management.db")
-    CONVERT_URL_DATABASE_URL: str = os.getenv("CONVERT_URL_DATABASE_URL", "sqlite:///./videos.db")
+    # Databases（默认 MySQL；本地开发也可改回 sqlite:///./xxx.db）
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL",
+        "mysql+pymysql://root:root@127.0.0.1:3306/competition_user?charset=utf8mb4",
+    )
+    CONVERT_URL_DATABASE_URL: str = os.getenv(
+        "CONVERT_URL_DATABASE_URL",
+        "mysql+pymysql://root:root@127.0.0.1:3306/competition_videos?charset=utf8mb4",
+    )
 
     # llmfactory 微调集成
     # 指向 llmfactory 仓库根目录（须含 src/FactoryBackend）；不设置时自动查找 llm_AIO/llmfactory 或同级 llmfactory

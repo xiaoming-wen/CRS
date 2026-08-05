@@ -35,15 +35,57 @@
       <a-form-item>
         <a-input
           size="large"
-          type="email"
-          placeholder="请输入邮箱"
+          type="tel"
+          maxlength="11"
+          placeholder="请输入手机号"
           v-decorator="[
-            'email',
-            { rules: [{ required: true, message: '请输入邮箱' }, { type: 'email', message: '请输入正确的邮箱地址' }], validateTrigger: 'change' }
+            'phone',
+            {
+              rules: [
+                { required: true, message: '请输入手机号' },
+                { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的11位手机号' }
+              ],
+              validateTrigger: 'change'
+            }
           ]"
         >
-          <a-icon slot="prefix" type="mail" :style="{ color: 'rgba(0,0,0,.25)' }" />
+          <a-icon slot="prefix" type="mobile" :style="{ color: 'rgba(0,0,0,.25)' }" />
         </a-input>
+      </a-form-item>
+
+            <a-form-item>
+        <a-row :gutter="8">
+          <a-col :span="15">
+            <a-input
+              size="large"
+              maxlength="8"
+              placeholder="请输入短信验证码"
+              v-decorator="[
+                'sms_code',
+                {
+                  rules: [
+                    { required: true, message: '请输入短信验证码' },
+                    { pattern: /^\d{4,8}$/, message: '验证码为4-8位数字' }
+                  ],
+                  validateTrigger: 'change'
+                }
+              ]"
+            >
+              <a-icon slot="prefix" type="safety-certificate" :style="{ color: 'rgba(0,0,0,.25)' }" />
+            </a-input>
+          </a-col>
+          <a-col :span="9">
+            <a-button
+              size="large"
+              block
+              :loading="state.smsSending"
+              :disabled="state.smsCountdown > 0"
+              @click="handleSendSmsCode"
+            >
+              {{ smsCodeButtonText }}
+            </a-button>
+          </a-col>
+        </a-row>
       </a-form-item>
 
       <a-form-item>
@@ -218,7 +260,7 @@
 </template>
 
 <script>
-import { altIdentityRegister } from '@/api/altIdentity'
+import { altIdentityRegister, altIdentitySendSmsCode } from '@/api/altIdentity'
 import { showRegisterConflictModal, extractRegisterError } from '@/utils/registerConflict'
 import {
   PROVINCE_OPTIONS,
@@ -248,8 +290,11 @@ export default {
       },
       form: this.$form.createForm(this),
       state: {
-        registerBtn: false
-      }
+        registerBtn: false,
+        smsSending: false,
+        smsCooldown: 0
+      },
+      _smsTimer: null
     }
   },
   computed: {
@@ -257,11 +302,64 @@ export default {
       if (!this.selectedProvince) return '请先选择省份'
       if (!this.schoolSearchKeyword) return '请输入关键字搜索学校'
       return '未找到匹配学校'
+    },
+    smsCodeButtonText () {
+      if (this.state.smsCooldown > 0) return `${this.state.smsCooldown}s`
+      return '获取验证码'
+    }
+  },
+  beforeDestroy () {
+    if (this._smsTimer) {
+      clearInterval(this._smsTimer)
+      this._smsTimer = null
     }
   },
   methods: {
     isAdvisorRegisterRole (role) {
       return role === 'advisor' || role === 'teacher'
+    },
+    startSmsCooldown (seconds) {
+      const sec = Math.max(1, Number(seconds) || 60)
+      if (this._smsTimer) {
+        clearInterval(this._smsTimer)
+        this._smsTimer = null
+      }
+      this.state.smsCooldown = sec
+      this._smsTimer = setInterval(() => {
+        if (this.state.smsCooldown <= 1) {
+          this.state.smsCooldown = 0
+          clearInterval(this._smsTimer)
+          this._smsTimer = null
+          return
+        }
+        this.state.smsCooldown -= 1
+      }, 1000)
+    },
+    handleSendSmsCode () {
+      if (this.state.smsSending || this.state.smsCooldown > 0) return
+      this.form.validateFields(['phone'], { force: true }, (err, values) => {
+        if (err) return
+        const phone = String((values && values.phone) || '').trim()
+        this.state.smsSending = true
+        altIdentitySendSmsCode({ phone, purpose: 'register' })
+          .then((res) => {
+            const cooldown = (res && res.cooldown_seconds != null) ? Number(res.cooldown_seconds) : 60
+            this.startSmsCooldown(cooldown)
+            if (res && res.debug_code) {
+              this.form.setFieldsValue({ sms_code: String(res.debug_code) })
+              this.$message.success(`验证码已发送（调试：${res.debug_code}）`)
+            } else {
+              this.$message.success((res && res.message) || '验证码已发送')
+            }
+          })
+          .catch((e) => {
+            const msg = extractRegisterError(e) || (e && e.message) || '发送失败'
+            this.$message.error(msg)
+          })
+          .finally(() => {
+            this.state.smsSending = false
+          })
+      })
     },
     handleRoleChange () {
       this.$nextTick(() => {
@@ -337,7 +435,7 @@ export default {
       const { validateFields } = this.form
       this.state.registerBtn = true
 
-      const validateFieldsKey = ['username', 'email', 'full_name', 'register_province', 'school', 'role', 'password', 'confirmPassword']
+      const validateFieldsKey = ['username', 'phone', 'sms_code', 'full_name', 'register_province', 'school', 'role', 'password', 'confirmPassword']
       const currentRole = this.form.getFieldValue('role')
       if (currentRole === 'student') {
         validateFieldsKey.push('student_id')
@@ -355,7 +453,8 @@ export default {
 
         const registerParams = {
           username: values.username,
-          email: values.email,
+          phone: values.phone,
+          sms_code: values.sms_code,
           full_name: values.full_name,
           school: (values.school || '').trim(),
           password: values.password,

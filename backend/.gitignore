@@ -41,3 +41,8 @@ competition_qr_codes/
 
 # 第二套独立认证库（可按需改为远端 DB 后不忽略）
 alt_auth.db
+
+competition_exam_papers/
+competition_question_answers/
+competition_submissions/
+school_admin_applications/

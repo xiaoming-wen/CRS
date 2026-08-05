@@ -1,25 +1,65 @@
 """
-第二套认证请求/响应：与主站 ``UserCreate`` / ``UserLogin`` / ``Token`` 字段对齐，
-注册体在相同字段基础上 **增加必填** ``school``。
+第二套认证请求/响应：注册以手机号 + 短信验证码为主（不再要求邮箱）。
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas import UserRole
+
+_CN_MOBILE_RE = re.compile(r"^1[3-9]\d{9}$")
+
+
+def normalize_cn_mobile(raw: str) -> str:
+    s = str(raw or "").strip().replace(" ", "").replace("-", "")
+    if s.startswith("+86"):
+        s = s[3:]
+    if s.startswith("86") and len(s) == 13:
+        s = s[2:]
+    return s
+
+
+class AltAuthSendSmsCodePayload(BaseModel):
+    phone: str = Field(..., min_length=11, max_length=20, description="中国大陆手机号")
+    purpose: str = Field("register", description="用途：目前支持 register")
+
+    @field_validator("phone")
+    @classmethod
+    def phone_cn_mobile(cls, v: str) -> str:
+        s = normalize_cn_mobile(v)
+        if not _CN_MOBILE_RE.match(s):
+            raise ValueError("请输入正确的11位手机号")
+        return s
+
+    @field_validator("purpose")
+    @classmethod
+    def purpose_allowed(cls, v: str) -> str:
+        s = (v or "register").strip().lower() or "register"
+        if s != "register":
+            raise ValueError("purpose 仅支持 register")
+        return s
+
+
+class AltAuthSendSmsCodeResult(BaseModel):
+    ok: bool = True
+    message: str = "验证码已发送"
+    cooldown_seconds: int = 60
+    # 仅 ALIYUN_SMS_DEBUG=true 时可能返回，便于联调
+    debug_code: Optional[str] = None
 
 
 class AltAuthRegisterPayload(BaseModel):
     """
-    对齐 ``UserCreate``，并增加 ``school``。
-    密码规则与主站一致：`min_length=6`（无额外强度策略）。
+    手机号注册：须先调用 send-sms-code。
     """
 
     username: str = Field(..., min_length=1, max_length=100)
-    email: EmailStr
+    phone: str = Field(..., min_length=11, max_length=20)
+    sms_code: str = Field(..., min_length=4, max_length=8, description="短信验证码")
     full_name: Optional[str] = None
     password: str = Field(..., min_length=6, max_length=128)
     role: UserRole
@@ -38,6 +78,22 @@ class AltAuthRegisterPayload(BaseModel):
         s = str(v).strip()
         if not s:
             raise ValueError("用户名不能为空")
+        return s
+
+    @field_validator("phone")
+    @classmethod
+    def phone_cn_mobile(cls, v: str) -> str:
+        s = normalize_cn_mobile(v)
+        if not _CN_MOBILE_RE.match(s):
+            raise ValueError("请输入正确的11位手机号")
+        return s
+
+    @field_validator("sms_code")
+    @classmethod
+    def sms_code_digits(cls, v: str) -> str:
+        s = str(v or "").strip()
+        if not s or not s.isdigit():
+            raise ValueError("验证码格式不正确")
         return s
 
     @field_validator("password")
@@ -80,7 +136,7 @@ class AltAuthRegisterPayload(BaseModel):
 
 
 class AltAuthLoginPayload(BaseModel):
-    """对齐 ``UserLogin``：用户名 + 密码。"""
+    """对齐 UserLogin：用户名 + 密码。"""
 
     username: str = Field(..., min_length=1, max_length=100)
     password: str = Field(..., min_length=1, max_length=128)
@@ -95,11 +151,10 @@ class AltAuthLoginPayload(BaseModel):
 
 
 class AltAuthRegisterResult(BaseModel):
-    """对齐 ``UserResponse`` 主要字段 + ``school``。"""
-
     id: int
     username: str
-    email: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
     full_name: Optional[str] = None
     role: str
     is_active: bool = True
@@ -116,10 +171,6 @@ class AltAuthRegisterResult(BaseModel):
 
 
 class AltAuthLoginResult(BaseModel):
-    """
-    对齐主站 ``Token``，并 **额外返回** ``school``（可选，历史用户可能无学校）。
-    """
-
     access_token: str
     token_type: str = "bearer"
     user_id: int
@@ -128,12 +179,17 @@ class AltAuthLoginResult(BaseModel):
     school: Optional[str] = None
 
 
-class AltAuthProfileResponse(BaseModel):
-    """当前用户 + 权限展开（主站 `/auth/me` 无 permissions 字段）。"""
+class AltAuthAssignedTeam(BaseModel):
+    competition_id: int
+    team_id: int
+    team_name: Optional[str] = None
 
+
+class AltAuthProfileResponse(BaseModel):
     id: int
     username: Optional[str] = None
     email: Optional[str] = None
+    phone: Optional[str] = None
     full_name: Optional[str] = None
     role: str
     is_active: bool
@@ -156,5 +212,9 @@ class AltAuthProfileResponse(BaseModel):
     assigned_competition_ids: List[int] = Field(
         default_factory=list,
         description="专家已被指派的竞赛 id；非 expert 或尚未指派时为 []",
+    )
+    assigned_teams: List[AltAuthAssignedTeam] = Field(
+        default_factory=list,
+        description="专家可评阅的队伍列表",
     )
     effective_permissions: list[str]

@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import logging
+
 from sqlalchemy import text
+
+from app.db_compat import table_columns
 
 logger = logging.getLogger(__name__)
 
 
 def migrate_competition_team_review(engine) -> None:
     with engine.connect() as conn:
-        info = conn.execute(text("PRAGMA table_info(teams)")).fetchall()
-        if not info:
+        cols = table_columns(conn, "teams")
+        if not cols:
             return
-        cols = {row[1] for row in info}
         for col, ddl in (
             ("school", "VARCHAR(200)"),
             ("reviewed_by_id", "INTEGER"),

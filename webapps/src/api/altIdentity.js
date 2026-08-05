@@ -39,12 +39,26 @@ function unwrapError (resp) {
 
 /**
  * 8.0.1 注册 POST /api/alt-identity/register
- * body 与主站注册字段对齐，并含 school（学校名称）。
- * role：`student` | `advisor` | `teacher` | `expert` | `school_admin`（专家须管理员 §8.0.6 核验；校管须 §8.11.5 资料审核）；`super_admin` 不可自助注册。
+ * body：username、phone、sms_code、password、role、school 等（不再要求 email）。
+ * role：`student` | `advisor` | `teacher` | `expert` | `school_admin`；`super_admin` 不可自助注册。
  */
 export async function altIdentityRegister (body) {
   try {
     return await altClient.post('alt-identity/register', body, {
+      headers: { 'Content-Type': 'application/json' }
+    })
+  } catch (e) {
+    throw unwrapError(e)
+  }
+}
+
+/**
+ * 发送注册短信验证码 POST /api/alt-identity/send-sms-code
+ * body：{ phone, purpose?: 'register' }
+ */
+export async function altIdentitySendSmsCode (body) {
+  try {
+    return await altClient.post('alt-identity/send-sms-code', body || {}, {
       headers: { 'Content-Type': 'application/json' }
     })
   } catch (e) {
@@ -138,6 +152,23 @@ function normalizeAssignedCompetitionIds (raw) {
   return [...new Set(ids)]
 }
 
+function normalizeAssignedTeams (raw) {
+  const list = Array.isArray(raw) ? raw : []
+  const out = []
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue
+    const competitionId = Number(item.competition_id != null ? item.competition_id : item.competitionId)
+    const teamId = Number(item.team_id != null ? item.team_id : item.teamId)
+    if (!Number.isFinite(competitionId) || !Number.isFinite(teamId)) continue
+    out.push({
+      competition_id: competitionId,
+      team_id: teamId,
+      team_name: item.team_name != null ? item.team_name : (item.teamName != null ? item.teamName : null)
+    })
+  }
+  return out
+}
+
 export function applyAltIdentityMeToStorage (me) {
   if (!me || typeof me !== 'object') return
   const prev = getAltProfileFromStorage()
@@ -145,11 +176,16 @@ export function applyAltIdentityMeToStorage (me) {
     me.assigned_competition_ids != null
       ? me.assigned_competition_ids
       : (me.assignedCompetitionIds != null ? me.assignedCompetitionIds : prev.assigned_competition_ids)
+  const assignedTeamsRaw =
+    me.assigned_teams != null
+      ? me.assigned_teams
+      : (me.assignedTeams != null ? me.assignedTeams : prev.assigned_teams)
   const profile = {
     ...prev,
     user_id: me.id != null ? me.id : (me.user_id != null ? me.user_id : prev.user_id),
     username: me.username != null ? me.username : prev.username,
     email: me.email != null ? me.email : prev.email,
+    phone: me.phone != null ? me.phone : prev.phone,
     full_name: me.full_name != null ? me.full_name : prev.full_name,
     role: me.role != null ? me.role : prev.role,
     school: me.school !== undefined ? me.school : prev.school,
@@ -166,6 +202,9 @@ export function applyAltIdentityMeToStorage (me) {
     assigned_competition_ids: assignedRaw !== undefined
       ? normalizeAssignedCompetitionIds(assignedRaw)
       : prev.assigned_competition_ids,
+    assigned_teams: assignedTeamsRaw !== undefined
+      ? normalizeAssignedTeams(assignedTeamsRaw)
+      : prev.assigned_teams,
     created_at: me.created_at != null ? me.created_at : prev.created_at,
     effective_permissions: Array.isArray(me.effective_permissions)
       ? me.effective_permissions
@@ -189,6 +228,7 @@ export function saveAltSession (payload, extras = {}) {
     user_id: p.user_id != null ? p.user_id : (extras.user_id != null ? extras.user_id : prev.user_id),
     username: p.username != null ? p.username : (extras.username != null ? extras.username : prev.username),
     email: p.email != null ? p.email : (extras.email != null ? extras.email : prev.email),
+    phone: p.phone != null ? p.phone : (extras.phone != null ? extras.phone : prev.phone),
     full_name: p.full_name != null ? p.full_name : (extras.full_name != null ? extras.full_name : prev.full_name),
     role: p.role != null ? p.role : (extras.role != null ? extras.role : prev.role),
     school: p.school !== undefined ? p.school : (extras.school !== undefined ? extras.school : prev.school),
@@ -208,6 +248,11 @@ export function saveAltSession (payload, extras = {}) {
       : (extras.assigned_competition_ids !== undefined
         ? normalizeAssignedCompetitionIds(extras.assigned_competition_ids)
         : prev.assigned_competition_ids),
+    assigned_teams: p.assigned_teams !== undefined
+      ? normalizeAssignedTeams(p.assigned_teams)
+      : (extras.assigned_teams !== undefined
+        ? normalizeAssignedTeams(extras.assigned_teams)
+        : prev.assigned_teams),
     effective_permissions: Array.isArray(p.effective_permissions)
       ? p.effective_permissions
       : (Array.isArray(extras.effective_permissions)
@@ -297,12 +342,37 @@ export function getAltAssignedCompetitionIds () {
   return normalizeAssignedCompetitionIds(p && p.assigned_competition_ids)
 }
 
-/** 当前专家是否已被指派到指定竞赛（须已核验） */
+/** 专家已指派队伍列表（来自 GET /alt-identity/me） */
+export function getAltAssignedTeams () {
+  const p = getAltProfileFromStorage()
+  return normalizeAssignedTeams(p && p.assigned_teams)
+}
+
+/** 专家在指定竞赛下可评阅的队伍 id 列表 */
+export function getAltAssignedTeamIdsForCompetition (competitionId) {
+  const cid = Number(competitionId)
+  if (!Number.isFinite(cid)) return []
+  return getAltAssignedTeams()
+    .filter(t => Number(t.competition_id) === cid)
+    .map(t => Number(t.team_id))
+    .filter(n => Number.isFinite(n))
+}
+
+/** 当前专家是否已被指派到指定竞赛（须已核验；有竞赛级指派即可进入工作台） */
 export function isAltExpertAssignedToCompetition (competitionId) {
   if (!isAltCompetitionExpertVerified()) return false
   const cid = Number(competitionId)
   if (!Number.isFinite(cid)) return false
   return getAltAssignedCompetitionIds().some(id => Number(id) === cid)
+}
+
+/** 当前专家是否已被指派到指定竞赛的指定队伍 */
+export function isAltExpertAssignedToTeam (competitionId, teamId) {
+  if (!isAltCompetitionExpertVerified()) return false
+  const cid = Number(competitionId)
+  const tid = Number(teamId)
+  if (!Number.isFinite(cid) || !Number.isFinite(tid)) return false
+  return getAltAssignedTeamIdsForCompetition(cid).some(id => Number(id) === tid)
 }
 
 /** 兼容旧前端判断：teacher 或 super_admin。新逻辑请优先使用细分能力函数。 */

@@ -454,6 +454,19 @@ class CompetitionQrCodes(BaseModel):
     vocational: Optional[CompetitionQrSlot] = None
 
 
+class CompetitionExamPaperSlot(BaseModel):
+    published: bool = False
+    filename: Optional[str] = None
+    download_url: Optional[str] = None
+
+
+class CompetitionExamPapers(BaseModel):
+    """按组别试卷元信息（不暴露本地路径）。"""
+    default: Optional[CompetitionExamPaperSlot] = None
+    undergraduate: Optional[CompetitionExamPaperSlot] = None
+    vocational: Optional[CompetitionExamPaperSlot] = None
+
+
 class SubmissionStatus(str, Enum):
     SUBMITTED = "submitted"
     UNDER_REVIEW = "under_review"
@@ -467,7 +480,7 @@ class CompetitionBase(BaseModel):
     rules_text: Optional[str] = None
     start_at: OptionalUtcDatetime = None
     end_at: OptionalUtcDatetime = None
-    allow_individual: bool = True
+    allow_individual: bool = False
     allow_team: bool = True
 
 
@@ -512,6 +525,10 @@ class CompetitionResponse(CompetitionBase):
     qr_code_image_url: Optional[str] = Field(
         None,
         description="兼容字段：single 或 dual+shared 时的二维码 URL",
+    )
+    exam_papers: Optional[CompetitionExamPapers] = Field(
+        None,
+        description="各组别试卷是否已发布及下载地址（元信息）",
     )
 
     class Config:
@@ -700,6 +717,20 @@ class TeamParticipantDetailResponse(BaseModel):
     members: List[TeamMemberWithUserResponse] = Field(default_factory=list)
 
 
+class CompetitionExpertAssignedTeam(BaseModel):
+    """专家在某竞赛下被指派的队伍。"""
+
+    competition_id: int
+    team_id: int
+    team_name: Optional[str] = None
+
+
+class CompetitionExpertAssignRequest(BaseModel):
+    """指派专家到竞赛下的队伍（至少一支）。"""
+
+    team_ids: List[int] = Field(..., min_length=1, description="该竞赛下至少一支队伍 id")
+
+
 class CompetitionExpertListItem(BaseModel):
     """第二套帐号中 role=expert 的专家条目。"""
 
@@ -712,6 +743,10 @@ class CompetitionExpertListItem(BaseModel):
     assigned_competition_ids: List[int] = Field(
         default_factory=list,
         description="该专家已被指派的竞赛 id 列表（可多场；空列表表示尚未指派任何竞赛）",
+    )
+    assigned_teams: List[CompetitionExpertAssignedTeam] = Field(
+        default_factory=list,
+        description="该专家已被指派可评阅的队伍（按竞赛+队伍）",
     )
 
 
