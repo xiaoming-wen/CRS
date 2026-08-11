@@ -764,7 +764,7 @@ class TeamCreate(BaseModel):
     name: Optional[str] = Field(None, max_length=200, description="队名（展示用），可由队长后续修改")
     captain_student_id: Optional[EightDigitAltUserId] = Field(
         None,
-        description="指导老师建队时必须指定队长 user_id（且须出现在 initial_member_ids 中）；学生自建忽略",
+        description="指导老师建队时可指定队长 user_id；若填写 initial_member_ids 则须出现在列表中；未填初始队员时必须提供本字段",
     )
     advisor_id: Optional[EightDigitAltUserId] = Field(
         None,

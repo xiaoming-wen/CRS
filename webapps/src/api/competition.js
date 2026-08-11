@@ -391,7 +391,7 @@ export function lookupCompetitionTeamByName (competitionId, teamName) {
 
 // 8.12 创建队伍（学生自建队长 / 指导老师组班；权限 MANAGE_TEAMS）
 // 学生：{ competition_id, initial_member_ids?: null }
-// 指导老师：{ competition_id, name?, captain_student_id?, initial_member_ids: number[] }（至少一名队员）
+// 指导老师：{ competition_id, name?, captain_student_id?, initial_member_ids?: number[] }（队长或初始队员至少填一项）
 export function createCompetitionTeam (payload) {
   return axios({
     url: '/v1/competitions/teams',

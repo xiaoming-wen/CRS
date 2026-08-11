@@ -780,20 +780,32 @@
                   </a-form-item>
                 </a-col>
                 <a-col :xs="24" :sm="12">
-                                <a-form-item label="赛道" required>
-                <a-radio-group v-model="advisorCreateForm.work_track" :disabled="advisorTeamActionsDisabled">
-                  <a-radio value="works">作品</a-radio>
-                  <a-radio value="software">软件</a-radio>
-                  <a-radio value="hardware">硬件</a-radio>
-                </a-radio-group>
-              </a-form-item>
-              <a-form-item label="组别" required>
-                <a-radio-group v-model="advisorCreateForm.division" :disabled="advisorTeamActionsDisabled">
-                  <a-radio value="undergraduate">本科</a-radio>
-                  <a-radio value="vocational">高职</a-radio>
-                </a-radio-group>
-              </a-form-item>
-<a-form-item label="队长学生 ID">
+                  <a-form-item label="赛道" required class="advisor-track-division-item">
+                    <a-radio-group
+                      v-model="advisorCreateForm.work_track"
+                      class="advisor-form-radio-white"
+                      :disabled="advisorTeamActionsDisabled"
+                    >
+                      <a-radio value="works">作品</a-radio>
+                      <a-radio value="software">软件</a-radio>
+                      <a-radio value="hardware">硬件</a-radio>
+                    </a-radio-group>
+                  </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="12">
+                  <a-form-item label="组别" required class="advisor-track-division-item">
+                    <a-radio-group
+                      v-model="advisorCreateForm.division"
+                      class="advisor-form-radio-white"
+                      :disabled="advisorTeamActionsDisabled"
+                    >
+                      <a-radio value="undergraduate">本科</a-radio>
+                      <a-radio value="vocational">高职</a-radio>
+                    </a-radio-group>
+                  </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="12">
+                  <a-form-item label="队长学生 ID">
                     <a-input-number
                       v-model="advisorCreateForm.captain_student_id"
                       :min="eightDigitIdMin"
@@ -805,10 +817,10 @@
                   </a-form-item>
                 </a-col>
                 <a-col :span="24">
-                  <a-form-item label="初始队员 ID（必填，逗号分隔）" required>
+                  <a-form-item label="初始队员 ID（选填，逗号分隔）">
                     <a-input
                       v-model="advisorCreateForm.initial_member_ids_text"
-                      placeholder="如：12345678,87654321（8位用户ID，逗号分隔）"
+                      placeholder="选填；如：12345678,87654321（8位用户ID，逗号分隔）"
                       :disabled="advisorTeamActionsDisabled || !allowTeam"
                     />
                   </a-form-item>
@@ -5979,21 +5991,24 @@ export default {
         return
       }
       const memberIds = this.parseAltUserIds(this.advisorCreateForm.initial_member_ids_text)
-      if (!memberIds.length) {
-        this.$message.warning(`请填写至少一名队员的学生 ID（${EIGHT_DIGIT_ID_HINT}）`)
-        return
-      }
       const uniqueIds = [...new Set(memberIds)]
       let captainId = this.advisorCreateForm.captain_student_id
       if (captainId == null || captainId === '') {
+        if (!uniqueIds.length) {
+          this.$message.warning(`请填写队长学生 ID，或至少一名初始队员（${EIGHT_DIGIT_ID_HINT}）`)
+          return
+        }
         captainId = uniqueIds[0]
       } else {
         captainId = Number(captainId)
         if (!this.warnInvalidEightDigitUserId(captainId, '队长学生ID')) return
-      }
-      if (!uniqueIds.includes(captainId)) {
-        this.$message.warning('队长 ID 必须在队员 ID 列表中')
-        return
+        if (uniqueIds.length && !uniqueIds.includes(captainId)) {
+          this.$message.warning('若已填写初始队员，队长 ID 必须在队员列表中')
+          return
+        }
+        if (!uniqueIds.includes(captainId)) {
+          uniqueIds.unshift(captainId)
+        }
       }
       if (!(await this.assertStudentsSameDivisionAsView(uniqueIds))) return
       const division = (this.advisorCreateForm.division || '').trim()
@@ -6039,7 +6054,13 @@ export default {
           '队伍创建成功，当前为「待校审」，须本校校管理员审核通过后队员方可上传题目答案'
             + (teamId ? `（队伍 ID：${teamId}）` : '')
         )
-        this.advisorCreateForm = { name: '', captain_student_id: null, initial_member_ids_text: '' }
+        this.advisorCreateForm = {
+          name: '',
+          captain_student_id: null,
+          initial_member_ids_text: '',
+          work_track: 'works',
+          division: 'undergraduate'
+        }
         await this.refreshAdvisorTeams()
         if (teamId) this.selectAdvisorTeam(teamId)
       } catch (e) {
@@ -8292,6 +8313,17 @@ export default {
 
   ::v-deep .sub-card .ant-form-item-label > label {
     color: rgba(255, 255, 255, 0.88);
+  }
+
+  /* 指导老师创建队伍：赛道/组别选项文字白色 */
+  ::v-deep .advisor-form-radio-white.ant-radio-group .ant-radio-wrapper,
+  ::v-deep .advisor-track-division-item .ant-radio-wrapper {
+    color: #fff !important;
+  }
+
+  ::v-deep .advisor-form-radio-white.ant-radio-group .ant-radio-wrapper span,
+  ::v-deep .advisor-track-division-item .ant-radio-wrapper > span:last-child {
+    color: #fff !important;
   }
 
   ::v-deep .sub-card .submission-item {

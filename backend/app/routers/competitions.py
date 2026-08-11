@@ -4368,20 +4368,26 @@ async def create_team(
 
     if role_eff in {"advisor", "teacher"}:
         ids = team_create.initial_member_ids or []
-        if not ids:
-            raise HTTPException(
-                status_code=400,
-                detail="指导老师建队须提供 initial_member_ids（至少一名学生），并由 captain_student_id 指定队长",
-            )
         seen = set()
         ordered_ids = []
         for x in ids:
             if x not in seen:
                 seen.add(x)
                 ordered_ids.append(x)
-        captain_id = team_create.captain_student_id if team_create.captain_student_id is not None else ordered_ids[0]
-        if captain_id not in ordered_ids:
-            raise HTTPException(status_code=400, detail="captain_student_id 必须出现在 initial_member_ids 中")
+        # 初始队员可选：未填队员时须指定队长；仅指定队长时自动写入名单
+        if team_create.captain_student_id is not None:
+            captain_id = team_create.captain_student_id
+            if ordered_ids and captain_id not in ordered_ids:
+                raise HTTPException(status_code=400, detail="captain_student_id 必须出现在 initial_member_ids 中")
+            if captain_id not in ordered_ids:
+                ordered_ids = [captain_id] + ordered_ids
+        elif ordered_ids:
+            captain_id = ordered_ids[0]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="指导老师建队须指定 captain_student_id，或提供 initial_member_ids（至少一名学生）",
+            )
 
         if identity.id in ordered_ids:
             raise HTTPException(status_code=400, detail="指导老师不能以队员身份写入队伍名单")
