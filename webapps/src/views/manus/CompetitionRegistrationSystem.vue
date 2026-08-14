@@ -294,7 +294,7 @@
               style="margin-bottom: 12px"
             />
             <a-alert
-              v-else-if="competitionEnrollPublishBlocked"
+              v-else-if="competitionEnrollPublishBlocked || competitionEnrollmentClosed"
               type="warning"
               show-icon
               :message="competitionEnrollBlockedAlertTitle"
@@ -737,7 +737,7 @@
               v-else-if="competitionTeamCreateInviteBlocked"
               type="warning"
               show-icon
-              message="当前不可新建队伍或邀请队员"
+              :message="competitionTeamCreateInviteBlockedTitle"
               :description="competitionTeamCreateInviteBlockedDescription"
               style="margin-bottom: 12px"
             />
@@ -1350,7 +1350,7 @@
           style="margin-bottom: 12px"
         />
         <a-alert
-          v-else-if="competitionEnrollPublishBlocked"
+          v-else-if="competitionEnrollPublishBlocked || competitionEnrollmentClosed"
           type="warning"
           show-icon
           :message="competitionEnrollBlockedAlertTitle"
@@ -3100,7 +3100,7 @@ export default {
       if (s === 'preliminary') {
         const paired = this.editPairedCompetitionId
         return paired
-          ? `当前为初赛，已关联决赛 #${paired}；此处仅修改初赛时间。决赛时间请打开决赛竞赛再修改。`
+          ? `当前为初赛，已关联决赛 #${paired}；此处仅修改初赛时间。`
           : '当前为初赛；此处仅修改初赛时间。'
       }
       if (s === 'final') {
@@ -3646,7 +3646,11 @@ export default {
       return `您已在${enrolled}完成报名，不能跨组参加${current}。请从竞赛列表或「我报名的竞赛」进入${enrolled}详情继续操作。`
     },
     competitionEnrollActionsDisabled () {
-      return this.competitionEnrollPublishBlocked || this.enrollBlockedByOtherDivision
+      return (
+        this.competitionEnrollPublishBlocked ||
+        this.competitionEnrollmentClosed ||
+        this.enrollBlockedByOtherDivision
+      )
     },
     /** 老师已在另一学历组别组班，当前组别详情页禁止建队/邀请 */
     advisorTeamBlockedByOtherDivision () {
@@ -3703,9 +3707,14 @@ export default {
       const c = this.activeCompetition
       if (!c) return '竞赛尚未发布或已停止报名'
       const s = c.status != null ? String(c.status).toLowerCase() : ''
-      return s === 'draft' ? '当前竞赛为草稿，尚未发布' : '竞赛尚未发布或已停止报名'
+      if (s === 'draft') return '当前竞赛为草稿，尚未发布'
+      if (this.competitionEnrollmentClosed) return '当前竞赛已停止报名'
+      return '竞赛尚未发布或已停止报名'
     },
     competitionEnrollBlockedAlertDescription () {
+      if (this.competitionEnrollmentClosed) {
+        return '报名已关闭（竞赛被锁定，或已过结束时间）。此时无法创建队伍、加入队伍或新报名。请联系管理员延长结束时间或重新开放报名后再试。'
+      }
       return '暂无法报名；主办方发布竞赛或重新开放报名后即可重新报名。'
     },
     /** §8.16：draft 不可提交；published / closed（锁定报名后）可提交 */
@@ -3747,12 +3756,17 @@ export default {
     },
     competitionTeamCreateInviteBlockedDescription () {
       if (this.competitionEnrollPublishBlocked) {
-        return '竞赛尚未发布，暂无法建队或邀请队员；已发布且报名开放前可改队名。'
+        return '竞赛尚未发布，暂无法建队或邀请队员；已发布且报名开放后可操作。'
       }
       if (this.competitionEnrollmentClosed) {
-        return ''
+        return '报名已关闭（竞赛被锁定，或已过结束时间）。指导老师此时无法代建队伍或邀请队员；学生也无法创建/加入队伍。请联系管理员延长结束时间或重新开放报名后再试。'
       }
       return ''
+    },
+    competitionTeamCreateInviteBlockedTitle () {
+      if (this.competitionEnrollPublishBlocked) return '竞赛尚未发布'
+      if (this.competitionEnrollmentClosed) return '当前竞赛已停止报名'
+      return '当前不可新建队伍或邀请队员'
     },
     /** 已停止报名或未发布时不可移除队员 */
     competitionTeamRemoveMemberBlocked () {
@@ -3760,10 +3774,10 @@ export default {
     },
     competitionTeamRemoveMemberBlockedMessage () {
       if (this.competitionEnrollPublishBlocked) {
-        return ''
+        return '竞赛尚未发布，暂无法移除队员'
       }
       if (this.competitionEnrollmentClosed) {
-        return ''
+        return '竞赛已停止报名，暂无法移除队员'
       }
       return ''
     },
@@ -4855,7 +4869,7 @@ export default {
       }
 
       if (/competition enrollment is closed|enrollment is closed/i.test(text)) {
-        return '竞赛已停止报名（状态为 closed 或已过结束时间）'
+        return '当前竞赛已停止报名（已锁定或已过结束时间），无法创建队伍。请联系管理员延长结束时间或重新开放报名后再试'
       }
 
       if (/has not ended yet|export is available after end date |尚未结束.*导出/i.test(text)) {
@@ -4868,6 +4882,21 @@ export default {
 
       if (/team enrollment not allowed/i.test(text)) {
         return '该竞赛不允许队伍赛道报名'
+      }
+
+      if (/captain must have school configured|captain account not found/i.test(text)) {
+        return '建队失败：当前学生账号未填写学校。请使用已填写学校的账号，或联系管理员补全学校信息后重试'
+      }
+
+      if (/组别必选|division.*undergraduate|赛道必选|work_track/i.test(text) && /必选|required/i.test(text)) {
+        return text.includes('赛道') || /work_track|works|software|hardware/i.test(text)
+          ? '请选择赛道：作品 / 软件 / 硬件'
+          : '请选择组别：本科或高职'
+      }
+
+      if (/create team failed/i.test(text)) {
+        const tail = text.replace(/^Create team failed:\s*/i, '').trim()
+        return tail ? `创建队伍失败：${tail}` : '创建队伍失败，请稍后重试'
       }
 
       if (/already enrolled in the individual track/i.test(text)) {
@@ -4918,7 +4947,7 @@ export default {
         if (/remove|member|队员|踢/i.test(text)) {
           return '竞赛已停止报名（已锁定或已过结束时间），无法移除队员'
         }
-        return '竞赛已停止报名（已锁定或已过结束时间），无法新建队伍或邀请入队'
+        return '当前竞赛已停止报名（已锁定或已过结束时间），无法新建队伍或邀请入队。请联系管理员延长结束时间或重新开放报名后再试'
       }
 
       return text || fallback
@@ -5495,6 +5524,12 @@ export default {
         return false
       }
       if (!this.assertCompetitionPublishedForEnroll()) return false
+      if (this.competitionEnrollmentClosed) {
+        this.$message.warning(
+          '当前竞赛已停止报名（已锁定或已过结束时间），无法创建队伍。请联系管理员延长结束时间或重新开放报名后再试'
+        )
+        return false
+      }
       if (!this.allowTeam) {
         this.$message.error('该竞赛不允许团队参赛')
         return false
@@ -5540,6 +5575,10 @@ export default {
         await this.createStudentTeamWithName(name, advisorName)
         this.closeStudentCreateTeamModal()
       } catch (e) {
+        if (e && (e.message === 'empty team name' || e.message === 'missing division' || e.message === 'missing work_track')) {
+          return Promise.reject(e)
+        }
+        this.$message.error('创建队伍失败：' + this.getApiErrorMessage(e, '未知错误'))
         return Promise.reject(e)
       } finally {
         this.studentCreateTeamModalLoading = false
@@ -5938,7 +5977,9 @@ export default {
     assertCompetitionOpenForTeamCreateOrInvite (showToast = true) {
       if (!this.competitionTeamCreateInviteBlocked) return true
       if (showToast) {
-        this.$message.warning(this.competitionTeamCreateInviteBlockedDescription || '当前不可进行该操作')
+        const title = this.competitionTeamCreateInviteBlockedTitle || '当前不可进行该操作'
+        const desc = this.competitionTeamCreateInviteBlockedDescription || ''
+        this.$message.warning(desc ? `${title}：${desc}` : title)
       }
       return false
     },
@@ -7408,17 +7449,18 @@ export default {
       let finalEndLocal = ''
       let finalStartISO = null
       let finalEndISO = null
-      // 仅「单阶段升级为初赛+决赛」时需要预填决赛时间；编辑已有初赛不再加载/提交决赛时间
-      if (stage === 'single') {
-        finalStartLocal = ''
-        finalEndLocal = ''
-      } else if (stage === 'preliminary' && comp && comp.paired_competition_id) {
-        // 仍记录关联决赛 ID，便于提示；不拉决赛时间到表单
+      if (stage === 'preliminary' && comp && comp.paired_competition_id) {
         try {
           const paired = await getCompetition(comp.paired_competition_id)
-          if (paired) this.mergeCompetitionIntoList(paired)
+          if (paired) {
+            finalStartLocal = this.toDateTimeLocalValue(paired.start_at) || ''
+            finalEndLocal = this.toDateTimeLocalValue(paired.end_at) || ''
+            finalStartISO = paired.start_at ? (new Date(paired.start_at)).toISOString() : null
+            finalEndISO = paired.end_at ? (new Date(paired.end_at)).toISOString() : null
+            this.mergeCompetitionIntoList(paired)
+          }
         } catch (_) {
-          /* ignore */
+          /* 关联决赛暂不可读时仍可编辑本场 */
         }
       }
 
