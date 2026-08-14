@@ -419,17 +419,16 @@
                 <a-form-item label="队长转让（可选）">
                   <div class="row">
                     <a-input-number v-model="transferTeamId" :min="1" placeholder="队伍ID" style="width: 180px" />
-                    <a-input-number
-                      v-model="newCaptainId"
-                      :min="eightDigitIdMin"
-                      :max="eightDigitIdMax"
-                      placeholder="新队长用户ID（8位）"
-                      style="width: 180px"
+                    <a-input
+                      v-model="newCaptainRef"
+                      placeholder="新队长姓名或用户 ID"
+                      style="width: 200px"
+                      allow-clear
                     />
                     <a-button
                       :loading="teamLoading"
                       @click="handleTransferCaptain"
-                      :disabled="!transferTeamId || !newCaptainId"
+                      :disabled="!transferTeamId || !(newCaptainRef && String(newCaptainRef).trim())"
                     >
                       转让
                     </a-button>
@@ -449,40 +448,38 @@
                   </div>
                 </a-form-item>
                 <template v-if="isCurrentTeamCaptain">
-                  <a-form-item label="邀请队员（队长）">
+                  <a-form-item label="邀请队员">
                     <div class="row">
-                      <a-input-number
-                        v-model="studentTeamInviteId"
-                        :min="eightDigitIdMin"
-                        :max="eightDigitIdMax"
-                        placeholder="队员用户ID（8位）"
+                      <a-input
+                        v-model="studentTeamInviteRef"
+                        placeholder="队员姓名或用户 ID"
                         style="width: 220px"
+                        allow-clear
                         :disabled="competitionTeamCreateInviteBlocked"
                       />
                       <a-button
                         type="primary"
                         :loading="teamLoading"
-                        :disabled="competitionTeamCreateInviteBlocked || !studentTeamInviteId || !myTeamId"
+                        :disabled="competitionTeamCreateInviteBlocked || !(studentTeamInviteRef && String(studentTeamInviteRef).trim()) || !myTeamId"
                         @click="handleStudentTeamInviteMember"
                       >
                         邀请队员
                       </a-button>
                     </div>
                   </a-form-item>
-                  <a-form-item label="移除队员（队长）">
+                  <a-form-item label="移除队员">
                     <div class="row">
-                      <a-input-number
-                        v-model="studentTeamRemoveMemberId"
-                        :min="eightDigitIdMin"
-                        :max="eightDigitIdMax"
-                        placeholder="待移除队员用户ID（8位）"
+                      <a-input
+                        v-model="studentTeamRemoveRef"
+                        placeholder="队员姓名或用户 ID"
                         style="width: 220px"
+                        allow-clear
                         :disabled="competitionTeamRemoveMemberBlocked"
                       />
                       <a-button
                         danger
                         :loading="teamLoading"
-                        :disabled="competitionTeamRemoveMemberBlocked || !studentTeamRemoveMemberId || !myTeamId"
+                        :disabled="competitionTeamRemoveMemberBlocked || !(studentTeamRemoveRef && String(studentTeamRemoveRef).trim()) || !myTeamId"
                         @click="handleStudentTeamRemoveMember"
                       >
                         移除队员
@@ -828,6 +825,7 @@
             <a-divider orientation="left">队伍列表与队务</a-divider>
             <div class="row" style="margin-bottom: 12px">
               <a-button
+                type="primary"
                 :loading="advisorTeamsLoading"
                 :disabled="!activeCompetitionId"
                 @click="refreshAdvisorTeams"
@@ -1553,17 +1551,16 @@
             <a-form-item label="队长转让（可选）">
               <div class="row">
                 <a-input-number v-model="transferTeamId" :min="1" placeholder="队伍ID" style="width: 180px" />
-                <a-input-number
-                  v-model="newCaptainId"
-                  :min="eightDigitIdMin"
-                  :max="eightDigitIdMax"
-                  placeholder="新队长用户ID（8位）"
-                  style="width: 180px"
+                <a-input
+                  v-model="newCaptainRef"
+                  placeholder="新队长姓名或用户 ID"
+                  style="width: 200px"
+                  allow-clear
                 />
                 <a-button
                   :loading="teamLoading"
                   @click="handleTransferCaptain"
-                  :disabled="!transferTeamId || !newCaptainId"
+                  :disabled="!transferTeamId || !(newCaptainRef && String(newCaptainRef).trim())"
                 >
                   转让
                 </a-button>
@@ -1583,40 +1580,38 @@
               </div>
             </a-form-item>
             <template v-if="isCurrentTeamCaptain">
-              <a-form-item label="邀请队员（队长）">
+              <a-form-item label="邀请队员">
                 <div class="row">
-                  <a-input-number
-                    v-model="studentTeamInviteId"
-                    :min="eightDigitIdMin"
-                    :max="eightDigitIdMax"
-                    placeholder="学生用户ID（8位）"
+                  <a-input
+                    v-model="studentTeamInviteRef"
+                    placeholder="队员姓名或用户 ID"
                     style="width: 220px"
+                    allow-clear
                     :disabled="competitionTeamCreateInviteBlocked"
                   />
                   <a-button
                     type="primary"
                     :loading="teamLoading"
-                    :disabled="competitionTeamCreateInviteBlocked || !studentTeamInviteId || !myTeamId"
+                    :disabled="competitionTeamCreateInviteBlocked || !(studentTeamInviteRef && String(studentTeamInviteRef).trim()) || !myTeamId"
                     @click="handleStudentTeamInviteMember"
                   >
                     邀请队员
                   </a-button>
                 </div>
               </a-form-item>
-              <a-form-item label="移除队员（队长）">
+              <a-form-item label="移除队员">
                 <div class="row">
-                  <a-input-number
-                    v-model="studentTeamRemoveMemberId"
-                    :min="eightDigitIdMin"
-                    :max="eightDigitIdMax"
-                    placeholder="待移除队员用户ID（8位）"
+                  <a-input
+                    v-model="studentTeamRemoveRef"
+                    placeholder="队员姓名或用户 ID"
                     style="width: 220px"
+                    allow-clear
                     :disabled="competitionTeamRemoveMemberBlocked"
                   />
                   <a-button
                     danger
                     :loading="teamLoading"
-                    :disabled="competitionTeamRemoveMemberBlocked || !studentTeamRemoveMemberId || !myTeamId"
+                    :disabled="competitionTeamRemoveMemberBlocked || !(studentTeamRemoveRef && String(studentTeamRemoveRef).trim()) || !myTeamId"
                     @click="handleStudentTeamRemoveMember"
                   >
                     移除队员
@@ -2583,10 +2578,10 @@ export default {
       myTeamMembers: [],
       myTeamMembersLoading: false,
       captainRemovingUserId: null,
-      studentTeamInviteId: null,
-      studentTeamRemoveMemberId: null,
+      studentTeamInviteRef: '',
+      studentTeamRemoveRef: '',
       transferTeamId: null,
-      newCaptainId: null,
+      newCaptainRef: '',
       leaveTeamId: null,
 
       enrollLoading: false,
@@ -3905,8 +3900,9 @@ export default {
       this.joinTeamName = ''
       this.teamJoinRequests = []
       this.teamJoinRequestReviewingId = null
-      this.studentTeamInviteId = null
-      this.studentTeamRemoveMemberId = null
+      this.studentTeamInviteRef = ''
+      this.studentTeamRemoveRef = ''
+      this.newCaptainRef = ''
       this.submissionTeamId = null
       this.questionAnswerSlots = []
       this.questionAnswerUploadingNo = null
@@ -4744,6 +4740,13 @@ export default {
         this.syncDualDivisionContextAfterCompetitionSelect()
         if (this.showStandaloneCompetitionBriefingLayout && this.activeCompetitionId) {
           void this.fetchStudentBriefingQr()
+        }
+        // 登录后竞赛 ID 可能未变，不会触发 activeCompetitionId watcher，需主动拉指导老师队伍列表
+        if (this.showAdvisorTeamPanel && this.activeCompetitionId) {
+          void this.refreshAdvisorTeams()
+        } else if (!this.showAdvisorTeamPanel) {
+          this.advisorTeams = []
+          this.advisorSelectedTeamId = null
         }
       })
     },
@@ -5823,15 +5826,29 @@ export default {
     },
 
     async handleTransferCaptain () {
-      if (!this.transferTeamId || !this.newCaptainId) return
-      if (!this.warnInvalidEightDigitUserId(this.newCaptainId, '新队长用户ID')) return
+      if (!this.transferTeamId) return
+      const captainRef = String(this.newCaptainRef || '').trim()
+      if (!captainRef) {
+        this.$message.warning('请填写新队长姓名或用户 ID')
+        return
+      }
+      const payload = {
+        team_id: this.transferTeamId
+      }
+      if (isEightDigitId(captainRef)) {
+        payload.new_captain_id = Number(captainRef)
+      } else {
+        payload.new_captain = captainRef
+      }
       this.teamLoading = true
       try {
-        await transferTeamCaptain(this.transferTeamId, { team_id: this.transferTeamId, new_captain_id: this.newCaptainId })
+        await transferTeamCaptain(this.transferTeamId, payload)
         this.$message.success('队长转让成功')
+        this.newCaptainRef = ''
         await this.refreshMyScores(false)
+        await this.refreshMyTeamMembers()
       } catch (e) {
-        this.$message.error('转让失败：' + (e && e.message ? e.message : '未知错误'))
+        this.$message.error('转让失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {
         this.teamLoading = false
       }
@@ -5852,7 +5869,7 @@ export default {
         await this.refreshMySubmissions()
         await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
       } catch (e) {
-        this.$message.error('退队失败：' + (e && e.message ? e.message : '未知错误'))
+        this.$message.error('退队失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {
         this.teamLoading = false
       }
@@ -5870,14 +5887,22 @@ export default {
       if (!this.assertEnrollDivisionContext()) return
       if (!this.assertNotEnrolledInOtherDivision()) return
       if (!this.assertCompetitionOpenForTeamCreateOrInvite()) return
-      const studentId = Number(this.studentTeamInviteId)
-      if (!this.warnInvalidEightDigitUserId(studentId, '学生用户ID')) return
-      if (!(await this.assertInviteeSameDivisionAsView(studentId))) return
+      const studentRef = String(this.studentTeamInviteRef || '').trim()
+      if (!studentRef) {
+        this.$message.warning('请填写队员姓名或用户 ID')
+        return
+      }
+      if (isEightDigitId(studentRef)) {
+        if (!(await this.assertInviteeSameDivisionAsView(Number(studentRef)))) return
+      }
       this.teamLoading = true
       try {
-        await inviteCompetitionTeamMember(this.myTeamId, studentId)
+        const invitePayload = isEightDigitId(studentRef)
+          ? { student_id: Number(studentRef) }
+          : { student: studentRef }
+        await inviteCompetitionTeamMember(this.myTeamId, invitePayload)
         this.$message.success('邀请成功，学生已入队')
-        this.studentTeamInviteId = null
+        this.studentTeamInviteRef = ''
         this.studentDivisionIndexCompetitionId = null
         await this.refreshActiveCompetitionMyEnrollKind()
         await this.refreshMyTeamMembers()
@@ -5887,6 +5912,33 @@ export default {
       } finally {
         this.teamLoading = false
       }
+    },
+
+    async resolveTeamMemberUserIdByRef (ref, label = '队员') {
+      const raw = String(ref || '').trim()
+      if (!raw) {
+        this.$message.warning(`请填写${label}姓名或用户 ID`)
+        return null
+      }
+      if (isEightDigitId(raw)) return Number(raw)
+      await this.refreshMyTeamMembers()
+      const key = raw.toLowerCase()
+      const matches = (this.myTeamMembers || []).filter(m => {
+        if (!m) return false
+        const fn = String(m.full_name || m.name || '').trim().toLowerCase()
+        const un = String(m.username || '').trim().toLowerCase()
+        return (fn && fn === key) || (un && un === key)
+      })
+      if (matches.length === 1) {
+        const uid = Number(matches[0].user_id)
+        return Number.isFinite(uid) ? uid : null
+      }
+      if (matches.length > 1) {
+        this.$message.warning(`队内存在多名同名${label}，请改用 8 位用户 ID`)
+        return null
+      }
+      this.$message.warning(`队内未找到该${label}，请确认姓名或改用用户 ID`)
+      return null
     },
 
     async handleStudentTeamRemoveMember () {
@@ -5902,13 +5954,13 @@ export default {
         this.$message.warning('请先确认队伍ID')
         return
       }
-      const userId = Number(this.studentTeamRemoveMemberId)
-      if (!this.warnInvalidEightDigitUserId(userId, '待移除队员用户ID')) return
+      const userId = await this.resolveTeamMemberUserIdByRef(this.studentTeamRemoveRef, '队员')
+      if (userId == null) return
       this.teamLoading = true
       try {
         await removeCompetitionTeamMember(this.myTeamId, userId)
         this.$message.success('已移除队员')
-        this.studentTeamRemoveMemberId = null
+        this.studentTeamRemoveRef = ''
         await this.refreshActiveCompetitionMyEnrollKind()
         await this.refreshMyTeamMembers()
       } catch (e) {
@@ -5980,7 +6032,10 @@ export default {
       if (!this.showAdvisorTeamPanel || !this.activeCompetitionId) return
       this.advisorTeamsLoading = true
       try {
-        if (!this.assertCompetitionDivisionQueryContext()) return
+        if (!this.assertCompetitionDivisionQueryContext()) {
+          this.advisorTeams = []
+          return
+        }
         const res = await getCompetitionTeams(
           this.activeCompetitionId,
           this.buildCompetitionDivisionQueryOptions()

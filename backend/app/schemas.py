@@ -1171,7 +1171,15 @@ class TeamMemberCreate(BaseModel):
 
 class TeamTransferCaptain(BaseModel):
     team_id: int
-    new_captain_id: EightDigitAltUserId = Field(..., description="新队长在 team_members 中的 user_id，即 alt_auth_users.id")
+    new_captain_id: Optional[EightDigitAltUserId] = Field(
+        None,
+        description="新队长 alt_auth_users.id（须已在队内）",
+    )
+    new_captain: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="新队长姓名、用户名或 8 位用户 ID（须已在队内；与 new_captain_id 二选一）",
+    )
 
 
 class SubmissionCreate(BaseModel):

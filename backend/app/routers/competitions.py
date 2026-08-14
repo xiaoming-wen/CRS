@@ -5073,6 +5073,7 @@ async def transfer_captain(
     team_id: int,
     payload: TeamTransferCaptain,
     db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     require_permission(identity.role, Permission.MANAGE_TEAMS)
@@ -5091,16 +5092,24 @@ async def transfer_captain(
     if team.captain_id != identity.id:
         raise HTTPException(status_code=403, detail="Only current captain can transfer")
 
+    new_captain_ref = (payload.new_captain or "").strip() if getattr(payload, "new_captain", None) else ""
+    if new_captain_ref:
+        new_captain_id = int(_resolve_student_ref(adb, new_captain_ref, label="新队长").id)
+    elif payload.new_captain_id is not None:
+        new_captain_id = int(payload.new_captain_id)
+    else:
+        raise HTTPException(status_code=400, detail="请填写新队长姓名或用户 ID")
+
     new_captain_member = db.query(TeamMember).filter(
         TeamMember.team_id == team.id,
-        TeamMember.user_id == payload.new_captain_id,
+        TeamMember.user_id == new_captain_id,
     ).first()
     if not new_captain_member:
         raise HTTPException(status_code=404, detail="New captain must be a team member")
 
     # 一致性：captain_id + team_members.is_captain
     old_captain_id = team.captain_id
-    team.captain_id = payload.new_captain_id
+    team.captain_id = new_captain_id
 
     db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.is_captain == True).update(  # noqa: E712
         {"is_captain": False}
@@ -5116,7 +5125,7 @@ async def transfer_captain(
     db.query(CompetitionEnrollment).filter(
         CompetitionEnrollment.competition_id == team.competition_id,
         CompetitionEnrollment.team_id == team.id,
-        CompetitionEnrollment.student_id == payload.new_captain_id,
+        CompetitionEnrollment.student_id == new_captain_id,
     ).update({"is_captain": True})
 
     db.commit()
