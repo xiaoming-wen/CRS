@@ -2120,10 +2120,21 @@ async def get_competition_qr_code(
     if not os.path.isfile(fs_path):
         raise HTTPException(status_code=404, detail="QR code file missing on server")
     mime, _ = mimetypes.guess_type(fs_path)
+    # 禁止浏览器/代理长期缓存：同一 URL 换图后否则会一直显示旧二维码（磁盘缓存）
+    try:
+        mtime = int(os.path.getmtime(fs_path))
+    except OSError:
+        mtime = 0
     return FileResponse(
         path=fs_path,
         filename=os.path.basename(fs_path),
         media_type=mime or "application/octet-stream",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "ETag": f'W/"qr-{competition_id}-{mtime}-{os.path.basename(fs_path)}"',
+        },
     )
 
 

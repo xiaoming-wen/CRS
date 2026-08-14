@@ -138,7 +138,10 @@ export function getCompetition (competitionId) {
 
 /** 竞赛二维码图（GET，一般为 image/png）；dual 分开展示时可传 division；已发布竞赛可匿名访问 */
 export function getCompetitionQrCode (competitionId, options = {}) {
-  const params = {}
+  const params = {
+    // 避免浏览器对同一 URL 使用磁盘缓存，导致换图后仍显示旧二维码
+    _t: (options && options.cacheBust) || Date.now()
+  }
   const div = options && options.division
   if (div === 'undergraduate' || div === 'vocational') {
     params.division = div
@@ -147,7 +150,11 @@ export function getCompetitionQrCode (competitionId, options = {}) {
     url: `/v1/competitions/${encodeURIComponent(competitionId)}/qr-code`,
     method: 'get',
     params,
-    responseType: 'blob'
+    responseType: 'blob',
+    headers: {
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache'
+    }
   })
 }
 
