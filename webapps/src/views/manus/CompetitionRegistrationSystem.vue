@@ -284,7 +284,7 @@
 
         <!-- 学生区（非独立详情页：内联展示） -->
         <div v-if="isStudent && !standaloneDetailMode">
-          <a-card size="small" class="sub-card" :bordered="true" title="报名与组队">
+          <a-card size="small" class="sub-card" :bordered="true" title="报名">
             <a-alert
               v-if="enrollBlockedByOtherDivision"
               type="warning"
@@ -304,12 +304,11 @@
             <a-form layout="vertical" class="enroll-profile-form" style="margin-top: 4px; max-width: 640px">
               <a-row :gutter="12">
                 <a-col :xs="24" :sm="12">
-                  <a-form-item label="学号" :colon="false">
+                  <a-form-item label="ID" :colon="false">
                     <a-input
-                      v-model="enrollProfileForm.student_no"
-                      placeholder="选填"
-                      :allow-clear="!enrollProfileLockedAfterSuccess"
-                      :disabled="enrollProfileLockedAfterSuccess"
+                      :value="enrollProfileForm.student_no"
+                      placeholder="用户 ID"
+                      disabled
                     />
                   </a-form-item>
                 </a-col>
@@ -805,23 +804,22 @@
                   </a-form-item>
                 </a-col>
                 <a-col :xs="24" :sm="12">
-                  <a-form-item label="队长学生 ID">
-                    <a-input-number
-                      v-model="advisorCreateForm.captain_student_id"
-                      :min="eightDigitIdMin"
-                      :max="eightDigitIdMax"
-                      placeholder="8位学生用户ID"
-                      style="width: 100%"
+                  <a-form-item label="队长（姓名或 ID）">
+                    <a-input
+                      v-model="advisorCreateForm.captain_student"
+                      placeholder="学生姓名或 8 位用户 ID"
                       :disabled="advisorTeamActionsDisabled || !allowTeam"
+                      allow-clear
                     />
                   </a-form-item>
                 </a-col>
                 <a-col :span="24">
-                  <a-form-item label="初始队员 ID（选填，逗号分隔）">
+                  <a-form-item label="初始队员（选填，姓名或 ID，逗号分隔）">
                     <a-input
-                      v-model="advisorCreateForm.initial_member_ids_text"
-                      placeholder="选填；如：12345678,87654321（8位用户ID，逗号分隔）"
+                      v-model="advisorCreateForm.initial_members_text"
+                      placeholder="选填；如：张三,李四 或 12345678,87654321"
                       :disabled="advisorTeamActionsDisabled || !allowTeam"
+                      allow-clear
                     />
                   </a-form-item>
                 </a-col>
@@ -912,21 +910,20 @@
                 </a-form>
 
                 <a-form layout="inline" style="margin-top: 8px">
-                  <a-form-item label="邀请学生 ID">
-                    <a-input-number
-                      v-model="advisorInviteStudentId"
-                      :min="eightDigitIdMin"
-                      :max="eightDigitIdMax"
-                      placeholder="8位学生用户ID"
-                      style="width: 180px"
+                  <a-form-item label="邀请学生">
+                    <a-input
+                      v-model="advisorInviteStudent"
+                      placeholder="姓名或 8 位用户 ID"
+                      style="width: 220px"
                       :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled"
+                      allow-clear
                     />
                   </a-form-item>
                   <a-form-item>
                     <a-button
                       type="primary"
                       :loading="advisorTeamOpLoading"
-                      :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled || !advisorInviteStudentId"
+                      :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled || !(advisorInviteStudent && String(advisorInviteStudent).trim())"
                       @click="handleAdvisorInviteMember"
                     >
                       邀请入队
@@ -1320,10 +1317,10 @@
 
     </a-card>
 
-    <!-- 独立详情页：报名与组队（报名成功后同窗展示作品提交） -->
+    <!-- 独立详情页：报名弹窗（报名成功后同窗展示作品提交） -->
     <a-modal
       v-model="showStandaloneEnrollModal"
-      title="报名与组队"
+      title="报名"
       :width="760"
       :footer="null"
       :destroyOnClose="false"
@@ -1360,12 +1357,11 @@
         <a-form layout="vertical" class="enroll-profile-form" style="margin-top: 4px; max-width: 640px">
           <a-row :gutter="12">
             <a-col :xs="24" :sm="12">
-              <a-form-item label="学号" :colon="false">
+              <a-form-item label="ID" :colon="false">
                 <a-input
-                  v-model="enrollProfileForm.student_no"
-                  placeholder="选填"
-                  :allow-clear="!enrollProfileLockedAfterSuccess"
-                  :disabled="enrollProfileLockedAfterSuccess"
+                  :value="enrollProfileForm.student_no"
+                  placeholder="用户 ID"
+                  disabled
                 />
               </a-form-item>
             </a-col>
@@ -1692,7 +1688,7 @@
         <a-form-item label="指导老师（选填）">
           <a-input
             v-model="studentCreateTeamForm.advisor_name"
-            placeholder="请输入指导老师姓名"
+            placeholder="姓名或 8 位用户 ID"
             :maxLength="100"
             allow-clear
           />
@@ -2478,7 +2474,9 @@ import {
   EIGHT_DIGIT_ID_MIN,
   EIGHT_DIGIT_ID_MAX,
   EIGHT_DIGIT_ID_HINT,
+  isEightDigitId,
   parseEightDigitIdsFromText,
+  parseNameOrIdTokens,
   validateEightDigitUserId
 } from '@/utils/eightDigitId'
 import {
@@ -2638,13 +2636,13 @@ export default {
       advisorRemovingUserId: null,
       advisorCreateForm: {
         name: '',
-        captain_student_id: null,
-        initial_member_ids_text: '',
+        captain_student: '',
+        initial_members_text: '',
         work_track: 'works',
         division: 'undergraduate'
       },
       advisorRenameName: '',
-      advisorInviteStudentId: null,
+      advisorInviteStudent: '',
       /** 本会话内由当前老师创建的队伍 ID（列表未带 created_by_advisor_id 时仍可管理） */
       advisorCreatedTeamIds: [],
       /** 本竞赛下当前老师已组班所属的学历组别（dual 时跨组禁止再建队/邀请） */
@@ -3997,7 +3995,7 @@ export default {
       if (newId !== null && newId !== undefined && newId !== '') {
         this.advisorSelectedTeamId = null
         this.advisorRenameName = ''
-        this.advisorInviteStudentId = null
+        this.advisorInviteStudent = ''
         if (this.showAdvisorTeamPanel) {
           void this.refreshAdvisorTeams()
         } else {
@@ -4067,7 +4065,7 @@ export default {
       if (this.showAdvisorTeamPanel && this.activeCompetitionId) {
         this.advisorSelectedTeamId = null
         this.advisorRenameName = ''
-        this.advisorInviteStudentId = null
+        this.advisorInviteStudent = ''
         void this.refreshAdvisorTeams()
       }
       if (this.activeCompetitionId) {
@@ -4772,7 +4770,7 @@ export default {
       })
     },
 
-    /** 竞赛详情独立页顶部「报名」：打开报名与组队弹窗（供父组件 ref 调用） */
+    /** 竞赛详情独立页顶部「报名」：打开报名弹窗（供父组件 ref 调用） */
     async openStandaloneEnrollModal () {
       if (!this.standaloneDetailMode) return
       if (!this.isStudent) {
@@ -5053,12 +5051,17 @@ export default {
       return `${fmt(s)} — ${fmt(e)}`
     },
 
-    /** 从竞赛独立账号资料预填选填项（不覆盖用户已填写内容） */
+    /** 从竞赛独立账号资料预填选填项（不覆盖用户已填写内容）；ID 固定为当前用户账号 ID */
     syncEnrollProfileDefaults () {
       if (!this.isStudent) return
       const p = getAltProfileFromStorage() || {}
+      const accountId = this.studentAccountIdLabel ||
+        (this.altCurrentUserId != null ? String(this.altCurrentUserId) : '') ||
+        (p.user_id != null ? String(p.user_id) : (p.id != null ? String(p.id) : ''))
+      if (accountId) {
+        this.$set(this.enrollProfileForm, 'student_no', accountId)
+      }
       const map = {
-        student_no: p.student_id,
         real_name: p.full_name,
         college: p.college != null ? p.college : p.school,
         contact: p.email != null ? p.email : (p.contact != null ? p.contact : p.phone)
@@ -5606,7 +5609,13 @@ export default {
       }
       if (name) teamPayload.name = name
       const advisor = (advisorName != null ? String(advisorName) : (this.studentCreateTeamForm.advisor_name || '')).trim()
-      if (advisor) teamPayload.advisor_name = advisor
+      if (advisor) {
+        if (isEightDigitId(advisor)) {
+          teamPayload.advisor_id = Number(advisor)
+        } else {
+          teamPayload.advisor_name = advisor
+        }
+      }
       const team = await createCompetitionTeam(teamPayload)
       const teamId = team && (team.id || team.team_id)
       if (!teamId) throw new Error('创建队伍返回缺少 id')
@@ -6008,7 +6017,7 @@ export default {
         ) {
           this.advisorSelectedTeamId = null
           this.advisorRenameName = ''
-          this.advisorInviteStudentId = null
+          this.advisorInviteStudent = ''
         }
       } catch (e) {
         this.advisorTeams = []
@@ -6024,7 +6033,7 @@ export default {
       this.advisorSelectedTeamId = teamId
       const t = this.advisorSelectedTeam
       this.advisorRenameName = t && t.name != null ? String(t.name) : ''
-      this.advisorInviteStudentId = null
+      this.advisorInviteStudent = ''
     },
 
     async handleAdvisorCreateTeam () {
@@ -6036,27 +6045,12 @@ export default {
         this.$message.error('该竞赛不允许团队参赛')
         return
       }
-      const memberIds = this.parseAltUserIds(this.advisorCreateForm.initial_member_ids_text)
-      const uniqueIds = [...new Set(memberIds)]
-      let captainId = this.advisorCreateForm.captain_student_id
-      if (captainId == null || captainId === '') {
-        if (!uniqueIds.length) {
-          this.$message.warning(`请填写队长学生 ID，或至少一名初始队员（${EIGHT_DIGIT_ID_HINT}）`)
-          return
-        }
-        captainId = uniqueIds[0]
-      } else {
-        captainId = Number(captainId)
-        if (!this.warnInvalidEightDigitUserId(captainId, '队长学生ID')) return
-        if (uniqueIds.length && !uniqueIds.includes(captainId)) {
-          this.$message.warning('若已填写初始队员，队长 ID 必须在队员列表中')
-          return
-        }
-        if (!uniqueIds.includes(captainId)) {
-          uniqueIds.unshift(captainId)
-        }
+      const memberRefs = parseNameOrIdTokens(this.advisorCreateForm.initial_members_text)
+      const captainRef = String(this.advisorCreateForm.captain_student || '').trim()
+      if (!captainRef && !memberRefs.length) {
+        this.$message.warning('请填写队长（姓名或用户 ID），或至少一名初始队员')
+        return
       }
-      if (!(await this.assertStudentsSameDivisionAsView(uniqueIds))) return
       const division = (this.advisorCreateForm.division || '').trim()
       const workTrack = (this.advisorCreateForm.work_track || '').trim()
       if (division !== 'undergraduate' && division !== 'vocational') {
@@ -6069,11 +6063,11 @@ export default {
       }
       const payload = {
         competition_id: Number(this.activeCompetitionId),
-        initial_member_ids: uniqueIds,
-        captain_student_id: captainId,
         division,
         work_track: workTrack
       }
+      if (captainRef) payload.captain_student = captainRef
+      if (memberRefs.length) payload.initial_members = memberRefs
       const teamName = (this.advisorCreateForm.name || '').trim()
       if (teamName) payload.name = teamName
 
@@ -6102,8 +6096,8 @@ export default {
         )
         this.advisorCreateForm = {
           name: '',
-          captain_student_id: null,
-          initial_member_ids_text: '',
+          captain_student: '',
+          initial_members_text: '',
           work_track: 'works',
           division: 'undergraduate'
         }
@@ -6141,14 +6135,22 @@ export default {
       if (!this.assertAdvisorNotBlockedByOtherDivision()) return
       if (!this.assertSelectedAdvisorTeamMatchesView()) return
       if (!this.assertCompetitionOpenForTeamCreateOrInvite()) return
-      const studentId = Number(this.advisorInviteStudentId)
-      if (!this.warnInvalidEightDigitUserId(studentId, '学生ID')) return
-      if (!(await this.assertInviteeSameDivisionAsView(studentId))) return
+      const studentRef = String(this.advisorInviteStudent || '').trim()
+      if (!studentRef) {
+        this.$message.warning('请填写学生姓名或用户 ID')
+        return
+      }
+      if (isEightDigitId(studentRef)) {
+        if (!(await this.assertInviteeSameDivisionAsView(Number(studentRef)))) return
+      }
       this.advisorTeamOpLoading = true
       try {
-        await inviteCompetitionTeamMember(team.id, studentId)
+        const invitePayload = isEightDigitId(studentRef)
+          ? { student_id: Number(studentRef) }
+          : { student: studentRef }
+        await inviteCompetitionTeamMember(team.id, invitePayload)
         this.$message.success('邀请成功，学生已入队并完成报名')
-        this.advisorInviteStudentId = null
+        this.advisorInviteStudent = ''
         this.studentDivisionIndexCompetitionId = null
         await this.refreshAdvisorTeams()
         this.selectAdvisorTeam(team.id)

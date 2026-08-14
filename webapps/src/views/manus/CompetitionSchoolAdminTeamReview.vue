@@ -81,26 +81,34 @@
               <a-tag :color="teamStatusColor(text)">{{ teamStatusText(text) }}</a-tag>
             </template>
             <template slot="teamActions" slot-scope="text, record">
-              <template v-if="record.status === 'pending_school_review'">
+              <div class="team-actions-cell">
+                <template v-if="record.status === 'pending_school_review'">
+                  <a-button
+                    type="primary"
+                    size="small"
+                    :loading="reviewLoadingId === record.team_id && reviewAction === 'approve'"
+                    @click="handleReviewTeam(record, 'approve')"
+                  >
+                    通过
+                  </a-button>
+                  <a-button
+                    size="small"
+                    danger
+                    :loading="reviewLoadingId === record.team_id && reviewAction === 'reject'"
+                    @click="openRejectModal(record)"
+                  >
+                    驳回
+                  </a-button>
+                </template>
                 <a-button
-                  type="primary"
+                  v-if="record.status !== 'rejected'"
                   size="small"
-                  :loading="reviewLoadingId === record.team_id && reviewAction === 'approve'"
-                  @click="handleReviewTeam(record, 'approve')"
+                  @click="openAdvisorModal(record)"
                 >
-                  通过
+                  添加/修改指导老师
                 </a-button>
-                <a-button
-                  size="small"
-                  danger
-                  style="margin-left: 8px"
-                  :loading="reviewLoadingId === record.team_id && reviewAction === 'reject'"
-                  @click="openRejectModal(record)"
-                >
-                  驳回
-                </a-button>
-              </template>
-              <span v-else class="muted">—</span>
+                <span v-if="record.status === 'rejected'" class="muted">—</span>
+              </div>
             </template>
           </a-table>
         </template>
@@ -124,6 +132,38 @@
       <a-form-item label="驳回原因" :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
         <a-textarea v-model="rejectFeedback" :rows="3" placeholder="选填" />
       </a-form-item>
+    </a-modal>
+
+    <a-modal
+      :visible="advisorModalVisible"
+      title="添加/修改指导老师"
+      :confirm-loading="advisorModalLoading"
+      ok-text="保存"
+      cancel-text="取消"
+      destroy-on-close
+      @ok="submitAdvisorModal"
+      @cancel="closeAdvisorModal"
+    >
+      <p v-if="advisorModalTeam" style="margin-bottom: 8px">
+        队伍「{{ advisorModalTeam.team_name || ('#' + advisorModalTeam.team_id) }}」
+      </p>
+      <p class="muted" style="margin-bottom: 12px">
+        当前指导老师：
+        <span v-if="advisorModalCurrentAdvisorLabel">{{ advisorModalCurrentAdvisorLabel }}</span>
+        <span v-else>未设置</span>
+      </p>
+      <a-form :label-col="{ span: 7 }" :wrapper-col="{ span: 16 }">
+        <a-form-item label="指导老师" required>
+          <a-input
+            v-model="advisorForm.advisor_ref"
+            placeholder="姓名、用户名或 8 位用户 ID"
+            allow-clear
+          />
+        </a-form-item>
+      </a-form>
+      <p class="muted" style="margin: 0; font-size: 12px">
+        未设置时可添加；已有老师时填写新信息即可修改替换。
+      </p>
     </a-modal>
 
     <a-modal
@@ -196,6 +236,7 @@ import {
   getSchoolAdminTeams,
   listAdminTeamReviews,
   schoolReviewTeam,
+  setTeamAdvisor,
   schoolAdminProxyCreateTeam,
   getCompetitions
 } from '@/api/competition'
@@ -241,6 +282,12 @@ export default {
       rejectModalLoading: false,
       rejectModalTeam: null,
       rejectFeedback: '',
+      advisorModalVisible: false,
+      advisorModalLoading: false,
+      advisorModalTeam: null,
+      advisorForm: {
+        advisor_ref: ''
+      },
       competitionsLoading: false,
       competitions: [],
       proxyTeamVisible: false,
@@ -264,6 +311,15 @@ export default {
     teamCompetitions () {
       return (this.competitions || []).filter(c => c && c.allow_team !== false)
     },
+    advisorModalCurrentAdvisorLabel () {
+      const t = this.advisorModalTeam
+      if (!t) return ''
+      const name = t.advisor_name != null ? String(t.advisor_name).trim() : ''
+      if (name) {
+        return t.advisor_id != null ? `${name}（ID ${t.advisor_id}）` : name
+      }
+      return t.advisor_id != null ? `ID ${t.advisor_id}` : ''
+    },
     teamColumns () {
       return [
         { title: '竞赛', dataIndex: 'competition_name', key: 'competition_name', width: 160, ellipsis: true },
@@ -275,7 +331,7 @@ export default {
         { title: '队长', dataIndex: 'captain_name', key: 'captain_name', width: 100, ellipsis: true },
         { title: '队员', key: 'members', scopedSlots: { customRender: 'members' }, width: 200, ellipsis: true },
         { title: '状态', dataIndex: 'status', key: 'status', width: 90, scopedSlots: { customRender: 'teamStatus' } },
-        { title: '操作', key: 'teamActions', width: 140, fixed: 'right', scopedSlots: { customRender: 'teamActions' } }
+        { title: '操作', key: 'teamActions', width: 260, fixed: 'right', scopedSlots: { customRender: 'teamActions' } }
       ]
     }
   },
@@ -427,6 +483,42 @@ export default {
         this.rejectModalLoading = false
       }
     },
+    openAdvisorModal (record) {
+      this.advisorModalTeam = record
+      this.advisorForm = { advisor_ref: '' }
+      this.advisorModalVisible = true
+    },
+    closeAdvisorModal () {
+      this.advisorModalVisible = false
+      this.advisorModalTeam = null
+      this.advisorForm = { advisor_ref: '' }
+      this.advisorModalLoading = false
+    },
+    async submitAdvisorModal () {
+      if (!this.advisorModalTeam || this.advisorModalTeam.team_id == null) {
+        return Promise.reject(new Error('cancelled'))
+      }
+      const ref = String(this.advisorForm.advisor_ref || '').trim()
+      if (!ref) {
+        this.$message.warning('请填写指导老师姓名、用户名或用户 ID')
+        return Promise.reject(new Error('cancelled'))
+      }
+      const payload = /^\d{8}$/.test(ref)
+        ? { advisor_id: Number(ref) }
+        : { advisor_name: ref }
+      this.advisorModalLoading = true
+      try {
+        await setTeamAdvisor(this.advisorModalTeam.team_id, payload)
+        this.$message.success(this.advisorModalCurrentAdvisorLabel ? '指导老师已修改' : '指导老师已添加')
+        this.closeAdvisorModal()
+        await this.loadTeams()
+      } catch (e) {
+        this.$message.error('设置失败：' + this.getApiErrorMessage(e))
+        return Promise.reject(e)
+      } finally {
+        this.advisorModalLoading = false
+      }
+    },
     async openProxyTeamModal () {
       this.proxyTeamForm = emptyProxyTeamForm()
       this.proxyTeamVisible = true
@@ -501,6 +593,13 @@ export default {
 
 .page-toolbar {
   margin-bottom: 12px;
+}
+
+.team-actions-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .muted {

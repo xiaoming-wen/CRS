@@ -422,12 +422,20 @@ export function patchCompetitionTeam (teamId, payload) {
   })
 }
 
-// 8.12.2 邀请队员（队长或建队指导老师）
-export function inviteCompetitionTeamMember (teamId, studentId) {
+// 8.12.2 邀请队员（队长或建队指导老师）；可传 student_id 或 student（姓名/用户名/8位ID）
+export function inviteCompetitionTeamMember (teamId, studentOrPayload) {
+  let data
+  if (studentOrPayload != null && typeof studentOrPayload === 'object' && !Array.isArray(studentOrPayload)) {
+    data = { ...studentOrPayload }
+  } else if (typeof studentOrPayload === 'string' && !/^\d{8}$/.test(String(studentOrPayload).trim())) {
+    data = { student: String(studentOrPayload).trim() }
+  } else {
+    data = { student_id: studentOrPayload }
+  }
   return axios({
     url: `/v1/competitions/teams/${teamId}/invite`,
     method: 'post',
-    data: { student_id: studentId },
+    data,
     headers: {
       'Content-Type': 'application/json'
     }
@@ -855,6 +863,18 @@ export function listAdminTeamReviews (options = {}) {
 export function schoolReviewTeam (teamId, payload) {
   return axios({
     url: `/v1/competitions/teams/${encodeURIComponent(teamId)}/school-review`,
+    method: 'put',
+    data: payload || {},
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+/** 校管/超管：为队伍添加或更换指导老师 */
+export function setTeamAdvisor (teamId, payload) {
+  return axios({
+    url: `/v1/competitions/teams/${encodeURIComponent(teamId)}/advisor`,
     method: 'put',
     data: payload || {},
     headers: {

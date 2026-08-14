@@ -77,6 +77,8 @@ from app.schemas import (
     SchoolAdminTeamMemberItem,
     TeamSchoolReviewRequest,
     TeamSchoolReviewResult,
+    SchoolAdminSetTeamAdvisorRequest,
+    SchoolAdminSetTeamAdvisorResult,
     SchoolAdminProxyTeamCreate,
     SchoolAdminProxyEnrollRequest,
     SchoolAdminProxyEnrollResult,
@@ -245,6 +247,19 @@ def _ensure_alt_principal_is_advisor(adb: Session, user_id: int) -> AltAuthUserR
     return row
 
 
+def _looks_like_eight_digit_id(raw: Optional[str]) -> Optional[int]:
+    """纯 8 位数字则解析为用户/竞赛 ID，否则返回 None。"""
+    s = (raw or "").strip()
+    if not s.isdigit() or len(s) != 8:
+        return None
+    n = int(s)
+    try:
+        validate_eight_digit_id(n, label="用户ID")
+    except HTTPException:
+        return None
+    return n
+
+
 def _match_advisors_by_name(adb: Session, name: str) -> list[AltAuthUserRecord]:
     key = (name or "").strip()
     if not key:
@@ -253,6 +268,22 @@ def _match_advisors_by_name(adb: Session, name: str) -> list[AltAuthUserRecord]:
     matches: list[AltAuthUserRecord] = []
     for row in adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.is_active.is_(True)).all():
         if _effective_alt_role(row.role) not in {"advisor", "teacher"}:
+            continue
+        full_name = (row.full_name or "").strip()
+        username = (row.username or "").strip()
+        if full_name.lower() == key_lower or username.lower() == key_lower:
+            matches.append(row)
+    return matches
+
+
+def _match_students_by_name(adb: Session, name: str) -> list[AltAuthUserRecord]:
+    key = (name or "").strip()
+    if not key:
+        return []
+    key_lower = key.lower()
+    matches: list[AltAuthUserRecord] = []
+    for row in adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.is_active.is_(True)).all():
+        if _effective_alt_role(row.role) != "student":
             continue
         full_name = (row.full_name or "").strip()
         username = (row.username or "").strip()
@@ -283,6 +314,38 @@ def _try_resolve_advisor_by_name(adb: Session, name: str) -> Optional[AltAuthUse
     if len(matches) > 1:
         raise HTTPException(status_code=400, detail="存在多位同名指导老师，请填写更准确的姓名")
     return None
+
+
+def _resolve_advisor_ref(adb: Session, ref: str, *, label: str = "指导老师") -> AltAuthUserRecord:
+    """按 8 位用户 ID、姓名或用户名解析指导老师。"""
+    key = (ref or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail=f"{label}不能为空")
+    nid = _looks_like_eight_digit_id(key)
+    if nid is not None:
+        return _ensure_alt_principal_is_advisor(adb, nid)
+    matches = _match_advisors_by_name(adb, key)
+    if not matches:
+        raise HTTPException(status_code=404, detail=f"未找到该{label}，请确认姓名、用户名或用户 ID")
+    if len(matches) > 1:
+        raise HTTPException(status_code=400, detail=f"存在多位同名{label}，请改用 8 位用户 ID")
+    return matches[0]
+
+
+def _resolve_student_ref(adb: Session, ref: str, *, label: str = "学生") -> AltAuthUserRecord:
+    """按 8 位用户 ID、姓名或用户名解析学生。"""
+    key = (ref or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail=f"{label}不能为空")
+    nid = _looks_like_eight_digit_id(key)
+    if nid is not None:
+        return _ensure_alt_principal_is_student(adb, nid)
+    matches = _match_students_by_name(adb, key)
+    if not matches:
+        raise HTTPException(status_code=404, detail=f"未找到该{label}，请确认姓名、用户名或用户 ID")
+    if len(matches) > 1:
+        raise HTTPException(status_code=400, detail=f"存在多位同名{label}，请改用 8 位用户 ID")
+    return matches[0]
 
 
 def _team_advisor_display_name(
@@ -2718,6 +2781,63 @@ async def school_review_team(
     )
 
 
+@router.put("/teams/{team_id}/advisor", response_model=SchoolAdminSetTeamAdvisorResult)
+async def set_team_advisor(
+    team_id: int,
+    body: SchoolAdminSetTeamAdvisorRequest,
+    db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """校管（本校）或超管为队伍添加/更换指导老师。"""
+    role = _effective_alt_role(identity.role)
+    is_super = role == "super_admin"
+    is_school = role == "school_admin"
+    if not is_super and not is_school:
+        raise HTTPException(status_code=403, detail="Only school_admin or super_admin can set team advisor")
+    if is_school:
+        _require_school_admin_identity(identity)
+    else:
+        _require_super_admin_identity(identity)
+
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    if is_school:
+        admin_school = _normalize_school_name(identity.school)
+        if not _team_matches_school(team, admin_school):
+            raise HTTPException(status_code=403, detail="Team does not belong to your school")
+    if team.status == TeamStatus.REJECTED:
+        raise HTTPException(status_code=400, detail="Cannot set advisor on a rejected team")
+
+    advisor_username = (body.advisor_username or "").strip()
+    advisor_name = (body.advisor_name or "").strip()
+    advisor_id = body.advisor_id
+    if advisor_username:
+        adv_row = _resolve_alt_user_by_username(adb, advisor_username, label="指导老师")
+        if _effective_alt_role(adv_row.role) not in {"advisor", "teacher"}:
+            raise HTTPException(status_code=400, detail="指定用户须为指导老师账号")
+    elif advisor_id is not None:
+        adv_row = _ensure_alt_principal_is_advisor(adb, int(advisor_id))
+    elif advisor_name:
+        adv_row = _resolve_advisor_ref(adb, advisor_name)
+    else:
+        raise HTTPException(status_code=400, detail="请填写指导老师姓名、用户名或用户 ID")
+
+    if _effective_alt_role(adv_row.role) not in {"advisor", "teacher"}:
+        raise HTTPException(status_code=400, detail="指定用户须为指导老师账号")
+
+    team.created_by_advisor_id = int(adv_row.id)
+    team.advisor_name = _display_user_name(adv_row, adv_row.id)
+    db.commit()
+    db.refresh(team)
+    return SchoolAdminSetTeamAdvisorResult(
+        team_id=team.id,
+        advisor_id=team.created_by_advisor_id,
+        advisor_name=team.advisor_name,
+    )
+
+
 @router.get("/admin/team-reviews", response_model=SchoolAdminTeamReviewListResponse)
 async def list_admin_team_reviews(
     status_filter: Optional[str] = Query(
@@ -4395,15 +4515,33 @@ async def create_team(
     team_work_track = _resolve_work_track(getattr(team_create, "work_track", None))
 
     if role_eff in {"advisor", "teacher"}:
-        ids = team_create.initial_member_ids or []
-        seen = set()
-        ordered_ids = []
-        for x in ids:
-            if x not in seen:
-                seen.add(x)
-                ordered_ids.append(x)
-        # 初始队员可选：未填队员时须指定队长；仅指定队长时自动写入名单
-        if team_create.captain_student_id is not None:
+        ordered_ids: List[int] = []
+        seen: set = set()
+        member_refs = [
+            str(x).strip()
+            for x in (team_create.initial_members or [])
+            if x is not None and str(x).strip()
+        ]
+        if member_refs:
+            for ref in member_refs:
+                sid = int(_resolve_student_ref(adb, ref, label="队员").id)
+                if sid not in seen:
+                    seen.add(sid)
+                    ordered_ids.append(sid)
+        else:
+            for x in team_create.initial_member_ids or []:
+                if x not in seen:
+                    seen.add(x)
+                    ordered_ids.append(x)
+
+        captain_ref = (team_create.captain_student or "").strip()
+        if captain_ref:
+            captain_id = int(_resolve_student_ref(adb, captain_ref, label="队长").id)
+            if ordered_ids and captain_id not in ordered_ids:
+                raise HTTPException(status_code=400, detail="队长必须出现在初始队员列表中")
+            if captain_id not in ordered_ids:
+                ordered_ids = [captain_id] + ordered_ids
+        elif team_create.captain_student_id is not None:
             captain_id = team_create.captain_student_id
             if ordered_ids and captain_id not in ordered_ids:
                 raise HTTPException(status_code=400, detail="captain_student_id 必须出现在 initial_member_ids 中")
@@ -4414,7 +4552,7 @@ async def create_team(
         else:
             raise HTTPException(
                 status_code=400,
-                detail="指导老师建队须指定 captain_student_id，或提供 initial_member_ids（至少一名学生）",
+                detail="指导老师建队须指定队长（姓名或用户ID），或提供至少一名初始队员",
             )
 
         if identity.id in ordered_ids:
@@ -4487,12 +4625,21 @@ async def create_team(
             created_by_advisor_id = team_create.advisor_id
             advisor_display_name = _display_user_name(adv_row, team_create.advisor_id)
         elif team_create.advisor_name and str(team_create.advisor_name).strip():
-            advisor_display_name = str(team_create.advisor_name).strip()
-            advisor_row = _try_resolve_advisor_by_name(adb, advisor_display_name)
-            if advisor_row:
-                if int(advisor_row.id) == int(identity.id):
+            advisor_raw = str(team_create.advisor_name).strip()
+            advisor_nid = _looks_like_eight_digit_id(advisor_raw)
+            if advisor_nid is not None:
+                adv_row = _ensure_alt_principal_is_advisor(adb, advisor_nid)
+                if int(adv_row.id) == int(identity.id):
                     raise HTTPException(status_code=400, detail="不能将自己指定为指导老师")
-                created_by_advisor_id = advisor_row.id
+                created_by_advisor_id = int(adv_row.id)
+                advisor_display_name = _display_user_name(adv_row, adv_row.id)
+            else:
+                advisor_display_name = advisor_raw
+                advisor_row = _try_resolve_advisor_by_name(adb, advisor_display_name)
+                if advisor_row:
+                    if int(advisor_row.id) == int(identity.id):
+                        raise HTTPException(status_code=400, detail="不能将自己指定为指导老师")
+                    created_by_advisor_id = advisor_row.id
 
         team = Team(
             competition_id=competition.id,
@@ -4671,7 +4818,14 @@ async def invite_team_member(
     if not _can_manage_team_composition(team, identity):
         raise HTTPException(status_code=403, detail="Only captain or advising teacher may invite")
 
-    sid = body.student_id
+    student_ref = (body.student or "").strip() if getattr(body, "student", None) else ""
+    if student_ref:
+        sid = int(_resolve_student_ref(adb, student_ref, label="学生").id)
+    elif body.student_id is not None:
+        sid = body.student_id
+    else:
+        raise HTTPException(status_code=400, detail="请填写学生姓名或用户 ID")
+
     if sid == team.captain_id:
         raise HTTPException(status_code=400, detail="Captain is already on the team")
 

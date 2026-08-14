@@ -761,10 +761,19 @@ class TeamCreate(BaseModel):
     )
     # 若不传/传空则由服务端逻辑创建成员并设为队长（学生自建队通常为本人）
     initial_member_ids: Optional[List[EightDigitAltUserId]] = None
+    initial_members: Optional[List[str]] = Field(
+        None,
+        description="初始队员：每人可为姓名、用户名或 8 位用户 ID（与 initial_member_ids 二选一优先）",
+    )
     name: Optional[str] = Field(None, max_length=200, description="队名（展示用），可由队长后续修改")
     captain_student_id: Optional[EightDigitAltUserId] = Field(
         None,
         description="指导老师建队时可指定队长 user_id；若填写 initial_member_ids 则须出现在列表中；未填初始队员时必须提供本字段",
+    )
+    captain_student: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="队长：姓名、用户名或 8 位用户 ID（优先于 captain_student_id）",
     )
     advisor_id: Optional[EightDigitAltUserId] = Field(
         None,
@@ -773,7 +782,7 @@ class TeamCreate(BaseModel):
     advisor_name: Optional[str] = Field(
         None,
         max_length=100,
-        description="指导老师姓名（学生自建队选填）；写入队伍展示字段；若与系统老师账号精确匹配则同时关联 created_by_advisor_id",
+        description="指导老师姓名/用户名/8位ID（学生自建队选填）；写入队伍展示字段；匹配系统账号时同时关联 created_by_advisor_id",
     )
 
 
@@ -803,7 +812,15 @@ class TeamPatch(BaseModel):
 
 
 class TeamInviteMember(BaseModel):
-    student_id: EightDigitAltUserId = Field(..., description="加入队伍的 alt_auth 学生主体 id")
+    student_id: Optional[EightDigitAltUserId] = Field(
+        None,
+        description="加入队伍的 alt_auth 学生主体 id",
+    )
+    student: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="学生姓名、用户名或 8 位用户 ID（与 student_id 二选一）",
+    )
 
 
 class TeamMemberResponse(BaseModel):
@@ -988,6 +1005,31 @@ class TeamSchoolReviewResult(BaseModel):
     status: TeamStatus
     reviewed_at: OptionalUtcDatetime = None
     review_feedback: Optional[str] = None
+
+
+class SchoolAdminSetTeamAdvisorRequest(BaseModel):
+    """校管/超管为队伍指定指导老师（姓名 / 用户名 / 8 位用户 ID，任填其一）。"""
+
+    advisor_username: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="指导老师用户名",
+    )
+    advisor_id: Optional[EightDigitAltUserId] = Field(
+        None,
+        description="指导老师 8 位用户 ID",
+    )
+    advisor_name: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="指导老师姓名、用户名或 8 位用户 ID",
+    )
+
+
+class SchoolAdminSetTeamAdvisorResult(BaseModel):
+    team_id: int
+    advisor_id: Optional[int] = None
+    advisor_name: Optional[str] = None
 
 
 class SchoolAdminProxyTeamCreate(BaseModel):
