@@ -116,7 +116,7 @@
       @cancel="showRegisterModal = false"
     >
       <p class="standalone-auth-hint">
-        注册学生或指导老师账号后，请使用同一账号登录以报名或组班。
+        注册指导老师或学生账号后，请使用该账号登录以报名或组班。
       </p>
       <ManuAltIdentityRegisterPanel
         mode="embedded"
