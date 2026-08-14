@@ -400,7 +400,7 @@
                   type="error"
                   show-icon
                   message="校审已驳回"
-                  description="该队伍未通过校审，相关组队报名已退赛。请联系校管理员了解原因，或由队长/指导老师重新建队。"
+                  description="该队伍未通过校审，相关组队报名已退赛。可重新「创建队伍」或「加入已有队伍」后再等待校审。"
                   style="margin-bottom: 12px"
                 />
                 <a-form-item v-if="showStudentTeamCreateJoinOps" label="加入已有队伍（输入队长提供的队伍ID）">
@@ -3404,8 +3404,9 @@ export default {
     showCaptainTeamMembersInEnrollModal () {
       return this.enrollMode === 'team' && this.isCurrentTeamCaptain && !!this.myTeamId
     },
-    /** 当前竞赛已存在队伍关联（已报名队伍或已有 team_id） */
+    /** 当前竞赛是否仍占用有效队伍（已报名或进行中的校审队伍）；校审已驳回后应允许重新建队/加入 */
     studentHasTeamForCurrentCompetition () {
+      if (this.isMyTeamSchoolReviewRejected) return false
       return !!this.currentTeamEnrollmentRow || !!this.myTeamId
     },
     /** 仅队长或未队伍报名时展示转让/退队 */
