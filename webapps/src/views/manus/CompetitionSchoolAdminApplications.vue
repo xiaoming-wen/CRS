@@ -315,7 +315,7 @@ export default {
       this.rejectModalLoading = false
     },
     async submitRejectModal () {
-      if (!this.rejectModalRecord) return Promise.reject()
+      if (!this.rejectModalRecord) return Promise.reject(new Error('cancelled'))
       this.rejectModalLoading = true
       try {
         await this.handleReview(

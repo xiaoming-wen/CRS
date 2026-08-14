@@ -53,7 +53,7 @@
         </a-input>
       </a-form-item>
 
-            <a-form-item>
+      <a-form-item>
         <a-row :gutter="8">
           <a-col :span="15">
             <a-input
@@ -294,7 +294,7 @@ export default {
         smsSending: false,
         smsCooldown: 0
       },
-      _smsTimer: null
+      smsTimer: null
     }
   },
   computed: {
@@ -309,9 +309,9 @@ export default {
     }
   },
   beforeDestroy () {
-    if (this._smsTimer) {
-      clearInterval(this._smsTimer)
-      this._smsTimer = null
+    if (this.smsTimer) {
+      clearInterval(this.smsTimer)
+      this.smsTimer = null
     }
   },
   methods: {
@@ -320,16 +320,16 @@ export default {
     },
     startSmsCooldown (seconds) {
       const sec = Math.max(1, Number(seconds) || 60)
-      if (this._smsTimer) {
-        clearInterval(this._smsTimer)
-        this._smsTimer = null
+      if (this.smsTimer) {
+        clearInterval(this.smsTimer)
+        this.smsTimer = null
       }
       this.state.smsCooldown = sec
-      this._smsTimer = setInterval(() => {
+      this.smsTimer = setInterval(() => {
         if (this.state.smsCooldown <= 1) {
           this.state.smsCooldown = 0
-          clearInterval(this._smsTimer)
-          this._smsTimer = null
+          clearInterval(this.smsTimer)
+          this.smsTimer = null
           return
         }
         this.state.smsCooldown -= 1

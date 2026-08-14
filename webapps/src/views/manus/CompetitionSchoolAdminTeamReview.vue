@@ -412,7 +412,7 @@ export default {
       this.rejectModalLoading = false
     },
     async submitRejectModal () {
-      if (!this.rejectModalTeam) return Promise.reject()
+      if (!this.rejectModalTeam) return Promise.reject(new Error('cancelled'))
       this.rejectModalLoading = true
       try {
         await this.handleReviewTeam(
@@ -444,11 +444,11 @@ export default {
       let memberUsernames = this.parseUsernameList(form.member_usernames_text)
       if (!Number.isFinite(competitionId) || competitionId <= 0) {
         this.$message.warning('请选择竞赛')
-        return Promise.reject()
+        return Promise.reject(new Error('cancelled'))
       }
       if (!captainUsername) {
         this.$message.warning('请填写队长用户名')
-        return Promise.reject()
+        return Promise.reject(new Error('cancelled'))
       }
       if (!memberUsernames.length) {
         memberUsernames = [captainUsername]

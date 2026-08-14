@@ -1926,7 +1926,6 @@
         <a-form-item label="规则说明" required>
           <a-textarea v-model="createCompetitionForm.rules_text" :rows="4" placeholder="必填" />
         </a-form-item>
-        
         <a-form-item
           v-if="createCompetitionNeedsSharedQr"
           label="竞赛二维码"
@@ -2065,8 +2064,6 @@
           <a-textarea v-model="editCompetitionForm.rules_text" :rows="4" placeholder="修改后保存；与当前一致则不提交" />
         </a-form-item>
 
-        
-
         <a-form-item label="当前二维码">
           <a-spin :spinning="editCurrentQrLoading" size="small">
             <div
@@ -2150,8 +2147,18 @@
           </a-form-item>
         </template>
 
-        <template v-if="editCompetitionForm.stage_mode === 'prelim_final' && editCompetitionOriginalStage !== 'final'">
-          <a-form-item :label="editCompetitionOriginalStage === 'preliminary' || editCompetitionForm.stage_mode === 'prelim_final' ? '初赛开始时间' : '开始时间'">
+        <!-- 已有初赛：只改本场初赛时间 -->
+        <template v-if="editCompetitionOriginalStage === 'preliminary'">
+          <a-form-item label="初赛开始时间">
+            <a-input type="datetime-local" v-model="editCompetitionForm.start_at" />
+          </a-form-item>
+          <a-form-item label="初赛结束时间">
+            <a-input type="datetime-local" v-model="editCompetitionForm.end_at" />
+          </a-form-item>
+        </template>
+        <!-- 单阶段升级为初赛+决赛：可同时填写初赛与决赛时间 -->
+        <template v-else-if="editCompetitionForm.stage_mode === 'prelim_final' && editCompetitionOriginalStage === 'single'">
+          <a-form-item label="初赛开始时间">
             <a-input type="datetime-local" v-model="editCompetitionForm.start_at" />
           </a-form-item>
           <a-form-item label="初赛结束时间">
@@ -2448,7 +2455,6 @@ import {
   submitCompetitionSubmission,
   uploadCompetitionSubmission,
   getCompetitionSubmissions,
-  getCompetitionSubmission,
   downloadCompetitionSubmissionFile,
   reviewCompetitionSubmissionGrade,
   patchCompetitionSubmissionReviewGrade,
@@ -3094,8 +3100,8 @@ export default {
       if (s === 'preliminary') {
         const paired = this.editPairedCompetitionId
         return paired
-          ? `当前为初赛，已关联决赛 #${paired}；可修改决赛时间，不可改回单阶段。`
-          : '当前为初赛；不可改回单阶段。'
+          ? `当前为初赛，已关联决赛 #${paired}；此处仅修改初赛时间。决赛时间请打开决赛竞赛再修改。`
+          : '当前为初赛；此处仅修改初赛时间。'
       }
       if (s === 'final') {
         const paired = this.editPairedCompetitionId
@@ -3168,7 +3174,7 @@ export default {
           status: c.status,
           summary,
           start_at: this.formatDate(c.start_at),
-          end_at: this.formatDate(c.end_at),
+          end_at: this.formatDate(c.end_at)
         }
       })
     },
@@ -3246,9 +3252,7 @@ export default {
         getCheckboxProps: (record) => ({
           disabled: !!record.already_promoted || String(record.status) !== 'active'
         }),
-        onChange: (keys) => {
-          this.promotionSelectedTeamIds = (keys || []).map(k => Number(k)).filter(n => Number.isFinite(n))
-        }
+        onChange: this.onPromotionCandidateSelectionChange
       }
     },
     /** 教师/管理员：selectedRowKeys 由 selectedCompetitionId 推导，避免 Table 与本地 state 双写不同步导致下方详情不刷新 */
@@ -4161,6 +4165,8 @@ export default {
       if (!s) return null
       if (/^https?:\/\//i.test(s)) return s
       if (s.startsWith('/')) {
+        // Vue CLI 注入；eslint 环境未声明 process
+        // eslint-disable-next-line no-undef
         const base = (process.env.VUE_APP_API_BASE_URL || '/api').replace(/\/$/, '')
         return base + s
       }
@@ -5035,7 +5041,6 @@ export default {
       }
     },
 
-
     validateEnrollTrackAndDivision () {
       const f = this.enrollProfileForm || {}
       const track = f.work_track != null ? String(f.work_track).trim() : ''
@@ -5255,7 +5260,6 @@ export default {
         }
         return
       }
-
 
       // 仅组队参赛：优先使用队伍报名上下文
       if (teamRow) {
@@ -5529,7 +5533,7 @@ export default {
       const advisorName = (this.studentCreateTeamForm.advisor_name || '').trim()
       if (!name) {
         this.$message.warning('请填写队名')
-        return Promise.reject()
+        return Promise.reject(new Error('empty team name'))
       }
       this.studentCreateTeamModalLoading = true
       try {
@@ -6051,8 +6055,8 @@ export default {
           }
         }
         this.$message.success(
-          '队伍创建成功，当前为「待校审」，须本校校管理员审核通过后队员方可上传题目答案'
-            + (teamId ? `（队伍 ID：${teamId}）` : '')
+          '队伍创建成功，当前为「待校审」，须本校校管理员审核通过后队员方可上传题目答案' +
+            (teamId ? `（队伍 ID：${teamId}）` : '')
         )
         this.advisorCreateForm = {
           name: '',
@@ -7065,12 +7069,16 @@ export default {
       }
     },
 
+    onPromotionCandidateSelectionChange (keys) {
+      this.promotionSelectedTeamIds = (keys || []).map(k => Number(k)).filter(n => Number.isFinite(n))
+    },
+
     async submitPromotions () {
-      if (!this.activeCompetitionId) return Promise.reject()
+      if (!this.activeCompetitionId) return Promise.reject(new Error('no competition'))
       const ids = (this.promotionSelectedTeamIds || []).filter(id => Number.isFinite(Number(id)))
       if (!ids.length) {
         this.$message.warning('请选择至少一支已校审通过的队伍')
-        return Promise.reject()
+        return Promise.reject(new Error('no teams selected'))
       }
       this.promotionSubmitLoading = true
       try {
@@ -7325,7 +7333,7 @@ export default {
         const originalStageMode = o.stage_mode || 'single'
         if (stageMode !== originalStageMode) changes.stage_mode = stageMode
 
-        if (stageMode === 'prelim_final' && this.editCompetitionOriginalStage !== 'final') {
+        if (stageMode === 'prelim_final' && this.editCompetitionOriginalStage === 'single') {
           const finalStartISO = this.toISOFromDateTimeLocal(form.final_start_at)
           const finalEndISO = this.toISOFromDateTimeLocal(form.final_end_at)
           if (finalStartISO !== (o.final_start_at || null)) changes.final_start_at = finalStartISO
@@ -7400,18 +7408,17 @@ export default {
       let finalEndLocal = ''
       let finalStartISO = null
       let finalEndISO = null
-      if (stage === 'preliminary' && comp && comp.paired_competition_id) {
+      // 仅「单阶段升级为初赛+决赛」时需要预填决赛时间；编辑已有初赛不再加载/提交决赛时间
+      if (stage === 'single') {
+        finalStartLocal = ''
+        finalEndLocal = ''
+      } else if (stage === 'preliminary' && comp && comp.paired_competition_id) {
+        // 仍记录关联决赛 ID，便于提示；不拉决赛时间到表单
         try {
           const paired = await getCompetition(comp.paired_competition_id)
-          if (paired) {
-            finalStartLocal = this.toDateTimeLocalValue(paired.start_at) || ''
-            finalEndLocal = this.toDateTimeLocalValue(paired.end_at) || ''
-            finalStartISO = paired.start_at ? (new Date(paired.start_at)).toISOString() : null
-            finalEndISO = paired.end_at ? (new Date(paired.end_at)).toISOString() : null
-            this.mergeCompetitionIntoList(paired)
-          }
+          if (paired) this.mergeCompetitionIntoList(paired)
         } catch (_) {
-          /* 关联决赛暂不可读时仍可编辑本场 */
+          /* ignore */
         }
       }
 

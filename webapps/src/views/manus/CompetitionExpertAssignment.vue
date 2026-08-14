@@ -478,19 +478,19 @@ export default {
       }
     },
     async submitAssignModal () {
-      if (!this.assignModalExpert) return Promise.reject()
+      if (!this.assignModalExpert) return Promise.reject(new Error('cancelled'))
       const expertId = Number(this.assignModalExpert.expert_user_id)
       const competitionId = Number(this.assignModalCompetitionId)
       if (!Number.isFinite(competitionId) || competitionId <= 0) {
         this.$message.warning('请选择竞赛')
-        return Promise.reject()
+        return Promise.reject(new Error('cancelled'))
       }
       const teamIds = (this.assignModalTeamIds || [])
         .map(id => Number(id))
         .filter(n => Number.isFinite(n) && n > 0)
       if (!teamIds.length) {
         this.$message.warning('请至少选择一支队伍')
-        return Promise.reject()
+        return Promise.reject(new Error('cancelled'))
       }
       this.assignModalLoading = true
       try {
