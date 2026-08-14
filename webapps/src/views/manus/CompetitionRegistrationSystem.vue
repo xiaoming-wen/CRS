@@ -360,15 +360,6 @@
                 >
                   创建队伍（自动队长）
                 </a-button>
-                <a-button
-                  v-if="showFinalStageEnrollTeamButton"
-                  type="primary"
-                  :loading="enrollLoading"
-                  @click="handleEnrollWithTeam"
-                  :disabled="competitionEnrollActionsDisabled || !allowTeam || myEnrolledTeam || !teamEnrollmentEligible || !myTeamId || teamEnrollActionBlockedForMember"
-                >
-                  {{ myEnrolledTeam ? '队伍已报名' : '报名（队伍）' }}
-                </a-button>
                 <a-tag v-if="finalStagePromoted" color="green">已晋级 · 无需再报名</a-tag>
             </div>
             <p v-if="teamEnrollActionBlockedForMember" class="muted" style="margin: 8px 0 0; font-size: 13px">
@@ -1412,15 +1403,6 @@
             style="margin-right: 8px"
           >
             创建队伍（自动队长）
-          </a-button>
-          <a-button
-            v-if="showFinalStageEnrollTeamButton"
-            type="primary"
-            :loading="enrollLoading"
-            @click="handleEnrollWithTeam"
-            :disabled="competitionEnrollActionsDisabled || !allowTeam || myEnrolledTeam || !teamEnrollmentEligible || !myTeamId || teamEnrollActionBlockedForMember"
-          >
-            {{ myEnrolledTeam ? '队伍已报名' : '报名（队伍）' }}
           </a-button>
           <a-tag v-if="finalStagePromoted" color="green">已晋级 · 无需再报名</a-tag>
         </div>
@@ -3336,7 +3318,7 @@ export default {
       if (this.studentTeamEnrolledAsMember) {
         return '您已完成队伍赛道报名（队员身份）。队伍由队长统一管理，无需创建/加入队伍或进行队长操作。'
       }
-      return '队伍参赛流程：① 创建队伍或申请加入已有队伍（须队长同意）→ ② 完成竞赛报名（创建队伍时可能已自动报名）→ ③ 等待本校校管理员校审通过 → ④ 队长上传作品压缩包。校审通过前无法上传。'
+      return '队伍参赛流程：① 创建队伍或申请加入已有队伍（须队长同意）→ ② 等待本校校管理员校审通过 → ③ 队长上传作品压缩包。创建/加入成功时通常已自动完成组队报名；校审通过前无法上传。'
     },
     myTeamStatusNormalized () {
       const s = this.myTeamStatus
@@ -3382,10 +3364,6 @@ export default {
     showStudentTeamCreateJoinOps () {
       if (this.isActiveCompetitionFinal) return false
       return this.enrollMode === 'team' && !this.studentTeamEnrolledAsMember
-    },
-    /** 决赛：不展示「报名（队伍）」按钮（晋级已自动报名） */
-    showFinalStageEnrollTeamButton () {
-      return !this.isActiveCompetitionFinal
     },
     /** 决赛未晋级：拦截提示 */
     finalStageAccessDenied () {
@@ -5637,7 +5615,7 @@ export default {
         this.syncIgnoreSubmissionsAfterEnrollRefresh()
         this.$message.success('队伍创建成功并已报名。当前为「待校审」，须本校校管理员审核通过后，队员方可上传题目答案。')
       } else {
-        this.$message.success('队伍创建成功，当前为「待校审」。请完成队伍报名；校审通过后队员方可上传题目答案。')
+        this.$message.success('队伍创建成功，当前为「待校审」。校审通过后队员方可上传题目答案。')
       }
     },
 
