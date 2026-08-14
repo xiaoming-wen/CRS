@@ -2033,7 +2033,7 @@
         <a-alert
           type="info"
           show-icon
-          message="仅提交有变化的文本字段；未上传的二维码文件不替换。修改学历组别/二维码策略时请与实际上传的二维码字段一致。"
+          message="仅提交有变化的文本字段；更换二维码须在下方重新上传图片（未上传则不替换）。图片须为 png/jpeg/gif/webp，且能被识别为二维码。初赛/决赛会同步同一套二维码。"
           style="margin-bottom: 16px"
         />
         <a-form-item label="竞赛ID">
@@ -6731,9 +6731,9 @@ export default {
 
     appendCompetitionDivisionFields (fd, form) {
       const mode = (form && form.division_mode) || 'single'
-      fd.append('division_mode', 'single')
+      fd.append('division_mode', mode)
       if (mode === 'dual') {
-        fd.append('qr_layout', 'shared')
+        fd.append('qr_layout', (form && form.qr_layout) || 'shared')
       }
     },
 
@@ -7452,42 +7452,58 @@ export default {
     },
 
     async handleEditCompetition () {
-      if (!this.canManageCompetitions) return
-      if (!this.editCompetitionId) return
+      if (!this.canManageCompetitions) return Promise.reject(new Error('no permission'))
+      if (!this.editCompetitionId) return Promise.reject(new Error('no competition'))
 
       const changes = this.buildEditCompetitionChanges()
       const hasQr = this.hasEditCompetitionQrUploads()
 
       if (changes.name !== undefined && !changes.name) {
         this.$message.warning('竞赛名称不能为空')
-        return
+        return Promise.reject(new Error('empty name'))
       }
 
       if (!hasQr && Object.keys(changes).length === 0) {
-        this.$message.info('未检测到需要修改的字段')
-        return
+        this.$message.info('未检测到需要修改的字段（更换二维码请先在下方上传新图片）')
+        return Promise.reject(new Error('no changes'))
       }
 
       this.adminEditLoading = true
       try {
+        const editedId = this.editCompetitionId
         if (hasQr) {
           const fd = new FormData()
           this.appendEditCompetitionChangesToFormData(fd, changes)
           this.appendEditCompetitionQrFiles(fd)
-          await updateCompetitionMultipart(this.editCompetitionId, fd)
+          await updateCompetitionMultipart(editedId, fd)
         } else {
-          await updateCompetition(this.editCompetitionId, changes)
+          await updateCompetition(editedId, changes)
         }
         if (changes.stage_mode === 'prelim_final' && this.editCompetitionOriginalStage === 'single') {
           this.$message.success('已升级为初赛+决赛')
         } else {
-          this.$message.success('修改成功')
+          this.$message.success(hasQr ? '修改成功（二维码已更新）' : '修改成功')
         }
         this.showEditCompetitionModal = false
         this.resetEditCompetitionQrState()
-        this.fetchCompetitions()
+        await this.fetchCompetitions()
+        // 强制刷新详情缓存与页面上的二维码展示（避免仍显示旧 blob）
+        await this.ensureCompetitionDetail(editedId)
+        if (this.editPairedCompetitionId) {
+          await this.ensureCompetitionDetail(this.editPairedCompetitionId)
+        }
+        if (
+          String(this.activeCompetitionId) === String(editedId) ||
+          String(this.activeCompetitionId) === String(this.editPairedCompetitionId)
+        ) {
+          void this.fetchStudentBriefingQr()
+        }
       } catch (e) {
-        this.$message.error('修改失败：' + (e && e.message ? e.message : '未知错误'))
+        if (e && (e.message === 'no changes' || e.message === 'empty name' || e.message === 'no permission' || e.message === 'no competition')) {
+          throw e
+        }
+        this.$message.error('修改失败：' + this.getApiErrorMessage(e, e && e.message ? e.message : '未知错误'))
+        return Promise.reject(e)
       } finally {
         this.adminEditLoading = false
       }

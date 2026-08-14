@@ -3359,27 +3359,44 @@ async def update_competition(
         if has_final_end:
             final.end_at = final_end_at
 
+    # 初赛/决赛创建时共用同一套二维码路径；替换后须同步关联场次，再删旧文件，避免关联场仍指向已删除文件
+    old_paths_to_delete = []
+    qr_changed = False
     if qr_upload is not None:
         old_path = competition.qr_code_path
         competition.qr_code_path = await _save_qr_code_upload(qr_upload, competition_id)
         if old_path and old_path != competition.qr_code_path:
-            _delete_stored_qr_file(old_path)
+            old_paths_to_delete.append(old_path)
+        qr_changed = True
     if qr_upload_undergraduate is not None:
         old_path = competition.qr_code_path_undergraduate
         competition.qr_code_path_undergraduate = await _save_qr_code_upload(
             qr_upload_undergraduate, competition_id
         )
         if old_path and old_path != competition.qr_code_path_undergraduate:
-            _delete_stored_qr_file(old_path)
+            old_paths_to_delete.append(old_path)
+        qr_changed = True
     if qr_upload_vocational is not None:
         old_path = competition.qr_code_path_vocational
         competition.qr_code_path_vocational = await _save_qr_code_upload(
             qr_upload_vocational, competition_id
         )
         if old_path and old_path != competition.qr_code_path_vocational:
-            _delete_stored_qr_file(old_path)
+            old_paths_to_delete.append(old_path)
+        qr_changed = True
+
+    if qr_changed:
+        paired_id = getattr(competition, "paired_competition_id", None)
+        if paired_id is not None:
+            paired = db.query(Competition).filter(Competition.id == int(paired_id)).first()
+            if paired is not None:
+                paired.qr_code_path = competition.qr_code_path
+                paired.qr_code_path_undergraduate = competition.qr_code_path_undergraduate
+                paired.qr_code_path_vocational = competition.qr_code_path_vocational
 
     db.commit()
+    for old_path in old_paths_to_delete:
+        _delete_stored_qr_file(old_path)
     db.refresh(competition)
     return competition
 
