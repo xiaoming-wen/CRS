@@ -138,6 +138,7 @@ import {
   isAltCompetitionExpert,
   isAltCompetitionAdvisorOrTeacher,
   clearAltIdentityStorage,
+  markAltLoginSkipAutoOnce,
   fetchAltIdentityMe,
   applyAltIdentityMeToStorage
 } from '@/api/altIdentity'
@@ -243,6 +244,7 @@ export default {
         sessionStorage.removeItem(this.shareSessionStorageKey)
         this.shareSessionActive = false
       }
+      markAltLoginSkipAutoOnce()
       clearAltIdentityStorage()
       this.childHasEnrollment = false
       this.bumpToolbarIdentityTick()

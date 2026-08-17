@@ -86,13 +86,18 @@ import {
   altIdentitySession,
   saveAltSession,
   clearAltIdentityStorage,
+  clearAltLoginRemember,
+  saveAltLoginRemember,
+  isAltLoginAutoEnabled,
+  getAltLoginRememberUsername,
+  getAltLoginRememberPassword,
+  markAltLoginSkipAutoOnce,
+  consumeAltLoginSkipAutoOnce,
   fetchAltIdentityMe,
   applyAltIdentityMeToStorage,
-  ALT_ACCESS_TOKEN_KEY,
+  getStoredAltToken,
   ALT_PROFILE_KEY
 } from '@/api/altIdentity'
-
-const REMEMBER_ALT_USER_KEY = 'alt_login_remember_username'
 
 function validateUsername (raw) {
   const s = (raw || '').trim()
@@ -113,6 +118,7 @@ export default {
     return {
       rememberMe: false,
       loginLoading: false,
+      autoLoginTried: false,
       loginForm: {
         username: '',
         password: ''
@@ -122,7 +128,7 @@ export default {
   },
   computed: {
     altLoggedIn () {
-      return !!localStorage.getItem(ALT_ACCESS_TOKEN_KEY)
+      return !!getStoredAltToken()
     },
     profileDisplayName () {
       const u = this.altProfile.username
@@ -132,25 +138,70 @@ export default {
     }
   },
   mounted () {
-    const remembered = localStorage.getItem(REMEMBER_ALT_USER_KEY)
-    if (remembered) {
-      this.loginForm.username = remembered
-      this.rememberMe = true
-    }
+    this.restoreRememberedAccount()
     this.refreshProfile()
+    void this.tryAutoLoginOnMount()
   },
   methods: {
+    restoreRememberedAccount () {
+      const remembered = getAltLoginRememberUsername()
+      const auto = isAltLoginAutoEnabled()
+      if (remembered) {
+        this.loginForm.username = remembered
+      }
+      if (auto) {
+        this.rememberMe = true
+        const secret = getAltLoginRememberPassword()
+        if (secret && !this.loginForm.password) {
+          this.loginForm.password = secret
+        }
+      }
+    },
+
     refreshProfile () {
       try {
-        const raw = localStorage.getItem(ALT_PROFILE_KEY)
+        const raw =
+          localStorage.getItem(ALT_PROFILE_KEY) ||
+          sessionStorage.getItem(ALT_PROFILE_KEY)
         this.altProfile = raw ? JSON.parse(raw) : {}
       } catch (e) {
         this.altProfile = {}
       }
     },
 
+    async tryAutoLoginOnMount () {
+      if (this.autoLoginTried) return
+      this.autoLoginTried = true
+      if (consumeAltLoginSkipAutoOnce()) return
+      if (!isAltLoginAutoEnabled()) return
+
+      // 已有持久化令牌：校验后直接进入
+      if (getStoredAltToken()) {
+        try {
+          const me = await fetchAltIdentityMe()
+          applyAltIdentityMeToStorage(me)
+          this.refreshProfile()
+          this.$emit('session-changed')
+          return
+        } catch (e) {
+          clearAltIdentityStorage()
+        }
+      }
+
+      // 无令牌：用当时勾选自动登录保存的账号密码静默登录
+      const username = getAltLoginRememberUsername()
+      const password = getAltLoginRememberPassword()
+      if (!username || !password) return
+      this.loginForm.username = username
+      this.loginForm.password = password
+      this.rememberMe = true
+      await this.handleAltLogin({ silent: true })
+    },
+
     handleAltLogout () {
+      markAltLoginSkipAutoOnce()
       clearAltIdentityStorage()
+      // 保留「自动登录」凭据；下次刷新仍可自动登回（本次已跳过）
       this.refreshProfile()
       this.$message.success('已退出独立账号')
       this.$emit('session-changed')
@@ -179,20 +230,22 @@ export default {
       this.$router.push({ name: 'ManuVideoCompetitionRegister' }).catch(() => {})
     },
 
-    async handleAltLogin () {
+    async handleAltLogin (options = {}) {
+      const silent = !!(options && options.silent)
       const u = validateUsername(this.loginForm.username)
       if (!u.ok) {
-        this.$message.warning(u.msg)
+        if (!silent) this.$message.warning(u.msg)
         return
       }
       if (!this.loginForm.password) {
-        this.$message.warning('请输入密码')
+        if (!silent) this.$message.warning('请输入密码')
         return
       }
+
       if (this.rememberMe) {
-        localStorage.setItem(REMEMBER_ALT_USER_KEY, u.value)
+        saveAltLoginRemember(u.value, this.loginForm.password)
       } else {
-        localStorage.removeItem(REMEMBER_ALT_USER_KEY)
+        clearAltLoginRemember()
       }
 
       this.loginLoading = true
@@ -202,7 +255,7 @@ export default {
           password: this.loginForm.password
         })
         if (res && res.access_token) {
-          saveAltSession(res, { username: u.value })
+          saveAltSession(res, { username: u.value }, { persist: !!this.rememberMe })
           try {
             const me = await fetchAltIdentityMe()
             applyAltIdentityMeToStorage(me)
@@ -210,14 +263,20 @@ export default {
             console.warn('[ManuAltIdentityPanel] sync /me after login failed:', syncErr)
           }
           this.refreshProfile()
-          this.$message.success('登录成功')
+          if (!silent) this.$message.success('登录成功')
           this.$emit('session-changed', res)
-        } else {
+        } else if (!silent) {
           this.$message.error('登录失败：未返回令牌')
         }
       } catch (e) {
-        const msg = this.formatAltLoginError(e)
-        this.$message.warning(msg)
+        if (silent) {
+          // 自动登录失败：清掉无效凭据，避免反复失败
+          clearAltLoginRemember()
+          this.rememberMe = false
+          this.loginForm.password = ''
+        } else {
+          this.$message.warning(this.formatAltLoginError(e))
+        }
       } finally {
         this.loginLoading = false
       }

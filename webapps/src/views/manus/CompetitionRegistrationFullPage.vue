@@ -111,6 +111,7 @@ import ManuAltIdentityPanel from '@/views/manus/ManuAltIdentityPanel.vue'
 import {
   getStoredAltToken,
   clearAltIdentityStorage,
+  markAltLoginSkipAutoOnce,
   ALT_PROFILE_KEY,
   isAltCompetitionTeacherOrAdmin,
   isAltCompetitionSuperAdmin,
@@ -265,6 +266,9 @@ export default {
       } catch (e) {
         const msg = e && e.message ? e.message : ''
         if (msg) console.warn('同步独立账号资料失败:', msg)
+        // 令牌失效：回到登录门；若勾选过自动登录，面板会静默登回原账号
+        clearAltIdentityStorage()
+        this.altGateTick++
       }
     },
     syncSectionWithCatalog () {
@@ -315,6 +319,7 @@ export default {
     },
     onAltAvatarMenu ({ key }) {
       if (key !== 'logout') return
+      markAltLoginSkipAutoOnce()
       clearAltIdentityStorage()
       this.altGateTick++
       this.$message.success('已退出独立账号，请重新登录')

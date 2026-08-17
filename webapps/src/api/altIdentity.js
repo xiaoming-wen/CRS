@@ -120,9 +120,33 @@ export async function fetchAltIdentityMe () {
 
 export const ALT_ACCESS_TOKEN_KEY = 'alt_access_token'
 export const ALT_PROFILE_KEY = 'alt_identity_profile'
+/** 勾选「自动登录」后持久化标记 */
+export const ALT_LOGIN_AUTO_KEY = 'alt_login_auto'
+export const ALT_LOGIN_REMEMBER_USER_KEY = 'alt_login_remember_username'
+export const ALT_LOGIN_REMEMBER_SECRET_KEY = 'alt_login_remember_secret'
+/** 主动退出后跳过一次自动登录（避免立刻被登回） */
+export const ALT_LOGIN_SKIP_AUTO_KEY = 'alt_login_skip_auto_once'
+
+function getActiveAltStore () {
+  if (typeof localStorage !== 'undefined' && localStorage.getItem(ALT_ACCESS_TOKEN_KEY)) {
+    return localStorage
+  }
+  if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(ALT_ACCESS_TOKEN_KEY)) {
+    return sessionStorage
+  }
+  return typeof localStorage !== 'undefined' ? localStorage : null
+}
 
 export function getStoredAltToken () {
-  return localStorage.getItem(ALT_ACCESS_TOKEN_KEY) || ''
+  if (typeof localStorage !== 'undefined') {
+    const t = localStorage.getItem(ALT_ACCESS_TOKEN_KEY)
+    if (t) return t
+  }
+  if (typeof sessionStorage !== 'undefined') {
+    const t = sessionStorage.getItem(ALT_ACCESS_TOKEN_KEY)
+    if (t) return t
+  }
+  return ''
 }
 
 function notifyAltIdentityStorageChanged () {
@@ -134,9 +158,79 @@ function notifyAltIdentityStorageChanged () {
 }
 
 export function clearAltIdentityStorage () {
-  localStorage.removeItem(ALT_ACCESS_TOKEN_KEY)
-  localStorage.removeItem(ALT_PROFILE_KEY)
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem(ALT_ACCESS_TOKEN_KEY)
+    localStorage.removeItem(ALT_PROFILE_KEY)
+  }
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.removeItem(ALT_ACCESS_TOKEN_KEY)
+    sessionStorage.removeItem(ALT_PROFILE_KEY)
+  }
   notifyAltIdentityStorageChanged()
+}
+
+export function clearAltLoginRemember () {
+  if (typeof localStorage === 'undefined') return
+  localStorage.removeItem(ALT_LOGIN_AUTO_KEY)
+  localStorage.removeItem(ALT_LOGIN_REMEMBER_USER_KEY)
+  localStorage.removeItem(ALT_LOGIN_REMEMBER_SECRET_KEY)
+}
+
+/** 主动退出时调用：本次打开登录页不自动登录，刷新/下次进入仍可自动登录 */
+export function markAltLoginSkipAutoOnce () {
+  if (typeof sessionStorage === 'undefined') return
+  sessionStorage.setItem(ALT_LOGIN_SKIP_AUTO_KEY, '1')
+}
+
+/** 消费「跳过一次自动登录」标记；返回 true 表示本次应跳过 */
+export function consumeAltLoginSkipAutoOnce () {
+  if (typeof sessionStorage === 'undefined') return false
+  if (sessionStorage.getItem(ALT_LOGIN_SKIP_AUTO_KEY) !== '1') return false
+  sessionStorage.removeItem(ALT_LOGIN_SKIP_AUTO_KEY)
+  return true
+}
+
+export function encodeAltLoginSecret (password) {
+  try {
+    return btoa(unescape(encodeURIComponent(String(password == null ? '' : password))))
+  } catch (e) {
+    return ''
+  }
+}
+
+export function decodeAltLoginSecret (raw) {
+  try {
+    return decodeURIComponent(escape(atob(String(raw || ''))))
+  } catch (e) {
+    return ''
+  }
+}
+
+export function saveAltLoginRemember (username, password) {
+  if (typeof localStorage === 'undefined') return
+  const u = String(username || '').trim()
+  if (!u) {
+    clearAltLoginRemember()
+    return
+  }
+  localStorage.setItem(ALT_LOGIN_AUTO_KEY, '1')
+  localStorage.setItem(ALT_LOGIN_REMEMBER_USER_KEY, u)
+  localStorage.setItem(ALT_LOGIN_REMEMBER_SECRET_KEY, encodeAltLoginSecret(password))
+}
+
+export function isAltLoginAutoEnabled () {
+  if (typeof localStorage === 'undefined') return false
+  return localStorage.getItem(ALT_LOGIN_AUTO_KEY) === '1'
+}
+
+export function getAltLoginRememberUsername () {
+  if (typeof localStorage === 'undefined') return ''
+  return localStorage.getItem(ALT_LOGIN_REMEMBER_USER_KEY) || ''
+}
+
+export function getAltLoginRememberPassword () {
+  if (typeof localStorage === 'undefined') return ''
+  return decodeAltLoginSecret(localStorage.getItem(ALT_LOGIN_REMEMBER_SECRET_KEY))
 }
 
 /**
@@ -210,16 +304,29 @@ export function applyAltIdentityMeToStorage (me) {
       ? me.effective_permissions
       : prev.effective_permissions
   }
-  localStorage.setItem(ALT_PROFILE_KEY, JSON.stringify(profile))
+  const store = getActiveAltStore()
+  if (store) {
+    store.setItem(ALT_PROFILE_KEY, JSON.stringify(profile))
+  }
   notifyAltIdentityStorageChanged()
 }
 
 /**
- * 与主站 Token 形态一致，并含 school；登录响应可能无 username，可辅以 extras
+ * 与主站 Token 形态一致，并含 school；登录响应可能无 username，可辅以 extras。
+ * options.persist=true → localStorage（自动登录跨会话）；false → sessionStorage（关闭浏览器失效）。
  */
-export function saveAltSession (payload, extras = {}) {
+export function saveAltSession (payload, extras = {}, options = {}) {
+  const persist = options.persist === true
+  const store = persist ? localStorage : sessionStorage
+  const other = persist ? sessionStorage : localStorage
+  try {
+    other.removeItem(ALT_ACCESS_TOKEN_KEY)
+    other.removeItem(ALT_PROFILE_KEY)
+  } catch (e) {
+    /* ignore */
+  }
   if (payload && payload.access_token) {
-    localStorage.setItem(ALT_ACCESS_TOKEN_KEY, payload.access_token)
+    store.setItem(ALT_ACCESS_TOKEN_KEY, payload.access_token)
   }
   const p = payload || {}
   const prev = getAltProfileFromStorage()
@@ -259,15 +366,22 @@ export function saveAltSession (payload, extras = {}) {
         ? extras.effective_permissions
         : prev.effective_permissions)
   }
-  localStorage.setItem(ALT_PROFILE_KEY, JSON.stringify(profile))
+  store.setItem(ALT_PROFILE_KEY, JSON.stringify(profile))
   notifyAltIdentityStorageChanged()
 }
 
 /** 从本地读取竞赛独立账号资料（登录 /saveAltSession 写入） */
 export function getAltProfileFromStorage () {
   try {
-    const raw = localStorage.getItem(ALT_PROFILE_KEY)
-    return raw ? JSON.parse(raw) : {}
+    const store = getActiveAltStore()
+    const raw = store ? store.getItem(ALT_PROFILE_KEY) : null
+    if (raw) return JSON.parse(raw)
+    // 兼容旧数据：仅写在 localStorage profile、token 在 session 的情况
+    if (typeof localStorage !== 'undefined') {
+      const legacy = localStorage.getItem(ALT_PROFILE_KEY)
+      if (legacy) return JSON.parse(legacy)
+    }
+    return {}
   } catch (e) {
     return {}
   }
