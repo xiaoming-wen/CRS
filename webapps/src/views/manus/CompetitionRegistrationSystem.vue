@@ -84,7 +84,7 @@
           指导老师请在「操作」列点击「查看详情」，在详情页进行组班、邀请队员与管理队名。
         </div>
         <div v-else-if="isCompetitionExpert" class="muted" style="margin-top: 8px; font-size: 13px">
-          专家请在「操作」列打开<strong>已指派</strong>的竞赛详情，进行作品评阅、查看评分汇总与排行榜。
+          专家请在「操作」列打开<strong>已指派</strong>的竞赛详情，进行作品评阅与评分。
         </div>
 
         <a-alert
@@ -584,7 +584,7 @@
               v-else
               type="info"
               show-icon
-              message="分题上传（决赛）"
+              message="分题上传"
               description="每位队员可按自己负责的题目，分别向链接1～链接5上传答案文件；同题再次上传将覆盖。"
               style="margin-bottom: 12px"
             />
@@ -789,6 +789,7 @@
                       <a-radio value="undergraduate">本科</a-radio>
                       <a-radio value="vocational">高职</a-radio>
                     </a-radio-group>
+                    <div class="division-choice-self-risk">请认真核对组别（本科 / 高职），选错后果自负。</div>
                   </a-form-item>
                 </a-col>
                 <a-col :xs="24" :sm="12">
@@ -992,9 +993,25 @@
             :title="adminSubmissionsPanelTitle"
             style="margin-top: 16px"
           >
-            <div style="display: flex; justify-content: flex-end; margin-bottom: 8px">
+            <div style="display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 8px">
               <a-button :loading="adminSubmissionsLoading" :disabled="!activeCompetitionId" @click="refreshAdminSubmissions">
                 {{ adminSubmissionsRefreshLabel }}
+              </a-button>
+              <a-button
+                v-if="canManageCompetitions && usesQuestionAnswerSubmission"
+                :loading="questionAnswersExportLoading === 'by_team'"
+                @click="exportQuestionAnswersZip('by_team')"
+                :disabled="!activeCompetitionId || questionAnswersExportLoading === 'by_question'"
+              >
+                导出答案（按队伍）
+              </a-button>
+              <a-button
+                v-if="canManageCompetitions && usesQuestionAnswerSubmission"
+                :loading="questionAnswersExportLoading === 'by_question'"
+                @click="exportQuestionAnswersZip('by_question')"
+                :disabled="!activeCompetitionId || questionAnswersExportLoading === 'by_team'"
+              >
+                导出答案（按题目）
               </a-button>
             </div>
 
@@ -1084,7 +1101,7 @@
               </div>
             </template>
 
-            <!-- 决赛：分题答案列表 -->
+            <!-- 分题答案列表（初赛 / 单阶段 / 决赛） -->
             <template v-else>
               <a-empty v-if="!adminQuestionAnswerRows.length" :description="adminSubmissionsEmptyDescription" />
               <a-table
@@ -1104,6 +1121,9 @@
                     type="link"
                     @click="downloadQuestionAnswer(record.q1_answer_id)"
                   >下载</a-button>
+                  <div class="muted" style="margin-top: 4px; font-size: 12px">
+                    分数：{{ formatQuestionScoreCell(record.score_q1) }}
+                  </div>
                 </template>
                 <template slot="q2" slot-scope="text, record">
                   <a-tag :color="record.q2_uploaded ? 'green' : 'orange'">{{ record.q2_uploaded ? '已提交' : '未提交' }}</a-tag>
@@ -1113,6 +1133,9 @@
                     type="link"
                     @click="downloadQuestionAnswer(record.q2_answer_id)"
                   >下载</a-button>
+                  <div class="muted" style="margin-top: 4px; font-size: 12px">
+                    分数：{{ formatQuestionScoreCell(record.score_q2) }}
+                  </div>
                 </template>
                 <template slot="q3" slot-scope="text, record">
                   <a-tag :color="record.q3_uploaded ? 'green' : 'orange'">{{ record.q3_uploaded ? '已提交' : '未提交' }}</a-tag>
@@ -1122,6 +1145,9 @@
                     type="link"
                     @click="downloadQuestionAnswer(record.q3_answer_id)"
                   >下载</a-button>
+                  <div class="muted" style="margin-top: 4px; font-size: 12px">
+                    分数：{{ formatQuestionScoreCell(record.score_q3) }}
+                  </div>
                 </template>
                 <template slot="q4" slot-scope="text, record">
                   <a-tag :color="record.q4_uploaded ? 'green' : 'orange'">{{ record.q4_uploaded ? '已提交' : '未提交' }}</a-tag>
@@ -1131,6 +1157,9 @@
                     type="link"
                     @click="downloadQuestionAnswer(record.q4_answer_id)"
                   >下载</a-button>
+                  <div class="muted" style="margin-top: 4px; font-size: 12px">
+                    分数：{{ formatQuestionScoreCell(record.score_q4) }}
+                  </div>
                 </template>
                 <template slot="q5" slot-scope="text, record">
                   <a-tag :color="record.q5_uploaded ? 'green' : 'orange'">{{ record.q5_uploaded ? '已提交' : '未提交' }}</a-tag>
@@ -1140,9 +1169,33 @@
                     type="link"
                     @click="downloadQuestionAnswer(record.q5_answer_id)"
                   >下载</a-button>
+                  <div class="muted" style="margin-top: 4px; font-size: 12px">
+                    分数：{{ formatQuestionScoreCell(record.score_q5) }}
+                  </div>
                 </template>
                 <template slot="progress" slot-scope="text, record">
                   {{ record.uploaded_count }}/{{ record.question_count }}
+                </template>
+                <template slot="totalScore" slot-scope="text, record">
+                  <strong>{{ formatQuestionScoreCell(record.total_score) }}</strong>
+                </template>
+                <template slot="gradeActions" slot-scope="text, record">
+                  <a-button
+                    v-if="canReviewSubmissions && !record.graded"
+                    size="small"
+                    type="primary"
+                    @click="fillTeamQuestionGradeForm(record, false)"
+                  >
+                    评分
+                  </a-button>
+                  <a-button
+                    v-else-if="canReviewSubmissions"
+                    size="small"
+                    type="primary"
+                    @click="fillTeamQuestionGradeForm(record, true)"
+                  >
+                    修改评分
+                  </a-button>
                 </template>
               </a-table>
             </template>
@@ -1157,10 +1210,47 @@
             style="margin-top: 16px"
           >
             <a-form layout="vertical">
-              <a-form-item label="作品提交ID" required>
+              <a-form-item v-if="gradeForm.team_id" label="队伍ID">
+                <a-input :value="String(gradeForm.team_id)" disabled style="width: 240px" />
+              </a-form-item>
+              <a-form-item v-else label="作品提交ID" required>
                 <a-input-number v-model="gradeForm.submission_id" :min="1" placeholder="请输入作品提交ID" style="width: 240px" />
               </a-form-item>
-              <a-form-item label="分数" required>
+              <template v-if="gradeForm.team_id">
+                <a-row :gutter="12" type="flex" class="grade-question-scores-row">
+                  <a-col :xs="12" :sm="8" :md="4">
+                    <a-form-item label="第1题" required>
+                      <a-input v-model="gradeForm.score_q1" placeholder="0～100" style="width: 100%" />
+                    </a-form-item>
+                  </a-col>
+                  <a-col :xs="12" :sm="8" :md="4">
+                    <a-form-item label="第2题" required>
+                      <a-input v-model="gradeForm.score_q2" placeholder="0～100" style="width: 100%" />
+                    </a-form-item>
+                  </a-col>
+                  <a-col :xs="12" :sm="8" :md="4">
+                    <a-form-item label="第3题" required>
+                      <a-input v-model="gradeForm.score_q3" placeholder="0～100" style="width: 100%" />
+                    </a-form-item>
+                  </a-col>
+                  <a-col :xs="12" :sm="8" :md="4">
+                    <a-form-item label="第4题" required>
+                      <a-input v-model="gradeForm.score_q4" placeholder="0～100" style="width: 100%" />
+                    </a-form-item>
+                  </a-col>
+                  <a-col :xs="12" :sm="8" :md="4">
+                    <a-form-item label="第5题" required>
+                      <a-input v-model="gradeForm.score_q5" placeholder="0～100" style="width: 100%" />
+                    </a-form-item>
+                  </a-col>
+                  <a-col :xs="12" :sm="8" :md="4">
+                    <a-form-item label="总分">
+                      <a-input :value="gradeFormAutoTotal" disabled style="width: 100%" />
+                    </a-form-item>
+                  </a-col>
+                </a-row>
+              </template>
+              <a-form-item v-else label="分数" required>
                 <a-input v-model="gradeForm.score" placeholder="例如：95.0" style="width: 240px" />
               </a-form-item>
               <a-form-item label="反馈">
@@ -1171,7 +1261,7 @@
                   type="primary"
                   :loading="gradeLoading"
                   @click="handleReviewGrade"
-                  :disabled="!gradeForm.submission_id"
+                  :disabled="gradeForm.team_id ? false : !gradeForm.submission_id"
                 >
                   {{ gradeFormIsEdit ? '保存修改' : '提交评分' }}
                 </a-button>
@@ -1254,27 +1344,11 @@
                 @click="exportTeamsExcel"
                 :disabled="!activeCompetitionId"
               >
-                导出对照表（本场）
-              </a-button>
-              <a-button
-                v-if="canManageCompetitions && usesQuestionAnswerSubmission"
-                :loading="questionAnswersExportLoading === 'by_team'"
-                @click="exportQuestionAnswersZip('by_team')"
-                :disabled="!activeCompetitionId || questionAnswersExportLoading === 'by_question'"
-              >
-                导出答案（按队伍）
-              </a-button>
-              <a-button
-                v-if="canManageCompetitions && usesQuestionAnswerSubmission"
-                :loading="questionAnswersExportLoading === 'by_question'"
-                @click="exportQuestionAnswersZip('by_question')"
-                :disabled="!activeCompetitionId || questionAnswersExportLoading === 'by_team'"
-              >
-                导出答案（按题目）
+                导出参赛表格
               </a-button>
             </div>
             <p v-if="canManageCompetitions" class="muted" style="margin: 8px 0 0; font-size: 12px">
-              对照表含学生ID、队伍ID、队名、成员姓名、学校，供专家匿名打分后回查。
+              参赛表格含学校名称、竞赛名称、组别项目（如本科软件组）、队伍编码、队伍名称/指导老师、队员及一～五题分数与总分。
             </p>
           </a-card>
 
@@ -1661,6 +1735,7 @@
             <a-radio value="undergraduate">本科</a-radio>
             <a-radio value="vocational">高职</a-radio>
           </a-radio-group>
+          <div class="division-choice-self-risk">请认真核对组别（本科 / 高职），选错后果自负。</div>
         </a-form-item>
         <a-form-item label="指导老师（选填）">
           <a-input
@@ -1701,7 +1776,7 @@
       />
     </a-modal>
 
-    <!-- 独立详情页：我的作品（初赛压缩包 / 决赛分题） -->
+    <!-- 独立详情页：我的作品（分题提交） -->
     <a-modal
       v-model="showStandaloneMyWorksModal"
       title="提交作品"
@@ -1783,7 +1858,7 @@
         </template>
 
         <template v-else>
-          <h4 class="standalone-modal-section-title">按题提交作品（共5题 · 决赛）</h4>
+          <h4 class="standalone-modal-section-title">按题提交作品（共5题）</h4>
           <div class="row" style="margin-bottom: 12px; flex-wrap: wrap; gap: 8px">
             <a-button
               :loading="questionAnswersLoading"
@@ -2165,15 +2240,25 @@
       width="90%"
     >
       <a-empty
-        v-if="myScores == null || !Array.isArray(myScores.submissions) || myScores.submissions.length === 0"
+        v-if="myScores == null || (!myScoresTableData.length && !myTeamGradesTableData.length)"
         description="暂无提交记录"
       />
       <div v-else>
         <div class="muted" style="margin-bottom: 10px">
           竞赛ID：{{ myScores.competition_id != null ? myScores.competition_id : '-' }}
-          <span style="margin-left: 12px">共 {{ myScores.submissions.length }} 条提交</span>
         </div>
         <a-table
+          v-if="myTeamGradesTableData.length"
+          :columns="myTeamGradesTableColumns"
+          :data-source="myTeamGradesTableData"
+          :pagination="false"
+          size="small"
+          bordered
+          row-key="team_id"
+          style="margin-bottom: 16px"
+        />
+        <a-table
+          v-if="myScoresTableData.length"
           :columns="myScoresTableColumns"
           :data-source="myScoresTableData"
           :pagination="{ pageSize: 10 }"
@@ -2432,6 +2517,8 @@ import {
   reviewCompetitionSubmissionGrade,
   patchCompetitionSubmissionReviewGrade,
   getCompetitionSubmissionReviewGrade,
+  putTeamQuestionGrade,
+  patchTeamQuestionGrade,
   getCompetitionScoresSummary,
   getCompetitionRankings,
   getMyCompetitionScores,
@@ -2810,7 +2897,13 @@ export default {
 
       gradeForm: {
         submission_id: null,
+        team_id: null,
         score: '',
+        score_q1: '',
+        score_q2: '',
+        score_q3: '',
+        score_q4: '',
+        score_q5: '',
         feedback: ''
       },
       /** 教师：仅在点击作品列表的“评分/修改评分”后显示表单 */
@@ -2823,13 +2916,15 @@ export default {
       adminQuestionAnswerRows: [],
       adminQuestionAnswerTableColumns: [
         { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 100 },
-        { title: '队名', dataIndex: 'team_name', key: 'team_name', ellipsis: true, width: 160 },
-        { title: '第1题', key: 'q1', scopedSlots: { customRender: 'q1' }, width: 140 },
-        { title: '第2题', key: 'q2', scopedSlots: { customRender: 'q2' }, width: 140 },
-        { title: '第3题', key: 'q3', scopedSlots: { customRender: 'q3' }, width: 140 },
-        { title: '第4题', key: 'q4', scopedSlots: { customRender: 'q4' }, width: 140 },
-        { title: '第5题', key: 'q5', scopedSlots: { customRender: 'q5' }, width: 140 },
-        { title: '上传', key: 'progress', scopedSlots: { customRender: 'progress' }, width: 80 }
+        { title: '队名', dataIndex: 'team_name', key: 'team_name', ellipsis: true, width: 140 },
+        { title: '第1题', key: 'q1', scopedSlots: { customRender: 'q1' }, width: 150 },
+        { title: '第2题', key: 'q2', scopedSlots: { customRender: 'q2' }, width: 150 },
+        { title: '第3题', key: 'q3', scopedSlots: { customRender: 'q3' }, width: 150 },
+        { title: '第4题', key: 'q4', scopedSlots: { customRender: 'q4' }, width: 150 },
+        { title: '第5题', key: 'q5', scopedSlots: { customRender: 'q5' }, width: 150 },
+        { title: '上传', key: 'progress', scopedSlots: { customRender: 'progress' }, width: 72 },
+        { title: '总分', key: 'totalScore', scopedSlots: { customRender: 'totalScore' }, width: 80 },
+        { title: '操作', key: 'gradeActions', scopedSlots: { customRender: 'gradeActions' }, width: 100 }
       ],
       adminSubmissionsPage: 1,
       adminSubmissionsPageSize: 20,
@@ -2852,11 +2947,14 @@ export default {
         { title: '数值', dataIndex: 'value', key: 'value' }
       ],
       rankingsTableColumns: [
-        { title: '排名', dataIndex: 'rowIndex', key: 'rowIndex', width: 80 },
-        { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', ellipsis: true },
-        { title: '学生ID', dataIndex: 'student_id', key: 'student_id', ellipsis: true },
-        { title: '分数', dataIndex: 'best_score', key: 'best_score', width: 100 },
-        { title: '已评提交数', dataIndex: 'reviewed_submissions', key: 'reviewed_submissions', width: 120 }
+        { title: '排名', dataIndex: 'rowIndex', key: 'rowIndex', width: 72 },
+        { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 100 },
+        { title: '第1题', dataIndex: 'score_q1', key: 'score_q1', width: 80 },
+        { title: '第2题', dataIndex: 'score_q2', key: 'score_q2', width: 80 },
+        { title: '第3题', dataIndex: 'score_q3', key: 'score_q3', width: 80 },
+        { title: '第4题', dataIndex: 'score_q4', key: 'score_q4', width: 80 },
+        { title: '第5题', dataIndex: 'score_q5', key: 'score_q5', width: 80 },
+        { title: '总分', dataIndex: 'best_score', key: 'best_score', width: 88 }
       ],
       myScoresTableColumns: [
         { title: '竞赛ID', dataIndex: 'competition_id', key: 'competition_id', width: 80 },
@@ -2865,6 +2963,15 @@ export default {
         { title: '成绩', dataIndex: 'score', key: 'score', width: 88 },
         { title: '提交人ID', dataIndex: 'submitter_id', key: 'submitter_id', width: 96 },
         { title: '提交时间', dataIndex: 'submitted_at', key: 'submitted_at', width: 168 }
+      ],
+      myTeamGradesTableColumns: [
+        { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 100 },
+        { title: '第1题', dataIndex: 'score_q1', key: 'score_q1', width: 80 },
+        { title: '第2题', dataIndex: 'score_q2', key: 'score_q2', width: 80 },
+        { title: '第3题', dataIndex: 'score_q3', key: 'score_q3', width: 80 },
+        { title: '第4题', dataIndex: 'score_q4', key: 'score_q4', width: 80 },
+        { title: '第5题', dataIndex: 'score_q5', key: 'score_q5', width: 80 },
+        { title: '总分', dataIndex: 'total_score', key: 'total_score', width: 88 }
       ],
       advisorTeamsTableColumns: [
         { title: '队伍ID', dataIndex: 'id', key: 'id', width: 88 },
@@ -2971,7 +3078,7 @@ export default {
     },
     roleNoPermissionDescription () {
       if (this.showExpertNotAssignedHint) {
-        return '您未被指派到本竞赛，无法查看作品、评分或排行榜。请在竞赛列表中打开已指派的竞赛详情。'
+        return '您未被指派到本竞赛，无法查看作品或评分。请在竞赛列表中打开已指派的竞赛详情。'
       }
       if (this.isCompetitionExpert && !this.isVerifiedExpert) {
         return '专家账号待管理员核验，核验并指派竞赛后方可评阅。'
@@ -3107,18 +3214,17 @@ export default {
       return false
     },
     canViewParticipantsRoster () {
+      // 参赛者名单（竞赛维度）仅超管可见；专家不再开放
       if (this.isUsingAltIdentity) {
-        if (this.isSuperAdmin) return true
-        // 指导老师/教师不展示「参赛者名单（竞赛维度）」，仅超管与已指派专家可看
-        return this.isExpertAssignedToActiveCompetition
+        return this.isSuperAdmin
       }
       const roles = this.$store.getters.roles || []
       return roles.includes('super_admin')
     },
     canViewScoreAnalytics () {
+      // 评分汇总/排行榜仅超管可见；专家不再开放
       if (this.isUsingAltIdentity) {
-        if (this.isSuperAdmin) return true
-        return this.isExpertAssignedToActiveCompetition
+        return this.isSuperAdmin
       }
       const roles = this.$store.getters.roles || []
       return roles.includes('super_admin')
@@ -3191,12 +3297,12 @@ export default {
     isActiveCompetitionFinal () {
       return this.activeCompetitionStage === 'final'
     },
-    /** 决赛：分题答案；初赛/单阶段：压缩包作品 */
+    /** 初赛 / 单阶段 / 决赛：均按题提交答案 */
     usesQuestionAnswerSubmission () {
-      return this.isActiveCompetitionFinal
+      return !!this.activeCompetition
     },
     usesZipPackageSubmission () {
-      return !this.isActiveCompetitionFinal
+      return false
     },
     promotionListColumns () {
       return [
@@ -3313,7 +3419,7 @@ export default {
       if (this.studentTeamEnrolledAsMember) {
         return '您已完成队伍赛道报名（队员身份）。队伍由队长统一管理，无需创建/加入队伍或进行队长操作。'
       }
-      return '队伍参赛流程：① 创建队伍或申请加入已有队伍（须队长同意）→ ② 等待本校校管理员校审通过 → ③ 队长上传作品压缩包。创建/加入成功时通常已自动完成组队报名；校审通过前无法上传。'
+      return '队伍参赛流程：① 创建队伍或申请加入已有队伍（须队长同意）→ ② 等待本校校管理员校审通过 → ③ 队员按题上传答案。创建/加入成功时通常已自动完成组队报名；校审通过前无法上传。'
     },
     myTeamStatusNormalized () {
       const s = this.myTeamStatus
@@ -3402,7 +3508,7 @@ export default {
       if (!this.myTeamId) return false
       return this.isMyTeamSchoolReviewActive
     },
-    /** 报名弹窗：校审通过后可提交作品（初赛压缩包 / 决赛分题） */
+    /** 报名弹窗：校审通过后可提交作品（分题答案） */
     showSubmissionPanelInEnrollModal () {
       if (this.enrollBlockedByOtherDivision) return false
       if (this.enrollMode === 'individual') {
@@ -3507,7 +3613,7 @@ export default {
         if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
           return `题目答案列表（${this.activeDivisionLabel}）`
         }
-        return '题目答案列表（决赛）'
+        return '题目答案列表'
       }
       if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
         return `作品列表（${this.activeDivisionLabel}）`
@@ -3844,23 +3950,45 @@ export default {
       if (!s) return []
       return [
         { key: 'competition_id', label: '竞赛ID', value: s.competition_id != null ? s.competition_id : '-' },
-        { key: 'submissions_total', label: '总提交数', value: s.submissions_total != null ? s.submissions_total : '-' },
-        { key: 'reviewed_total', label: '已评分数', value: s.reviewed_total != null ? s.reviewed_total : '-' },
-        { key: 'avg_score', label: '平均分', value: s.avg_score != null ? s.avg_score : '-' },
-        { key: 'max_score', label: '最高分', value: s.max_score != null ? s.max_score : '-' },
-        { key: 'min_score', label: '最低分', value: s.min_score != null ? s.min_score : '-' }
+        { key: 'submissions_total', label: '已提交队伍数', value: s.submissions_total != null ? s.submissions_total : '-' },
+        { key: 'reviewed_total', label: '已评队伍数', value: s.reviewed_total != null ? s.reviewed_total : '-' },
+        { key: 'avg_score', label: '平均总分', value: s.avg_score != null ? s.avg_score : '-' },
+        { key: 'max_score', label: '最高总分', value: s.max_score != null ? s.max_score : '-' },
+        { key: 'min_score', label: '最低总分', value: s.min_score != null ? s.min_score : '-' }
       ]
     },
     rankingsTableData () {
       const r = this.scoresRankings
       if (!r || !Array.isArray(r.items)) return []
       return (r.items || []).map((item, index) => ({
-        rowIndex: index + 1,
+        rowIndex: item.rank != null ? item.rank : index + 1,
         team_id: item.team_id != null ? item.team_id : '-',
-        student_id: item.student_id != null ? item.student_id : '-',
+        score_q1: this.formatQuestionScoreCell(item.score_q1),
+        score_q2: this.formatQuestionScoreCell(item.score_q2),
+        score_q3: this.formatQuestionScoreCell(item.score_q3),
+        score_q4: this.formatQuestionScoreCell(item.score_q4),
+        score_q5: this.formatQuestionScoreCell(item.score_q5),
         best_score: item.best_score != null ? item.best_score : '-',
-        reviewed_submissions: item.reviewed_submissions != null ? item.reviewed_submissions : '-',
         key: `rank-${index}`
+      }))
+    },
+    gradeFormAutoTotal () {
+      const nums = [1, 2, 3, 4, 5].map(n => parseFloat(this.gradeForm['score_q' + n]))
+      if (nums.some(v => Number.isNaN(v))) return '—'
+      const sum = nums.reduce((a, b) => a + b, 0)
+      return String(Math.round(sum * 100) / 100)
+    },
+    myTeamGradesTableData () {
+      const payload = this.myScores
+      const list = payload && Array.isArray(payload.team_grades) ? payload.team_grades : []
+      return list.map(item => ({
+        team_id: item.team_id,
+        score_q1: this.formatQuestionScoreCell(item.score_q1),
+        score_q2: this.formatQuestionScoreCell(item.score_q2),
+        score_q3: this.formatQuestionScoreCell(item.score_q3),
+        score_q4: this.formatQuestionScoreCell(item.score_q4),
+        score_q5: this.formatQuestionScoreCell(item.score_q5),
+        total_score: this.formatQuestionScoreCell(item.total_score)
       }))
     },
     myScoresTableData () {
@@ -6395,7 +6523,7 @@ export default {
     async handleSubmitSubmission () {
       if (!this.activeCompetitionId) return
       if (!this.usesZipPackageSubmission) {
-        this.$message.warning('决赛请使用分题答案上传，不支持压缩包提交')
+        this.$message.warning('请使用分题答案上传，不再支持压缩包提交')
         return
       }
       if (!this.assertEnrollDivisionContext()) return
@@ -6663,27 +6791,36 @@ export default {
       return Number.isFinite(n) ? String(n) : String(v)
     },
 
+    formatQuestionScoreCell (v) {
+      if (v == null || v === '') return '—'
+      const n = typeof v === 'number' ? v : Number(v)
+      return Number.isFinite(n) ? String(n) : '—'
+    },
+
     /** 归一化 GET scores/me 响应体（含可选嵌套 data） */
     normalizeScoresMeResponse (res) {
       if (!res || typeof res !== 'object') {
-        return { competition_id: null, submissions: [] }
+        return { competition_id: null, submissions: [], team_grades: [] }
       }
-      if (Array.isArray(res.submissions)) {
+      if (Array.isArray(res.submissions) || Array.isArray(res.team_grades)) {
         return {
           competition_id: res.competition_id != null ? res.competition_id : null,
-          submissions: res.submissions
+          submissions: Array.isArray(res.submissions) ? res.submissions : [],
+          team_grades: Array.isArray(res.team_grades) ? res.team_grades : []
         }
       }
       const inner = res.data
-      if (inner && typeof inner === 'object' && Array.isArray(inner.submissions)) {
+      if (inner && typeof inner === 'object' && (Array.isArray(inner.submissions) || Array.isArray(inner.team_grades))) {
         return {
           competition_id: inner.competition_id != null ? inner.competition_id : null,
-          submissions: inner.submissions
+          submissions: Array.isArray(inner.submissions) ? inner.submissions : [],
+          team_grades: Array.isArray(inner.team_grades) ? inner.team_grades : []
         }
       }
       return {
         competition_id: res.competition_id != null ? res.competition_id : null,
-        submissions: []
+        submissions: [],
+        team_grades: []
       }
     },
 
@@ -6706,14 +6843,18 @@ export default {
       this.scoresLoading = true
       try {
         const res = await getMyCompetitionScores(this.activeCompetitionId)
-        const { competition_id: cid, submissions } = this.normalizeScoresMeResponse(res)
+        const parsed = this.normalizeScoresMeResponse(res)
+        const cid = parsed.competition_id
+        const submissions = parsed.submissions || []
+        const teamGrades = parsed.team_grades || []
         this.myScores = {
           competition_id: cid != null ? cid : this.activeCompetitionId,
-          submissions
+          submissions,
+          team_grades: teamGrades
         }
         if (showModal) {
           this.showMyScoresModal = true
-          if (submissions.length === 0) {
+          if (submissions.length === 0 && teamGrades.length === 0) {
             this.$message.info('当前竞赛暂无成绩相关提交记录，或教师尚未完成评分审核。')
           }
         }
@@ -7662,10 +7803,54 @@ export default {
       return ''
     },
 
+    emptyTeamQuestionGradeFields () {
+      return {
+        score_q1: '',
+        score_q2: '',
+        score_q3: '',
+        score_q4: '',
+        score_q5: ''
+      }
+    },
+
+    parseTeamQuestionScoreInput (raw, label) {
+      const n = parseFloat(raw)
+      if (Number.isNaN(n)) {
+        this.$message.error(`${label}必须是数字，例如：20`)
+        return null
+      }
+      if (n < 0 || n > 100) {
+        this.$message.error(`${label}须在 0～100 之间`)
+        return null
+      }
+      return n
+    },
+
+    fillTeamQuestionGradeForm (record, isEdit = false) {
+      if (!this.canReviewSubmissions || !record) return
+      this.gradeForm.submission_id = null
+      this.gradeForm.team_id = record.team_id
+      this.gradeFormIsEdit = !!isEdit
+      this.gradeForm.score = ''
+      if (isEdit) {
+        this.gradeForm.score_q1 = record.score_q1 != null ? String(record.score_q1) : ''
+        this.gradeForm.score_q2 = record.score_q2 != null ? String(record.score_q2) : ''
+        this.gradeForm.score_q3 = record.score_q3 != null ? String(record.score_q3) : ''
+        this.gradeForm.score_q4 = record.score_q4 != null ? String(record.score_q4) : ''
+        this.gradeForm.score_q5 = record.score_q5 != null ? String(record.score_q5) : ''
+        this.gradeForm.feedback = record.feedback ? String(record.feedback) : ''
+      } else {
+        Object.assign(this.gradeForm, this.emptyTeamQuestionGradeFields())
+        this.gradeForm.feedback = ''
+      }
+      this.showGradeAudit = true
+    },
+
     async fillGradeForm (submissionId, isEdit = false) {
       if (!this.canReviewSubmissions) return
       const sub = this.adminSubmissions.find(s => Number(s.id) === Number(submissionId))
       this.gradeForm.submission_id = submissionId
+      this.gradeForm.team_id = null
       this.gradeFormIsEdit = !!isEdit
 
       let detail = sub
@@ -7707,12 +7892,18 @@ export default {
       this.showGradeAudit = false
       this.gradeFormIsEdit = false
       this.gradeForm.submission_id = null
+      this.gradeForm.team_id = null
       this.gradeForm.score = ''
+      Object.assign(this.gradeForm, this.emptyTeamQuestionGradeFields())
       this.gradeForm.feedback = ''
     },
 
     async handleReviewGrade () {
       if (!this.canReviewSubmissions) return
+      if (this.gradeForm.team_id) {
+        await this.handleTeamQuestionGrade()
+        return
+      }
       if (!this.gradeForm.submission_id) return
       const scoreValue = parseFloat(this.gradeForm.score)
       if (Number.isNaN(scoreValue)) {
@@ -7777,6 +7968,63 @@ export default {
       }
     },
 
+    async handleTeamQuestionGrade () {
+      const teamId = this.gradeForm.team_id
+      const competitionId = this.activeCompetitionId
+      if (!teamId || !competitionId) return
+      const scores = {}
+      for (let n = 1; n <= 5; n++) {
+        const parsed = this.parseTeamQuestionScoreInput(this.gradeForm['score_q' + n], `第${n}题`)
+        if (parsed == null) return
+        scores['score_q' + n] = parsed
+      }
+      const isEdit = this.gradeFormIsEdit
+      if (isEdit) {
+        try {
+          await this.$confirm({
+            title: '修改评分',
+            content: '确定保存对该队伍五题评分的修改吗？总分将自动重新合计。',
+            okText: '确定',
+            cancelText: '取消'
+          })
+        } catch {
+          return
+        }
+      }
+      this.gradeLoading = true
+      try {
+        const payload = {
+          ...scores,
+          feedback: this.gradeForm.feedback || ''
+        }
+        if (isEdit) {
+          await patchTeamQuestionGrade(competitionId, teamId, payload)
+          this.$message.success('评分已更新，总分已自动合计')
+        } else {
+          await putTeamQuestionGrade(competitionId, teamId, payload)
+          this.$message.success('评分提交成功，总分已自动合计')
+        }
+        this.cancelGradeAudit()
+        await this.refreshAdminSubmissions()
+      } catch (e) {
+        const status = e && e.response && e.response.status
+        const msg = (e && e.message) ? e.message : '未知错误'
+        if (status === 400) {
+          const notReviewed = /not graded|尚未评分|未评分/i.test(msg)
+          if (notReviewed && isEdit) {
+            this.$message.warning('该队伍尚未评分，请先点击「评分」完成首次评分')
+            return
+          }
+        }
+        const friendlyMsg = !isEdit && /already|已评|重复|duplicate/i.test(msg)
+          ? '该队伍已评分，请刷新列表后点击「修改评分」'
+          : msg
+        this.$message.error((isEdit ? '修改评分失败：' : '评分失败：') + friendlyMsg)
+      } finally {
+        this.gradeLoading = false
+      }
+    },
+
     async refreshAdminSubmissions () {
       if (!this.canViewCompetitionSubmissions) return
       if (!this.activeCompetitionId) return
@@ -7797,7 +8045,15 @@ export default {
               team_name: item.team_name || `队伍${item.team_id}`,
               captain_id: item.captain_id,
               uploaded_count: item.uploaded_count != null ? item.uploaded_count : 0,
-              question_count: item.question_count != null ? item.question_count : 5
+              question_count: item.question_count != null ? item.question_count : 5,
+              graded: !!item.graded,
+              score_q1: item.score_q1,
+              score_q2: item.score_q2,
+              score_q3: item.score_q3,
+              score_q4: item.score_q4,
+              score_q5: item.score_q5,
+              total_score: item.total_score,
+              feedback: item.feedback || ''
             }
             for (let q = 1; q <= 5; q++) {
               const slot = byQ[q]
@@ -8078,9 +8334,9 @@ export default {
         a.click()
         document.body.removeChild(a)
         window.URL.revokeObjectURL(url)
-        this.$message.success('已导出本场对照表')
+        this.$message.success('已导出参赛表格')
       } catch (e) {
-        this.$message.error('导出对照表失败：' + this.getApiErrorMessage(e, '未知错误'))
+        this.$message.error('导出参赛表格失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {
         this.participantsTeamsExportLoading = false
       }
@@ -8259,7 +8515,7 @@ export default {
         return
       }
       if (!this.usesQuestionAnswerSubmission) {
-        this.$message.warning('仅决赛支持导出分题答案；初赛/单阶段请在作品列表中下载压缩包')
+        this.$message.warning('请使用分题答案上传')
         return
       }
       if (!this.competitionEnrollmentClosed) {
@@ -8438,6 +8694,10 @@ export default {
   ::v-deep .sub-card .submission-meta,
   ::v-deep .sub-card .muted {
     color: rgba(255, 255, 255, 0.72) !important;
+  }
+
+  ::v-deep .sub-card .division-choice-self-risk {
+    color: #ffd666;
   }
 
   ::v-deep .submission-item.ant-card {
@@ -9362,5 +9622,12 @@ export default {
   flex-wrap: wrap;
   padding: 8px 0;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.division-choice-self-risk {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #d46b08;
 }
 </style>

@@ -175,6 +175,7 @@ class AltAuthLoginResult(BaseModel):
     token_type: str = "bearer"
     user_id: int
     role: str
+    username: Optional[str] = None
     full_name: Optional[str] = None
     school: Optional[str] = None
 

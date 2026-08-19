@@ -42,6 +42,7 @@ from app.models.competition import (
     Submission,
     SubmissionStatus,
     Review,
+    CompetitionTeamQuestionGrade,
 )
 from app.schemas import (
     CompetitionCreate,
@@ -79,6 +80,8 @@ from app.schemas import (
     TeamSchoolReviewResult,
     SchoolAdminSetTeamAdvisorRequest,
     SchoolAdminSetTeamAdvisorResult,
+    SchoolAdminSetTeamDivisionTrackRequest,
+    SchoolAdminSetTeamDivisionTrackResult,
     SchoolAdminProxyTeamCreate,
     SchoolAdminProxyEnrollRequest,
     SchoolAdminProxyEnrollResult,
@@ -103,6 +106,8 @@ from app.schemas import (
     CompetitionQuestionAnswersSubmitResult,
     ReviewGrade,
     ReviewResponse,
+    TeamQuestionGradeRequest,
+    TeamQuestionGradeResponse,
     CompetitionScoreSummaryResponse,
     CompetitionScoreRankingItem,
     CompetitionScoreRankingResponse,
@@ -128,7 +133,7 @@ _ALLOWED_QR_MIME = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 COMPETITION_EXAM_PAPER_DIR = "competition_exam_papers"
 os.makedirs(COMPETITION_EXAM_PAPER_DIR, exist_ok=True)
-MAX_EXAM_PAPER_BYTES = 50 * 1024 * 1024
+MAX_EXAM_PAPER_BYTES = 100 * 1024 * 1024
 _ALLOWED_EXAM_PAPER_EXT = {".pdf", ".doc", ".docx", ".zip"}
 
 SCHOOL_ADMIN_PHOTO_DIR = "school_admin_applications"
@@ -572,6 +577,8 @@ def _build_school_admin_team_item(
         captain_name=captain_name,
         captain_id=team.captain_id,
         members=members_out,
+        division=getattr(team, "division", None),
+        work_track=getattr(team, "work_track", None),
         status=TeamStatus(team.status),
         review_feedback=getattr(team, "review_feedback", None),
         reviewed_at=getattr(team, "reviewed_at", None),
@@ -855,21 +862,17 @@ def _assert_final_stage_roster_frozen(competition: Competition) -> None:
 
 
 def _assert_competition_uses_question_answers(competition: Competition) -> None:
-    """分题答案仅用于决赛。"""
-    if not _is_final_stage(competition):
-        raise HTTPException(
-            status_code=400,
-            detail="分题答案上传仅适用于决赛；初赛/单阶段请使用压缩包作品提交",
-        )
+    """初赛、单阶段与决赛均使用分题答案提交。"""
+    if competition is None:
+        raise HTTPException(status_code=404, detail="Competition not found")
 
 
 def _assert_competition_uses_zip_submission(competition: Competition) -> None:
-    """压缩包作品提交用于初赛与单阶段，不用于决赛。"""
-    if _is_final_stage(competition):
-        raise HTTPException(
-            status_code=400,
-            detail="决赛请使用分题答案上传，不支持压缩包作品提交",
-        )
+    """压缩包作品提交已停用，统一使用分题答案。"""
+    raise HTTPException(
+        status_code=400,
+        detail="请使用分题答案上传，不再支持压缩包作品提交",
+    )
 
 
 def _paired_final_competition(db: Session, prelim: Competition) -> Competition:
@@ -1748,45 +1751,62 @@ def _work_track_label_cn(raw: Optional[str]) -> str:
     }.get(v, v or "-")
 
 
+def _division_track_project_label(division: Optional[str], work_track: Optional[str]) -> str:
+    """组别+赛道，如「本科软件组」。"""
+    div = _division_label_cn(division)
+    track = _work_track_label_cn(work_track)
+    parts = []
+    if div and div != "-":
+        parts.append(div)
+    if track and track != "-":
+        parts.append(track)
+    if not parts:
+        return "-"
+    return f"{''.join(parts)}组"
+
+
 def _append_team_mapping_rows(
     ws,
     *,
     competition: Competition,
     teams: list[Team],
     users_by_id: dict[int, AltAuthUserRecord],
-    start_index: int = 1,
-) -> int:
-    """对照表：一行一名学生。返回下一序号。"""
-    idx = start_index
-    stage_label = _competition_stage_label(competition)
+    grades_by_team: Optional[dict] = None,
+) -> None:
+    """对照表：一行一支队伍，含组别项目与五题分、总分。"""
+    grades_by_team = grades_by_team or {}
     for team in teams:
         advisor = _team_advisor_display_name(team, users_by_id) or "-"
         school = (getattr(team, "school", None) or "").strip() or "-"
         team_name = (team.name or "").strip() or f"队伍{team.id}"
+        name_and_advisor = team_name if advisor in ("", "-") else f"{team_name} / {advisor}"
         members = sorted(team.members, key=lambda x: (0 if x.is_captain else 1, x.id))
-        if not members:
-            members = []
+        member_labels = []
         for m in members:
             u = users_by_id.get(m.user_id)
             member_name = _display_user_name(u, m.user_id)
-            ws.append(
-                [
-                    idx,
-                    m.user_id,
-                    team.id,
-                    team_name,
-                    member_name,
-                    "是" if m.is_captain else "否",
-                    school,
-                    advisor,
-                    _division_label_cn(getattr(team, "division", None)),
-                    _work_track_label_cn(getattr(team, "work_track", None)),
-                    competition.name,
-                    stage_label,
-                ]
-            )
-            idx += 1
-    return idx
+            member_labels.append(f"{member_name}（队长）" if m.is_captain else member_name)
+        members_cell = "、".join(member_labels) if member_labels else "-"
+        grade = grades_by_team.get(int(team.id))
+        ws.append(
+            [
+                school,
+                competition.name or "-",
+                _division_track_project_label(
+                    getattr(team, "division", None),
+                    getattr(team, "work_track", None),
+                ),
+                team.id,
+                name_and_advisor,
+                members_cell,
+                grade.score_q1 if grade else "",
+                grade.score_q2 if grade else "",
+                grade.score_q3 if grade else "",
+                grade.score_q4 if grade else "",
+                grade.score_q5 if grade else "",
+                grade.total_score if grade else "",
+            ]
+        )
 
 
 def _load_active_teams_with_members(db: Session, competition_id: int) -> list[Team]:
@@ -1811,9 +1831,10 @@ async def export_team_roster_excel(
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
-    管理员导出对照表 Excel（一行一名学生）：
-    学生ID、队伍ID、队名、成员姓名、学校等，供专家匿名打分后回查队伍。
-    scope=both 时导出初赛+决赛全部成员。
+    管理员导出对照表 Excel（一行一支队伍）：
+    学校名称、竞赛名称、组别项目、队伍编码、队伍名称指导老师、队员、一～五题分数、总分。
+    组别项目由组别+赛道组成，例如「本科软件组」。
+    scope=both 时导出初赛+决赛全部队伍。
     """
     require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
     competition = _get_competition(db, competition_id)
@@ -1847,22 +1868,21 @@ async def export_team_roster_excel(
     ws = wb.active
     ws.title = "对照表"
     headers = [
-        "序号",
-        "学生ID",
-        "队伍ID",
-        "队名",
-        "成员姓名",
-        "是否队长",
-        "学校",
-        "指导老师",
-        "组别",
-        "赛道",
-        "竞赛",
-        "阶段",
+        "学校名称",
+        "竞赛名称",
+        "组别项目",
+        "队伍编码",
+        "队伍名称指导老师",
+        "队员",
+        "一",
+        "二",
+        "三",
+        "四",
+        "五",
+        "总分",
     ]
     ws.append(headers)
 
-    next_idx = 1
     for comp in comps:
         teams = _load_active_teams_with_members(db, comp.id)
         all_uids: set[int] = set()
@@ -1873,12 +1893,18 @@ async def export_team_roster_excel(
             for m in t.members:
                 all_uids.add(m.user_id)
         users_by_id = _alt_users_by_id(adb, all_uids)
-        next_idx = _append_team_mapping_rows(
+        grade_rows = (
+            db.query(CompetitionTeamQuestionGrade)
+            .filter(CompetitionTeamQuestionGrade.competition_id == comp.id)
+            .all()
+        )
+        grades_by_team = {int(g.team_id): g for g in grade_rows}
+        _append_team_mapping_rows(
             ws,
             competition=comp,
             teams=teams,
             users_by_id=users_by_id,
-            start_index=next_idx,
+            grades_by_team=grades_by_team,
         )
 
     buffer = BytesIO()
@@ -2639,7 +2665,7 @@ async def list_school_admin_teams(
 ):
     """
     校管理员查看本校组队人员审核列表。
-    列表字段：竞赛名、开始/结束时间、学校、指导老师、队伍名、队长、队员、状态。
+    列表字段：竞赛名、开始/结束时间、学校、指导老师、队伍名、队长、队员、组别、赛道、状态。
     """
     _require_school_admin_identity(identity)
     admin_school = _normalize_school_name(identity.school)
@@ -2839,6 +2865,68 @@ async def set_team_advisor(
         team_id=team.id,
         advisor_id=team.created_by_advisor_id,
         advisor_name=team.advisor_name,
+    )
+
+
+def _sync_team_division_and_work_track(
+    db: Session, team: Team, division: str, work_track: str
+) -> None:
+    team.division = division
+    team.work_track = work_track
+    enrollments = (
+        db.query(CompetitionEnrollment)
+        .filter(CompetitionEnrollment.team_id == team.id)
+        .all()
+    )
+    for row in enrollments:
+        row.division = division
+        row.work_track = work_track
+    submissions = db.query(Submission).filter(Submission.team_id == team.id).all()
+    for row in submissions:
+        row.division = division
+
+
+@router.put("/teams/{team_id}/division-track", response_model=SchoolAdminSetTeamDivisionTrackResult)
+async def set_team_division_track(
+    team_id: int,
+    body: SchoolAdminSetTeamDivisionTrackRequest,
+    db: Session = Depends(get_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """校管（本校）或超管修改队伍组别与赛道，并同步该队报名记录。"""
+    role = _effective_alt_role(identity.role)
+    is_super = role == "super_admin"
+    is_school = role == "school_admin"
+    if not is_super and not is_school:
+        raise HTTPException(
+            status_code=403,
+            detail="Only school_admin or super_admin can set team division and work track",
+        )
+    if is_school:
+        _require_school_admin_identity(identity)
+    else:
+        _require_super_admin_identity(identity)
+
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    if is_school:
+        admin_school = _normalize_school_name(identity.school)
+        if not _team_matches_school(team, admin_school):
+            raise HTTPException(status_code=403, detail="Team does not belong to your school")
+    if team.status == TeamStatus.REJECTED:
+        raise HTTPException(status_code=400, detail="Cannot update division on a rejected team")
+
+    competition = _get_competition(db, team.competition_id)
+    division = _resolve_enrollment_division(competition, body.division)
+    work_track = _resolve_work_track(body.work_track)
+    _sync_team_division_and_work_track(db, team, division, work_track)
+    db.commit()
+    db.refresh(team)
+    return SchoolAdminSetTeamDivisionTrackResult(
+        team_id=team.id,
+        division=str(team.division or division),
+        work_track=str(team.work_track or work_track),
     )
 
 
@@ -5249,6 +5337,13 @@ async def list_question_answers_overview(
     for row in answers:
         by_team.setdefault(row.team_id, {})[row.question_no] = row
 
+    grade_rows = (
+        db.query(CompetitionTeamQuestionGrade)
+        .filter(CompetitionTeamQuestionGrade.competition_id == competition_id)
+        .all()
+    )
+    grade_by_team = {int(g.team_id): g for g in grade_rows}
+
     items: List[CompetitionQuestionAnswersTeamOverview] = []
     anonymize = _is_expert_anonymized_viewer(db, competition_id, identity)
     for team in teams:
@@ -5263,6 +5358,7 @@ async def list_question_answers_overview(
             if slot.submitted:
                 uploaded += 1
             slots.append(slot)
+        grade = grade_by_team.get(int(team.id))
         items.append(
             CompetitionQuestionAnswersTeamOverview(
                 team_id=team.id,
@@ -5272,6 +5368,15 @@ async def list_question_answers_overview(
                 uploaded_count=uploaded,
                 question_count=COMPETITION_QUESTION_COUNT,
                 slots=slots,
+                graded=grade is not None,
+                score_q1=grade.score_q1 if grade else None,
+                score_q2=grade.score_q2 if grade else None,
+                score_q3=grade.score_q3 if grade else None,
+                score_q4=grade.score_q4 if grade else None,
+                score_q5=grade.score_q5 if grade else None,
+                total_score=grade.total_score if grade else None,
+                feedback=grade.feedback if grade else None,
+                reviewed_at=grade.reviewed_at if grade else None,
             )
         )
 
@@ -5808,6 +5913,148 @@ def _require_expert_reviewer_for_submission(
         raise HTTPException(status_code=403, detail="You are not assigned to this team")
 
 
+def _require_expert_reviewer_for_team(
+    db: Session, competition_id: int, team_id: int, identity: AltAuthUserRecord
+) -> Team:
+    if _effective_alt_role(identity.role) != "expert":
+        raise HTTPException(status_code=403, detail="Only competition experts may grade submissions")
+    require_permission(identity.role, Permission.REVIEW_SUBMISSIONS)
+    if not _expert_gate_ok(identity):
+        raise HTTPException(status_code=403, detail="Expert account must be verified by admin before grading")
+    team = db.query(Team).filter(Team.id == team_id, Team.competition_id == competition_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    if not _is_assigned_expert_for_team(db, competition_id, team_id, identity.id):
+        raise HTTPException(status_code=403, detail="You are not assigned to this team")
+    return team
+
+
+def _team_question_grade_total(body: TeamQuestionGradeRequest) -> float:
+    return float(body.score_q1 + body.score_q2 + body.score_q3 + body.score_q4 + body.score_q5)
+
+
+def _team_question_grade_response(row: CompetitionTeamQuestionGrade) -> TeamQuestionGradeResponse:
+    return TeamQuestionGradeResponse.model_validate(row)
+
+
+def _apply_team_question_grade_body(
+    row: CompetitionTeamQuestionGrade, body: TeamQuestionGradeRequest, reviewer_id: int
+) -> None:
+    row.score_q1 = float(body.score_q1)
+    row.score_q2 = float(body.score_q2)
+    row.score_q3 = float(body.score_q3)
+    row.score_q4 = float(body.score_q4)
+    row.score_q5 = float(body.score_q5)
+    row.total_score = _team_question_grade_total(body)
+    row.feedback = body.feedback
+    row.reviewer_id = reviewer_id
+    row.reviewed_at = utc_now()
+
+
+@router.get(
+    "/{competition_id}/teams/{team_id}/question-grades",
+    response_model=TeamQuestionGradeResponse,
+)
+async def get_team_question_grade(
+    competition_id: int,
+    team_id: int,
+    db: Session = Depends(get_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """查询某队五题评分；未评分返回 404。"""
+    require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+    _get_competition(db, competition_id)
+    if not _can_view_competition_score_insights(db, competition_id, identity):
+        if _effective_alt_role(identity.role) == "student":
+            member = (
+                db.query(TeamMember)
+                .filter(TeamMember.team_id == team_id, TeamMember.user_id == identity.id)
+                .first()
+            )
+            if not member:
+                raise HTTPException(status_code=403, detail="Not allowed to view this team's grades")
+        else:
+            raise HTTPException(status_code=403, detail="Not allowed to view grades for this competition")
+    row = (
+        db.query(CompetitionTeamQuestionGrade)
+        .filter(
+            CompetitionTeamQuestionGrade.competition_id == competition_id,
+            CompetitionTeamQuestionGrade.team_id == team_id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Grade not found")
+    return _team_question_grade_response(row)
+
+
+@router.put(
+    "/{competition_id}/teams/{team_id}/question-grades",
+    response_model=TeamQuestionGradeResponse,
+)
+async def put_team_question_grade(
+    competition_id: int,
+    team_id: int,
+    body: TeamQuestionGradeRequest,
+    db: Session = Depends(get_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """首次按题评分；已评分请使用 PATCH。总分由五题相加。"""
+    _get_competition(db, competition_id)
+    _require_expert_reviewer_for_team(db, competition_id, team_id, identity)
+    existing = (
+        db.query(CompetitionTeamQuestionGrade)
+        .filter(
+            CompetitionTeamQuestionGrade.competition_id == competition_id,
+            CompetitionTeamQuestionGrade.team_id == team_id,
+        )
+        .first()
+    )
+    if existing is not None:
+        raise HTTPException(status_code=400, detail="Team already graded")
+    row = CompetitionTeamQuestionGrade(
+        competition_id=competition_id,
+        team_id=team_id,
+        reviewer_id=identity.id,
+        created_at=utc_now(),
+    )
+    _apply_team_question_grade_body(row, body, identity.id)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _team_question_grade_response(row)
+
+
+@router.patch(
+    "/{competition_id}/teams/{team_id}/question-grades",
+    response_model=TeamQuestionGradeResponse,
+)
+async def patch_team_question_grade(
+    competition_id: int,
+    team_id: int,
+    body: TeamQuestionGradeRequest,
+    db: Session = Depends(get_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """修改某队五题评分；未评分请使用 PUT。"""
+    _get_competition(db, competition_id)
+    _require_expert_reviewer_for_team(db, competition_id, team_id, identity)
+    row = (
+        db.query(CompetitionTeamQuestionGrade)
+        .filter(
+            CompetitionTeamQuestionGrade.competition_id == competition_id,
+            CompetitionTeamQuestionGrade.team_id == team_id,
+        )
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=400, detail="Team not graded yet")
+    _apply_team_question_grade_body(row, body, identity.id)
+    db.commit()
+    db.refresh(row)
+    return _team_question_grade_response(row)
+
+
 @router.get("/submissions/{submission_id}/review-grade", response_model=ReviewResponse)
 async def get_review_grade(
     submission_id: int,
@@ -5911,23 +6158,28 @@ async def score_summary(
     if not _can_view_competition_score_insights(db, competition_id, identity):
         raise HTTPException(status_code=403, detail="Not allowed to view scores for this competition")
 
-    submissions_total = db.query(func.count(Submission.id)).filter(Submission.competition_id == competition_id).scalar() or 0
-    reviewed_total = (
-        db.query(func.count(Review.id))
-        .join(Submission, Submission.id == Review.submission_id)
-        .filter(Submission.competition_id == competition_id)
+    submissions_total = (
+        db.query(func.count(func.distinct(CompetitionQuestionAnswer.team_id)))
+        .filter(
+            CompetitionQuestionAnswer.competition_id == competition_id,
+            CompetitionQuestionAnswer.status == CompetitionQuestionAnswerStatus.SUBMITTED,
+        )
         .scalar()
         or 0
     )
-
+    reviewed_total = (
+        db.query(func.count(CompetitionTeamQuestionGrade.id))
+        .filter(CompetitionTeamQuestionGrade.competition_id == competition_id)
+        .scalar()
+        or 0
+    )
     agg = (
         db.query(
-            func.avg(Review.score),
-            func.max(Review.score),
-            func.min(Review.score),
+            func.avg(CompetitionTeamQuestionGrade.total_score),
+            func.max(CompetitionTeamQuestionGrade.total_score),
+            func.min(CompetitionTeamQuestionGrade.total_score),
         )
-        .join(Submission, Submission.id == Review.submission_id)
-        .filter(Submission.competition_id == competition_id)
+        .filter(CompetitionTeamQuestionGrade.competition_id == competition_id)
         .first()
     )
 
@@ -5962,53 +6214,43 @@ async def score_rankings(
     if not _can_view_competition_score_insights(db, competition_id, identity):
         raise HTTPException(status_code=403, detail="Not allowed to view rankings for this competition")
 
-    # 队伍参赛：按 team_id 聚合（本竞赛内有已评分作品的所有队伍）
-    team_rows = (
-        db.query(
-            Submission.team_id.label("team_id"),
-            func.max(Review.score).label("best_score"),
-            func.count(Review.id).label("reviewed_submissions"),
-        )
-        .join(Review, Review.submission_id == Submission.id)
-        .filter(Submission.competition_id == competition_id, Submission.team_id.isnot(None))
-        .group_by(Submission.team_id)
+    grade_rows = (
+        db.query(CompetitionTeamQuestionGrade)
+        .filter(CompetitionTeamQuestionGrade.competition_id == competition_id)
         .all()
     )
-
-    # 个人参赛：按 student_id 聚合（team_id 为空）
-    individual_rows = (
-        db.query(
-            Submission.student_id.label("student_id"),
-            func.max(Review.score).label("best_score"),
-            func.count(Review.id).label("reviewed_submissions"),
+    pool = []
+    for g in grade_rows:
+        pool.append(
+            (
+                int(g.team_id),
+                float(g.total_score),
+                float(g.score_q1),
+                float(g.score_q2),
+                float(g.score_q3),
+                float(g.score_q4),
+                float(g.score_q5),
+            )
         )
-        .join(Review, Review.submission_id == Submission.id)
-        .filter(Submission.competition_id == competition_id, Submission.team_id.is_(None))
-        .group_by(Submission.student_id)
-        .all()
-    )
-
-    # 合并为统一列表后再排序（同分按队伍优先、再按 id 稳定次序）
-    pool: List[Tuple[Optional[int], Optional[int], float, int]] = []
-    for r in team_rows:
-        pool.append((int(r.team_id), None, float(r.best_score), int(r.reviewed_submissions)))
-    for r in individual_rows:
-        pool.append((None, int(r.student_id), float(r.best_score), int(r.reviewed_submissions)))
-
-    pool.sort(key=lambda x: (-x[2], 0 if x[0] is not None else 1, x[0] or 0, x[1] or 0))
+    pool.sort(key=lambda x: (-x[1], x[0]))
 
     items: List[CompetitionScoreRankingItem] = []
     rank_val = 1
-    for i, (tid, sid, best, rcnt) in enumerate(pool):
-        if i > 0 and best < pool[i - 1][2]:
+    for i, (tid, total, s1, s2, s3, s4, s5) in enumerate(pool):
+        if i > 0 and total < pool[i - 1][1]:
             rank_val = i + 1
         items.append(
             CompetitionScoreRankingItem(
                 rank=rank_val,
                 team_id=tid,
-                student_id=sid,
-                best_score=best,
-                reviewed_submissions=rcnt,
+                student_id=None,
+                best_score=total,
+                reviewed_submissions=1,
+                score_q1=s1,
+                score_q2=s2,
+                score_q3=s3,
+                score_q4=s4,
+                score_q5=s5,
             )
         )
 
@@ -6057,5 +6299,20 @@ async def my_scores(
                 reviewed_at=rev.reviewed_at if rev else None,
             )
         )
-    return MyCompetitionScoresResponse(competition_id=competition_id, submissions=items)
+    team_grades: List[TeamQuestionGradeResponse] = []
+    if team_ids:
+        grade_rows = (
+            db.query(CompetitionTeamQuestionGrade)
+            .filter(
+                CompetitionTeamQuestionGrade.competition_id == competition_id,
+                CompetitionTeamQuestionGrade.team_id.in_(team_ids),
+            )
+            .all()
+        )
+        team_grades = [_team_question_grade_response(g) for g in grade_rows]
+    return MyCompetitionScoresResponse(
+        competition_id=competition_id,
+        submissions=items,
+        team_grades=team_grades,
+    )
 

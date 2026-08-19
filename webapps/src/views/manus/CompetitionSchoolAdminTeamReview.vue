@@ -59,11 +59,17 @@
             :columns="teamColumns"
             :data-source="teamItems"
             :pagination="teamItems.length > 10 ? { pageSize: 10, showSizeChanger: true } : false"
-            :scroll="{ x: 1200 }"
+            :scroll="{ x: 1480 }"
             :locale="{ emptyText: '暂无队伍数据' }"
           >
             <template slot="advisorName" slot-scope="text">
               {{ text && String(text).trim() ? String(text).trim() : '—' }}
+            </template>
+            <template slot="division" slot-scope="text">
+              {{ divisionLabel(text) }}
+            </template>
+            <template slot="workTrack" slot-scope="text">
+              {{ workTrackLabel(text) }}
             </template>
             <template slot="competitionStartAt" slot-scope="text">
               {{ formatDateTime(text) }}
@@ -106,6 +112,13 @@
                   @click="openAdvisorModal(record)"
                 >
                   添加/修改指导老师
+                </a-button>
+                <a-button
+                  v-if="record.status !== 'rejected'"
+                  size="small"
+                  @click="openDivisionTrackModal(record)"
+                >
+                  修改组别/赛道
                 </a-button>
                 <span v-if="record.status === 'rejected'" class="muted">—</span>
               </div>
@@ -163,6 +176,39 @@
       </a-form>
       <p class="muted" style="margin: 0; font-size: 12px">
         未设置时可添加；已有老师时填写新信息即可修改替换。
+      </p>
+    </a-modal>
+
+    <a-modal
+      :visible="divisionTrackModalVisible"
+      title="修改组别/赛道"
+      :confirm-loading="divisionTrackModalLoading"
+      ok-text="保存"
+      cancel-text="取消"
+      destroy-on-close
+      @ok="submitDivisionTrackModal"
+      @cancel="closeDivisionTrackModal"
+    >
+      <p v-if="divisionTrackModalTeam" style="margin-bottom: 12px">
+        队伍「{{ divisionTrackModalTeam.team_name || ('#' + divisionTrackModalTeam.team_id) }}」
+      </p>
+      <a-form :label-col="{ span: 6 }" :wrapper-col="{ span: 17 }">
+        <a-form-item label="组别" required>
+          <a-radio-group v-model="divisionTrackForm.division">
+            <a-radio-button value="undergraduate">本科</a-radio-button>
+            <a-radio-button value="vocational">高职</a-radio-button>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item label="赛道" required>
+          <a-radio-group v-model="divisionTrackForm.work_track">
+            <a-radio-button value="works">作品</a-radio-button>
+            <a-radio-button value="software">软件</a-radio-button>
+            <a-radio-button value="hardware">硬件</a-radio-button>
+          </a-radio-group>
+        </a-form-item>
+      </a-form>
+      <p class="muted" style="margin: 0; font-size: 12px">
+        保存后将同步该队报名记录。请认真核对，选错后果自负。
       </p>
     </a-modal>
 
@@ -237,6 +283,7 @@ import {
   listAdminTeamReviews,
   schoolReviewTeam,
   setTeamAdvisor,
+  setTeamDivisionTrack,
   schoolAdminProxyCreateTeam,
   getCompetitions
 } from '@/api/competition'
@@ -288,6 +335,13 @@ export default {
       advisorForm: {
         advisor_ref: ''
       },
+      divisionTrackModalVisible: false,
+      divisionTrackModalLoading: false,
+      divisionTrackModalTeam: null,
+      divisionTrackForm: {
+        division: 'undergraduate',
+        work_track: 'works'
+      },
       competitionsLoading: false,
       competitions: [],
       proxyTeamVisible: false,
@@ -329,9 +383,11 @@ export default {
         { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', width: 100, ellipsis: true, scopedSlots: { customRender: 'advisorName' } },
         { title: '队伍名', dataIndex: 'team_name', key: 'team_name', width: 120, ellipsis: true },
         { title: '队长', dataIndex: 'captain_name', key: 'captain_name', width: 100, ellipsis: true },
-        { title: '队员', key: 'members', scopedSlots: { customRender: 'members' }, width: 200, ellipsis: true },
+        { title: '队员', key: 'members', scopedSlots: { customRender: 'members' }, width: 180, ellipsis: true },
+        { title: '组别', dataIndex: 'division', key: 'division', width: 80, scopedSlots: { customRender: 'division' } },
+        { title: '赛道', dataIndex: 'work_track', key: 'work_track', width: 80, scopedSlots: { customRender: 'workTrack' } },
         { title: '状态', dataIndex: 'status', key: 'status', width: 90, scopedSlots: { customRender: 'teamStatus' } },
-        { title: '操作', key: 'teamActions', width: 260, fixed: 'right', scopedSlots: { customRender: 'teamActions' } }
+        { title: '操作', key: 'teamActions', width: 360, fixed: 'right', scopedSlots: { customRender: 'teamActions' } }
       ]
     }
   },
@@ -378,6 +434,20 @@ export default {
     },
     teamStatusColor (status) {
       return (TEAM_STATUS_MAP[status] || { color: 'default' }).color
+    },
+    divisionLabel (raw) {
+      const v = String(raw || '').trim().toLowerCase()
+      if (v === 'undergraduate') return '本科'
+      if (v === 'vocational') return '高职'
+      if (v === 'default') return '未分'
+      return raw ? String(raw) : '—'
+    },
+    workTrackLabel (raw) {
+      const v = String(raw || '').trim().toLowerCase()
+      if (v === 'works') return '作品'
+      if (v === 'software') return '软件'
+      if (v === 'hardware') return '硬件'
+      return raw ? String(raw) : '—'
     },
     parseUsernameList (text) {
       return String(text || '')
@@ -517,6 +587,46 @@ export default {
         return Promise.reject(e)
       } finally {
         this.advisorModalLoading = false
+      }
+    },
+    openDivisionTrackModal (record) {
+      this.divisionTrackModalTeam = record
+      const div = String((record && record.division) || '').trim().toLowerCase()
+      const track = String((record && record.work_track) || '').trim().toLowerCase()
+      this.divisionTrackForm = {
+        division: (div === 'undergraduate' || div === 'vocational') ? div : 'undergraduate',
+        work_track: (track === 'works' || track === 'software' || track === 'hardware') ? track : 'works'
+      }
+      this.divisionTrackModalVisible = true
+    },
+    closeDivisionTrackModal () {
+      this.divisionTrackModalVisible = false
+      this.divisionTrackModalTeam = null
+      this.divisionTrackForm = { division: 'undergraduate', work_track: 'works' }
+      this.divisionTrackModalLoading = false
+    },
+    async submitDivisionTrackModal () {
+      if (!this.divisionTrackModalTeam || this.divisionTrackModalTeam.team_id == null) {
+        return Promise.reject(new Error('cancelled'))
+      }
+      if (!this.divisionTrackForm.division || !this.divisionTrackForm.work_track) {
+        this.$message.warning('请选择组别和赛道')
+        return Promise.reject(new Error('cancelled'))
+      }
+      this.divisionTrackModalLoading = true
+      try {
+        await setTeamDivisionTrack(this.divisionTrackModalTeam.team_id, {
+          division: this.divisionTrackForm.division,
+          work_track: this.divisionTrackForm.work_track
+        })
+        this.$message.success('组别与赛道已保存')
+        this.closeDivisionTrackModal()
+        await this.loadTeams()
+      } catch (e) {
+        this.$message.error('保存失败：' + this.getApiErrorMessage(e))
+        return Promise.reject(e)
+      } finally {
+        this.divisionTrackModalLoading = false
       }
     },
     async openProxyTeamModal () {

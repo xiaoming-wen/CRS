@@ -184,7 +184,7 @@ export function getCompetitionParticipantsTeams (competitionId, options = {}) {
   })
 }
 
-// 8.11.1 导出对照表 Excel（学生ID/队伍ID/队名/成员/学校）
+// 8.11.1 导出对照表 Excel（学校/竞赛/组别项目/队伍/队员/五题分/总分）
 // options.scope: current | paired | both
 export function exportCompetitionTeamsExcel (competitionId, options = {}) {
   const params = {
@@ -658,6 +658,38 @@ export function getCompetitionSubmissionReviewGrade (submissionId) {
   })
 }
 
+/** 查询某队五题评分 */
+export function getTeamQuestionGrade (competitionId, teamId) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/teams/${teamId}/question-grades`,
+    method: 'get'
+  })
+}
+
+/** 首次按题评分 */
+export function putTeamQuestionGrade (competitionId, teamId, payload) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/teams/${teamId}/question-grades`,
+    method: 'put',
+    data: payload || {},
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+/** 修改某队五题评分 */
+export function patchTeamQuestionGrade (competitionId, teamId, payload) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/teams/${teamId}/question-grades`,
+    method: 'patch',
+    data: payload || {},
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
 // 8.18 评分汇总（dual 须传 division，仅统计该组作品）
 export function getCompetitionScoresSummary (competitionId, options = {}) {
   return axios({
@@ -875,6 +907,18 @@ export function schoolReviewTeam (teamId, payload) {
 export function setTeamAdvisor (teamId, payload) {
   return axios({
     url: `/v1/competitions/teams/${encodeURIComponent(teamId)}/advisor`,
+    method: 'put',
+    data: payload || {},
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+/** 校管/超管：修改队伍组别与赛道 */
+export function setTeamDivisionTrack (teamId, payload) {
+  return axios({
+    url: `/v1/competitions/teams/${encodeURIComponent(teamId)}/division-track`,
     method: 'put',
     data: payload || {},
     headers: {

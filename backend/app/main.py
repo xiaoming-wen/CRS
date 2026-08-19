@@ -114,6 +114,13 @@ async def startup_event():
     except Exception as e:
         logging.getLogger(__name__).warning("Expert team assignment migration skipped: %s", e)
 
+    try:
+        from app.competition_team_question_grade_migrate import migrate_competition_team_question_grades
+
+        migrate_competition_team_question_grades(user_engine)
+    except Exception as e:
+        logging.getLogger(__name__).warning("Team question grade migration skipped: %s", e)
+
     for ts in (
         "ALTER TABLE competition_question_answers ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft'",
         "ALTER TABLE competition_question_answers ADD COLUMN submitted_at DATETIME NULL",

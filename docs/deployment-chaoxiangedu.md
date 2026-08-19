@@ -113,7 +113,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        client_max_body_size 20m;
+        client_max_body_size 100m;
     }
 
     # 竞赛二维码：禁止磁盘/代理长期缓存，否则换图后仍显示旧图
@@ -201,4 +201,4 @@ A：检查后端是否在 `127.0.0.1:8000` 运行，以及 Nginx `proxy_pass` �
 A：确认 `ssl_certificate` / `ssl_certificate_key` 路径正确，且域名与证书 SAN 匹配。
 
 **Q：上传作品或二维码失败？**  
-A：检查 Nginx `client_max_body_size` 是否足够（建议 ≥ 20m），以及后端磁盘目录写权限。
+A：检查 Nginx `client_max_body_size` 是否足够（建议 ≥ 100m），以及后端磁盘目录写权限。

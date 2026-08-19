@@ -339,6 +339,7 @@ async def alt_identity_login(
             token_type="bearer",
             user_id=row.id,
             role=role_out,
+            username=login_name or None,
             full_name=row.full_name,
             school=row.school,
         )
@@ -421,6 +422,7 @@ async def alt_identity_refresh_token(
         token_type="bearer",
         user_id=principal.id,
         role=role_out,
+        username=login_name or None,
         full_name=principal.full_name,
         school=principal.school,
     )

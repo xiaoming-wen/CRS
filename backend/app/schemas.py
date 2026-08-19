@@ -979,6 +979,8 @@ class SchoolAdminTeamReviewItem(BaseModel):
     captain_name: Optional[str] = None
     captain_id: int
     members: List[SchoolAdminTeamMemberItem] = Field(default_factory=list)
+    division: Optional[str] = Field(None, description="组别：undergraduate / vocational / default")
+    work_track: Optional[str] = Field(None, description="赛道：works / software / hardware")
     status: TeamStatus
     review_feedback: Optional[str] = None
     reviewed_at: OptionalUtcDatetime = None
@@ -1030,6 +1032,19 @@ class SchoolAdminSetTeamAdvisorResult(BaseModel):
     team_id: int
     advisor_id: Optional[int] = None
     advisor_name: Optional[str] = None
+
+
+class SchoolAdminSetTeamDivisionTrackRequest(BaseModel):
+    """校管/超管修改队伍组别与赛道。"""
+
+    division: CompetitionDivision = Field(..., description="组别：undergraduate / vocational")
+    work_track: CompetitionWorkTrack = Field(..., description="赛道：works / software / hardware")
+
+
+class SchoolAdminSetTeamDivisionTrackResult(BaseModel):
+    team_id: int
+    division: str
+    work_track: str
 
 
 class SchoolAdminProxyTeamCreate(BaseModel):
@@ -1272,6 +1287,15 @@ class CompetitionQuestionAnswersTeamOverview(BaseModel):
     uploaded_count: int = 0
     question_count: int = 5
     slots: List[CompetitionQuestionAnswerSlot] = Field(default_factory=list)
+    graded: bool = False
+    score_q1: Optional[float] = None
+    score_q2: Optional[float] = None
+    score_q3: Optional[float] = None
+    score_q4: Optional[float] = None
+    score_q5: Optional[float] = None
+    total_score: Optional[float] = None
+    feedback: Optional[str] = None
+    reviewed_at: OptionalUtcDatetime = None
 
 
 class CompetitionQuestionAnswersOverviewResponse(BaseModel):
@@ -1308,6 +1332,35 @@ class SubmissionForStudentScoreResponse(SubmissionResponse):
 class ReviewGrade(BaseModel):
     score: float
     feedback: Optional[str] = None
+
+
+class TeamQuestionGradeRequest(BaseModel):
+    """专家按 5 题分别打分；总分由服务端相加。"""
+
+    score_q1: float = Field(..., ge=0, le=100, description="第1题分数 0～100")
+    score_q2: float = Field(..., ge=0, le=100, description="第2题分数 0～100")
+    score_q3: float = Field(..., ge=0, le=100, description="第3题分数 0～100")
+    score_q4: float = Field(..., ge=0, le=100, description="第4题分数 0～100")
+    score_q5: float = Field(..., ge=0, le=100, description="第5题分数 0～100")
+    feedback: Optional[str] = None
+
+
+class TeamQuestionGradeResponse(BaseModel):
+    id: int
+    competition_id: int
+    team_id: int
+    reviewer_id: int
+    score_q1: float
+    score_q2: float
+    score_q3: float
+    score_q4: float
+    score_q5: float
+    total_score: float
+    feedback: Optional[str] = None
+    reviewed_at: OptionalUtcDatetime = None
+
+    class Config:
+        from_attributes = True
 
 
 class ReviewResponse(BaseModel):
@@ -1348,6 +1401,11 @@ class CompetitionScoreRankingItem(BaseModel):
     student_id: Optional[int] = None
     best_score: float
     reviewed_submissions: int
+    score_q1: Optional[float] = None
+    score_q2: Optional[float] = None
+    score_q3: Optional[float] = None
+    score_q4: Optional[float] = None
+    score_q5: Optional[float] = None
 
 
 class CompetitionScoreRankingResponse(BaseModel):
@@ -1361,7 +1419,8 @@ class CompetitionScoreRankingResponse(BaseModel):
 
 class MyCompetitionScoresResponse(BaseModel):
     competition_id: int
-    submissions: List[SubmissionForStudentScoreResponse]
+    submissions: List[SubmissionForStudentScoreResponse] = Field(default_factory=list)
+    team_grades: List[TeamQuestionGradeResponse] = Field(default_factory=list)
 
 
 # ---------- 考试模块（Exam） ----------

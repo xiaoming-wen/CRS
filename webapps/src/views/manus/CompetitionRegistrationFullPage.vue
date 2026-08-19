@@ -112,13 +112,13 @@ import {
   getStoredAltToken,
   clearAltIdentityStorage,
   markAltLoginSkipAutoOnce,
-  ALT_PROFILE_KEY,
   isAltCompetitionTeacherOrAdmin,
   isAltCompetitionSuperAdmin,
   isAltCompetitionSchoolAdmin,
   isAltCompetitionStudent,
   fetchAltIdentityMe,
-  applyAltIdentityMeToStorage
+  applyAltIdentityMeToStorage,
+  getAltProfileFromStorage
 } from '@/api/altIdentity'
 import { sanitizeCompetitionReturnPath } from '@/utils/competitionAuthFlow'
 
@@ -192,15 +192,10 @@ export default {
         return true
       })
     },
-    /** 随 altGateTick 刷新，与 localStorage 中独立账号资料一致 */
+    /** 随 altGateTick 刷新；兼容 localStorage / sessionStorage 中的独立账号资料 */
     altProfile () {
       void this.altGateTick
-      try {
-        const raw = localStorage.getItem(ALT_PROFILE_KEY)
-        return raw ? JSON.parse(raw) : {}
-      } catch (e) {
-        return {}
-      }
+      return getAltProfileFromStorage()
     },
     altToolbarUsername () {
       const p = this.altProfile
@@ -211,7 +206,7 @@ export default {
     altAvatarInitial () {
       const s = this.altToolbarUsername
       if (!s || s === '用户') return '用'
-      return s.charAt(0).toUpperCase()
+      return s.charAt(0)
     }
   },
   watch: {

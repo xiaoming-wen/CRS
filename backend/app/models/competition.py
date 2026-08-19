@@ -340,6 +340,36 @@ class CompetitionQuestionAnswer(Base):
     team = relationship("Team")
 
 
+class CompetitionTeamQuestionGrade(Base):
+    """专家对某队 5 题分别打分；total_score 为五题之和。每竞赛每队一条。"""
+
+    __tablename__ = "competition_team_question_grades"
+    __table_args__ = (
+        UniqueConstraint(
+            "competition_id",
+            "team_id",
+            name="uq_competition_team_question_grade",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    competition_id = Column(Integer, ForeignKey("competitions.id"), nullable=False, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    reviewer_id = Column(Integer, nullable=False, index=True, comment="评委 alt_auth_users.id")
+    score_q1 = Column(Float, nullable=False)
+    score_q2 = Column(Float, nullable=False)
+    score_q3 = Column(Float, nullable=False)
+    score_q4 = Column(Float, nullable=False)
+    score_q5 = Column(Float, nullable=False)
+    total_score = Column(Float, nullable=False, comment="五题分数之和")
+    feedback = Column(Text, nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utc_now)
+
+    competition = relationship("Competition")
+    team = relationship("Team")
+
+
 class Submission(Base):
     __tablename__ = "submissions"
     __table_args__ = (
