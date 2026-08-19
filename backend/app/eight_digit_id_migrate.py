@@ -1,5 +1,5 @@
 """
-将既有竞赛 ID、alt_auth 用户 ID 迁移为 8 位数字（仅处理不在合法区间的旧自增 ID）。
+将既有竞赛 ID、队伍 ID、alt_auth 用户 ID 迁移为 8 位数字（仅处理不在合法区间的旧自增 ID）。
 """
 from __future__ import annotations
 
@@ -11,8 +11,6 @@ from sqlalchemy.engine import Engine
 
 from app.db_compat import disable_foreign_keys, enable_foreign_keys
 from app.eight_digit_id import (
-    EIGHT_DIGIT_ID_MAX,
-    EIGHT_DIGIT_ID_MIN,
     draw_unused_eight_digit_id,
     needs_eight_digit_id_migration,
 )
@@ -24,7 +22,24 @@ _COMPETITION_FK_COLUMNS = (
     ("competition_enrollments", "competition_id"),
     ("submissions", "competition_id"),
     ("competition_expert_assignments", "competition_id"),
+    ("competition_expert_team_assignments", "competition_id"),
+    ("competition_question_answers", "competition_id"),
+    ("competition_team_question_grades", "competition_id"),
+    ("competition_promotions", "from_competition_id"),
+    ("competition_promotions", "to_competition_id"),
     ("exams", "competition_id"),
+)
+
+_TEAM_FK_COLUMNS = (
+    ("team_members", "team_id"),
+    ("team_join_requests", "team_id"),
+    ("competition_enrollments", "team_id"),
+    ("submissions", "team_id"),
+    ("competition_question_answers", "team_id"),
+    ("competition_team_question_grades", "team_id"),
+    ("competition_expert_team_assignments", "team_id"),
+    ("competition_promotions", "source_team_id"),
+    ("competition_promotions", "final_team_id"),
 )
 
 _ALT_USER_FK_COLUMNS_MAIN = (
@@ -39,6 +54,10 @@ _ALT_USER_FK_COLUMNS_MAIN = (
     ("submissions", "submitter_id"),
     ("reviews", "reviewer_id"),
     ("competition_expert_assignments", "expert_id"),
+    ("competition_expert_team_assignments", "expert_id"),
+    ("competition_question_answers", "submitter_id"),
+    ("competition_team_question_grades", "reviewer_id"),
+    ("competition_promotions", "promoted_by"),
 )
 
 
@@ -73,8 +92,46 @@ def migrate_competition_ids_to_eight_digit(engine: Engine) -> None:
                     text(f"UPDATE {table} SET {col} = :new WHERE {col} = :old"),
                     {"new": new_id, "old": old_id},
                 )
+            if conn.dialect.has_table(conn, "competitions"):
+                try:
+                    conn.execute(
+                        text(
+                            "UPDATE competitions SET paired_competition_id = :new "
+                            "WHERE paired_competition_id = :old"
+                        ),
+                        {"new": new_id, "old": old_id},
+                    )
+                except Exception:
+                    pass
             conn.execute(
                 text("UPDATE competitions SET id = :new WHERE id = :old"),
+                {"new": new_id, "old": old_id},
+            )
+        enable_foreign_keys(conn)
+        conn.commit()
+
+
+def migrate_team_ids_to_eight_digit(engine: Engine) -> None:
+    with engine.connect() as conn:
+        if not conn.dialect.has_table(conn, "teams"):
+            return
+        rows = conn.execute(text("SELECT id FROM teams")).fetchall()
+        existing = {int(r[0]) for r in rows if r[0] is not None}
+        mapping = _build_id_mapping(existing)
+        if not mapping:
+            return
+        logger.info("Migrating %s team id(s) to 8-digit format", len(mapping))
+        disable_foreign_keys(conn)
+        for old_id, new_id in mapping.items():
+            for table, col in _TEAM_FK_COLUMNS:
+                if not conn.dialect.has_table(conn, table):
+                    continue
+                conn.execute(
+                    text(f"UPDATE {table} SET {col} = :new WHERE {col} = :old"),
+                    {"new": new_id, "old": old_id},
+                )
+            conn.execute(
+                text("UPDATE teams SET id = :new WHERE id = :old"),
                 {"new": new_id, "old": old_id},
             )
         enable_foreign_keys(conn)
@@ -128,6 +185,10 @@ def run_eight_digit_id_migrations(main_engine: Engine, alt_engine: Engine) -> No
         migrate_competition_ids_to_eight_digit(main_engine)
     except Exception as e:
         logger.warning("Competition 8-digit id migration skipped: %s", e)
+    try:
+        migrate_team_ids_to_eight_digit(main_engine)
+    except Exception as e:
+        logger.warning("Team 8-digit id migration skipped: %s", e)
     try:
         migrate_alt_user_ids_to_eight_digit(alt_engine, main_engine)
     except Exception as e:

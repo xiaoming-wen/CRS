@@ -965,6 +965,7 @@ def _promote_prelim_team_to_final(
     division = str(getattr(source_team, "division", None) or "default")
     work_track = getattr(source_team, "work_track", None)
     final_team = Team(
+        id=allocate_eight_digit_id(db, Team),
         competition_id=final.id,
         name=source_team.name,
         captain_id=source_team.captain_id,
@@ -1393,6 +1394,24 @@ def _can_view_team_question_answers(
         .first()
         is not None
     )
+
+
+def _team_has_formal_submitted_answers(db: Session, competition_id: int, team_id: int) -> bool:
+    row = (
+        db.query(CompetitionQuestionAnswer.id)
+        .filter(
+            CompetitionQuestionAnswer.competition_id == competition_id,
+            CompetitionQuestionAnswer.team_id == team_id,
+            CompetitionQuestionAnswer.status == CompetitionQuestionAnswerStatus.SUBMITTED,
+        )
+        .first()
+    )
+    return row is not None
+
+
+def _assert_team_answers_not_locked(db: Session, competition_id: int, team_id: int) -> None:
+    if _team_has_formal_submitted_answers(db, competition_id, team_id):
+        raise HTTPException(status_code=400, detail="作品已正式提交，无法再上传或删除题目文件")
 
 
 def _build_question_answers_board(
@@ -3246,6 +3265,7 @@ async def school_admin_proxy_create_team(
 
     now = utc_now()
     team = Team(
+        id=allocate_eight_digit_id(db, Team),
         competition_id=competition.id,
         name=tn,
         captain_id=captain_id,
@@ -4722,6 +4742,7 @@ async def create_team(
         team_school = _resolve_team_school(adb, captain_id)
         # 指导老师/教师代建队：自动将当前登录老师设为建队指导老师（忽略请求体中的 advisor_id/advisor_name）
         team = Team(
+            id=allocate_eight_digit_id(db, Team),
             competition_id=competition.id,
             name=tn,
             captain_id=captain_id,
@@ -4796,6 +4817,7 @@ async def create_team(
                     created_by_advisor_id = advisor_row.id
 
         team = Team(
+            id=allocate_eight_digit_id(db, Team),
             competition_id=competition.id,
             name=tn,
             captain_id=identity.id,
@@ -5474,6 +5496,7 @@ async def upload_question_answer(
     _assert_competition_uses_question_answers(competition)
     _ensure_competition_allows_submissions(competition)
     _require_active_team_member_for_answers(db, competition, team_id, identity)
+    _assert_team_answers_not_locked(db, competition.id, team_id)
 
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="Answer file is required")
@@ -5591,6 +5614,12 @@ async def submit_team_question_answers(
     if not rows:
         raise HTTPException(status_code=400, detail="请先为至少一道题选择并保存答案文件")
 
+    if any(
+        (getattr(r, "status", None) or "") == CompetitionQuestionAnswerStatus.SUBMITTED
+        for r in rows
+    ):
+        raise HTTPException(status_code=400, detail="作品已正式提交，无法再次提交")
+
     now = utc_now()
     submitted_count = 0
     for row in rows:
@@ -5695,6 +5724,7 @@ async def delete_question_answer(
         raise HTTPException(status_code=404, detail="Question answer not found")
 
     _require_active_team_member_for_answers(db, competition, row.team_id, identity)
+    _assert_team_answers_not_locked(db, competition.id, row.team_id)
 
     file_record = db.query(FileModel).filter(FileModel.id == row.file_id).first()
     old_path = file_record.file_path if file_record else None

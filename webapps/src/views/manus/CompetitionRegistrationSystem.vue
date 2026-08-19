@@ -397,8 +397,9 @@
                   <div class="row">
                     <a-input-number
                       v-model="joinTeamId"
-                      :min="1"
-                      placeholder="请输入队伍ID"
+                      :min="eightDigitIdMin"
+                      :max="eightDigitIdMax"
+                      placeholder="8 位队伍ID"
                       style="width: 180px"
                       :disabled="competitionEnrollActionsDisabled || studentHasTeamForCurrentCompetition"
                     />
@@ -418,7 +419,7 @@
               <a-form layout="vertical">
                 <a-form-item label="队长转让（可选）">
                   <div class="row">
-                    <a-input-number v-model="transferTeamId" :min="1" placeholder="队伍ID" style="width: 180px" />
+                    <a-input-number v-model="transferTeamId" :min="eightDigitIdMin" :max="eightDigitIdMax" placeholder="8 位队伍ID" style="width: 180px" />
                     <a-input
                       v-model="newCaptainRef"
                       placeholder="新队长姓名或用户 ID"
@@ -436,7 +437,7 @@
                 </a-form-item>
                 <a-form-item label="队长退队（可选，强制先转让）">
                   <div class="row">
-                    <a-input-number v-model="leaveTeamId" :min="1" placeholder="队伍ID" style="width: 180px" />
+                    <a-input-number v-model="leaveTeamId" :min="eightDigitIdMin" :max="eightDigitIdMax" placeholder="8 位队伍ID" style="width: 180px" />
                     <a-button
                       danger
                       :loading="teamLoading"
@@ -617,12 +618,12 @@
                     :ref="'inlineQFile_' + slot.question_no"
                     type="file"
                     class="question-answer-file-input"
-                    :disabled="!canUploadQuestionAnswers || questionAnswerUploadingNo === slot.question_no"
+                    :disabled="!canEditQuestionAnswerFiles || questionAnswerUploadingNo === slot.question_no"
                     @change="onQuestionAnswerFileChange($event, slot.question_no)"
                   />
                   <a-button
                     size="small"
-                    :disabled="!canUploadQuestionAnswers || questionAnswerUploadingNo === slot.question_no"
+                    :disabled="!canEditQuestionAnswerFiles || questionAnswerUploadingNo === slot.question_no"
                     :loading="questionAnswerUploadingNo === slot.question_no"
                     @click="triggerQuestionAnswerFilePick('inlineQFile_' + slot.question_no)"
                   >
@@ -641,7 +642,7 @@
                     type="danger"
                     ghost
                     :loading="questionAnswerDeletingId === slot.answer.id"
-                    :disabled="!canUploadQuestionAnswers"
+                    :disabled="!canEditQuestionAnswerFiles"
                     @click="deleteQuestionAnswer(slot.answer.id, slot.question_no)"
                   >
                     删除
@@ -659,6 +660,9 @@
                 上传作品
               </a-button>
             </div>
+            <p class="muted" style="margin: 8px 0 0; font-size: 12px; text-align: right">
+              {{ questionAnswersSubmitHintText }}
+            </p>
           </a-card>
 
           <a-card
@@ -698,7 +702,7 @@
                   ghost
                   style="margin-left: 8px"
                   :loading="questionAnswerDeletingId === slot.answer.id"
-                  :disabled="!canUploadQuestionAnswers"
+                  :disabled="!canEditQuestionAnswerFiles"
                   @click="deleteQuestionAnswer(slot.answer.id, slot.question_no)"
                 >
                   删除
@@ -1503,9 +1507,10 @@
               <div class="row" style="flex-wrap: wrap; gap: 8px">
                 <a-input-number
                   v-model="joinTeamId"
-                  :min="1"
-                  placeholder="队伍ID"
-                  style="width: 140px"
+                  :min="eightDigitIdMin"
+                  :max="eightDigitIdMax"
+                  placeholder="8 位队伍ID"
+                  style="width: 160px"
                   :disabled="competitionEnrollActionsDisabled || studentHasTeamForCurrentCompetition"
                 />
                 <a-input
@@ -1624,7 +1629,7 @@
           <a-form layout="vertical">
             <a-form-item label="队长转让（可选）">
               <div class="row">
-                <a-input-number v-model="transferTeamId" :min="1" placeholder="队伍ID" style="width: 180px" />
+                <a-input-number v-model="transferTeamId" :min="eightDigitIdMin" :max="eightDigitIdMax" placeholder="8 位队伍ID" style="width: 180px" />
                 <a-input
                   v-model="newCaptainRef"
                   placeholder="新队长姓名或用户 ID"
@@ -1642,7 +1647,7 @@
             </a-form-item>
             <a-form-item label="队长退队（可选，强制先转让）">
               <div class="row">
-                <a-input-number v-model="leaveTeamId" :min="1" placeholder="队伍ID" style="width: 180px" />
+                <a-input-number v-model="leaveTeamId" :min="eightDigitIdMin" :max="eightDigitIdMax" placeholder="8 位队伍ID" style="width: 180px" />
                 <a-button
                   danger
                   :loading="teamLoading"
@@ -1891,12 +1896,12 @@
                   :ref="'worksQFile_' + slot.question_no"
                   type="file"
                   class="question-answer-file-input"
-                  :disabled="!canUploadQuestionAnswers || questionAnswerUploadingNo === slot.question_no"
+                  :disabled="!canEditQuestionAnswerFiles || questionAnswerUploadingNo === slot.question_no"
                   @change="onQuestionAnswerFileChange($event, slot.question_no)"
                 />
                 <a-button
                   size="small"
-                  :disabled="!canUploadQuestionAnswers || questionAnswerUploadingNo === slot.question_no"
+                  :disabled="!canEditQuestionAnswerFiles || questionAnswerUploadingNo === slot.question_no"
                   :loading="questionAnswerUploadingNo === slot.question_no"
                   @click="triggerQuestionAnswerFilePick('worksQFile_' + slot.question_no)"
                 >
@@ -1915,7 +1920,7 @@
                   type="danger"
                   ghost
                   :loading="questionAnswerDeletingId === slot.answer.id"
-                  :disabled="!canUploadQuestionAnswers"
+                  :disabled="!canEditQuestionAnswerFiles"
                   @click="deleteQuestionAnswer(slot.answer.id, slot.question_no)"
                 >
                   删除
@@ -1935,7 +1940,7 @@
             </a-button>
           </div>
           <p class="muted" style="margin: 0 0 12px; font-size: 12px; text-align: right">
-            请先为各题选择文件，再点击「上传作品」正式提交；提交后管理员/专家题目答案列表才会显示。
+            {{ questionAnswersSubmitHintText }}
           </p>
         </template>
 
@@ -2797,6 +2802,8 @@ export default {
       questionAnswerSlots: [],
       questionAnswersLoading: false,
       questionAnswerUploadingNo: null,
+      questionAnswersSubmitLoading: false,
+      questionAnswerDeletingId: null,
       questionAnswersExportLoading: null,
 
       submissionsLoading: false,
@@ -3650,7 +3657,23 @@ export default {
     },
     canFormalSubmitQuestionAnswers () {
       if (!this.canUploadQuestionAnswers) return false
-      return this.displayQuestionAnswerSlots.some((s) => s && s.uploaded)
+      const slots = this.displayQuestionAnswerSlots
+      // 已有任一题正式提交后，不可再次提交
+      if (slots.some((s) => s && s.submitted)) return false
+      // 至少有一道题已选文件（草稿）
+      return slots.some((s) => s && s.uploaded && !s.submitted)
+    },
+    hasFormalSubmittedQuestionAnswers () {
+      return this.displayQuestionAnswerSlots.some((s) => s && s.submitted)
+    },
+    canEditQuestionAnswerFiles () {
+      return !!(this.canUploadQuestionAnswers && !this.hasFormalSubmittedQuestionAnswers)
+    },
+    questionAnswersSubmitHintText () {
+      if (this.hasFormalSubmittedQuestionAnswers) {
+        return '作品已正式提交，无法再提交作品，也无法再上传或删除题目文件。'
+      }
+      return '请先为各题选择文件，再点击「上传作品」；在弹窗中点击「确认提交」正式提交，提交后无法再提交作品。'
     },
     currentSubmissionTrackContext () {
       const scope = this.submissionMode === 'team' ? 'team' : 'individual'
@@ -5858,7 +5881,11 @@ export default {
       const rawId = this.joinTeamId
       if (rawId != null && rawId !== '') {
         const tid = Number(rawId)
-        if (Number.isFinite(tid) && tid > 0) return tid
+        if (!isEightDigitId(tid)) {
+          this.$message.warning(`队伍ID${EIGHT_DIGIT_ID_HINT}`)
+          return null
+        }
+        return tid
       }
       const name = (this.joinTeamName || '').trim()
       if (!name) return null
@@ -8579,8 +8606,8 @@ export default {
       const file = input && input.files && input.files[0]
       if (input) input.value = ''
       if (!file) return
-      if (!this.canUploadQuestionAnswers) {
-        this.$message.warning('当前不可上传题目答案')
+      if (!this.canEditQuestionAnswerFiles) {
+        this.$message.warning(this.hasFormalSubmittedQuestionAnswers ? '作品已正式提交，无法再上传题目文件' : '当前不可上传题目答案')
         return
       }
       const competitionId = this.activeCompetitionId
@@ -8633,8 +8660,8 @@ export default {
 
     async deleteQuestionAnswer (answerId, questionNo) {
       if (!this.activeCompetitionId || !answerId) return
-      if (!this.canUploadQuestionAnswers) {
-        this.$message.warning('当前不可删除题目答案')
+      if (!this.canEditQuestionAnswerFiles) {
+        this.$message.warning(this.hasFormalSubmittedQuestionAnswers ? '作品已正式提交，无法再删除题目文件' : '当前不可删除题目答案')
         return
       }
       const qLabel = questionNo != null ? `第${questionNo}题` : '该题'
@@ -8662,6 +8689,10 @@ export default {
     },
 
     async submitAllQuestionAnswers () {
+      if (this.hasFormalSubmittedQuestionAnswers) {
+        this.$message.warning('作品已正式提交，无法再提交')
+        return
+      }
       if (!this.canFormalSubmitQuestionAnswers) {
         this.$message.warning('请先为至少一道题选择答案文件')
         return
@@ -8674,9 +8705,9 @@ export default {
       }
       try {
         await this.$confirm({
-          title: '确认上传作品',
-          content: '将把本队已选文件的题目答案正式提交。提交后管理员/专家可在「题目答案列表」中查看。是否继续？',
-          okText: '上传作品',
+          title: '确认提交作品',
+          content: '确认后将正式提交本队已选文件的题目答案。提交后无法再提交作品，是否继续？',
+          okText: '确认提交',
           cancelText: '取消'
         })
       } catch (_) {
@@ -8685,12 +8716,17 @@ export default {
       this.questionAnswersSubmitLoading = true
       try {
         await submitCompetitionQuestionAnswers(competitionId, teamId)
-        this.$message.success('作品上传成功')
-        await this.refreshQuestionAnswersBoard()
+        this.$message.success('作品提交成功')
       } catch (e) {
-        this.$message.error('上传作品失败：' + this.getApiErrorMessage(e, '未知错误'))
+        this.$message.error('提交作品失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {
         this.questionAnswersSubmitLoading = false
+      }
+      // 刷新状态放到 loading 结束之后，避免接口慢时按钮一直转圈
+      try {
+        await this.refreshQuestionAnswersBoard()
+      } catch (_) {
+        /* refreshQuestionAnswersBoard 内部已提示 */
       }
     },
 
