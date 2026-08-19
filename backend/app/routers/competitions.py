@@ -1207,34 +1207,38 @@ async def _save_exam_paper_upload(
     return rel, original[:255]
 
 
+def _exam_paper_requires_division_match(competition: Competition) -> bool:
+    """
+    双组别才按本科/高职核对报名组别。
+    单组别试卷槽位是 default，但报名/队伍仍可能记 undergraduate / vocational。
+    """
+    mode = str(getattr(competition, "division_mode", None) or "single").lower()
+    return mode == "dual"
+
+
 def _can_download_exam_paper(
     db: Session, competition: Competition, identity: AltAuthUserRecord, division: str
 ) -> bool:
     role = _effective_alt_role(identity.role)
     cid = competition.id
+    match_division = _exam_paper_requires_division_match(competition)
     if role == "student":
-        row = (
-            db.query(CompetitionEnrollment)
-            .filter(
-                CompetitionEnrollment.competition_id == cid,
-                CompetitionEnrollment.student_id == identity.id,
-                CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
-                CompetitionEnrollment.division == division,
-            )
-            .first()
+        q = db.query(CompetitionEnrollment).filter(
+            CompetitionEnrollment.competition_id == cid,
+            CompetitionEnrollment.student_id == identity.id,
+            CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
         )
-        return row is not None
+        if match_division:
+            q = q.filter(CompetitionEnrollment.division == division)
+        return q.first() is not None
     if role in {"advisor", "teacher"}:
-        team = (
-            db.query(Team)
-            .filter(
-                Team.competition_id == cid,
-                Team.created_by_advisor_id == identity.id,
-                Team.division == division,
-            )
-            .first()
+        q = db.query(Team).filter(
+            Team.competition_id == cid,
+            Team.created_by_advisor_id == identity.id,
         )
-        return team is not None
+        if match_division:
+            q = q.filter(Team.division == division)
+        return q.first() is not None
     return False
 
 
