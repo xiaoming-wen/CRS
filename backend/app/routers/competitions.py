@@ -109,8 +109,10 @@ from app.schemas import (
     TeamQuestionGradeRequest,
     TeamQuestionGradeResponse,
     CompetitionScoreSummaryResponse,
+    CompetitionScoreTeamItem,
     CompetitionScoreRankingItem,
     CompetitionScoreRankingResponse,
+    CompetitionDivision,
     MyCompetitionScoresResponse,
     SubmissionForStudentScoreResponse,
 )
@@ -1817,6 +1819,66 @@ def _load_active_teams_with_members(db: Session, competition_id: int) -> list[Te
         .order_by(Team.created_at.asc(), Team.id.asc())
         .all()
     )
+
+
+def _team_members_label(team: Team, users_by_id: dict[int, AltAuthUserRecord]) -> str:
+    members = sorted(team.members or [], key=lambda x: (0 if x.is_captain else 1, x.id))
+    labels = []
+    for m in members:
+        u = users_by_id.get(m.user_id)
+        name = _display_user_name(u, m.user_id)
+        labels.append(f"{name}（队长）" if m.is_captain else name)
+    return "、".join(labels) if labels else "-"
+
+
+def _filter_teams_by_division_query(teams: list[Team], division: Optional[str]) -> list[Team]:
+    raw = str(division or "").strip().lower()
+    if raw in ("", "default", "all"):
+        return teams
+    if raw not in ("undergraduate", "vocational"):
+        return teams
+    return [t for t in teams if str(getattr(t, "division", None) or "").strip().lower() == raw]
+
+
+def _build_competition_score_team_items(
+    *,
+    teams: list[Team],
+    users_by_id: dict[int, AltAuthUserRecord],
+    grades_by_team: dict[int, CompetitionTeamQuestionGrade],
+) -> List[CompetitionScoreTeamItem]:
+    items: List[CompetitionScoreTeamItem] = []
+    for team in teams:
+        grade = grades_by_team.get(int(team.id))
+        advisor = _team_advisor_display_name(team, users_by_id) or None
+        school = (getattr(team, "school", None) or "").strip() or None
+        team_name = (team.name or "").strip() or f"队伍{team.id}"
+        items.append(
+            CompetitionScoreTeamItem(
+                team_id=int(team.id),
+                team_name=team_name,
+                school=school,
+                advisor_name=advisor,
+                members=_team_members_label(team, users_by_id),
+                score_q1=float(grade.score_q1) if grade else None,
+                score_q2=float(grade.score_q2) if grade else None,
+                score_q3=float(grade.score_q3) if grade else None,
+                score_q4=float(grade.score_q4) if grade else None,
+                score_q5=float(grade.score_q5) if grade else None,
+                total_score=float(grade.total_score) if grade else None,
+                graded=grade is not None,
+                feedback=grade.feedback if grade else None,
+            )
+        )
+    return items
+
+
+def _parse_score_division_param(raw: Optional[str]) -> CompetitionDivision:
+    v = str(raw or "").strip().lower()
+    if v == "undergraduate":
+        return CompetitionDivision.UNDERGRADUATE
+    if v == "vocational":
+        return CompetitionDivision.VOCATIONAL
+    return CompetitionDivision.DEFAULT
 
 
 @router.get("/{competition_id}/teams/export")
@@ -5916,14 +5978,17 @@ def _require_expert_reviewer_for_submission(
 def _require_expert_reviewer_for_team(
     db: Session, competition_id: int, team_id: int, identity: AltAuthUserRecord
 ) -> Team:
-    if _effective_alt_role(identity.role) != "expert":
-        raise HTTPException(status_code=403, detail="Only competition experts may grade submissions")
-    require_permission(identity.role, Permission.REVIEW_SUBMISSIONS)
-    if not _expert_gate_ok(identity):
-        raise HTTPException(status_code=403, detail="Expert account must be verified by admin before grading")
     team = db.query(Team).filter(Team.id == team_id, Team.competition_id == competition_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
+    role = _effective_alt_role(identity.role)
+    if role == "super_admin":
+        return team
+    if role != "expert":
+        raise HTTPException(status_code=403, detail="Only competition experts or super_admin may grade submissions")
+    require_permission(identity.role, Permission.REVIEW_SUBMISSIONS)
+    if not _expert_gate_ok(identity):
+        raise HTTPException(status_code=403, detail="Expert account must be verified by admin before grading")
     if not _is_assigned_expert_for_team(db, competition_id, team_id, identity.id):
         raise HTTPException(status_code=403, detail="You are not assigned to this team")
     return team
@@ -6145,19 +6210,46 @@ async def update_review_grade(
 @router.get("/{competition_id}/scores/summary", response_model=CompetitionScoreSummaryResponse)
 async def score_summary(
     competition_id: int,
+    division: Optional[str] = Query(None, description="default / undergraduate / vocational"),
     db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
-    竞赛评分汇总（聚合统计）。
-    - super_admin：可查看任意竞赛汇总
-    - verified expert：仅可查看被指派的竞赛汇总
+    竞赛评分汇总（按队伍列出：队名、学校、指导老师、队员、五题分、总分）。
+    - super_admin：可查看任意竞赛汇总，并可在前端改分
+    - verified expert：仅可查看被指派的竞赛汇总（只读）
     """
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
     _get_competition(db, competition_id)
     if not _can_view_competition_score_insights(db, competition_id, identity):
         raise HTTPException(status_code=403, detail="Not allowed to view scores for this competition")
 
+    teams = _filter_teams_by_division_query(
+        _load_active_teams_with_members(db, competition_id),
+        division,
+    )
+    all_uids: set[int] = set()
+    for t in teams:
+        all_uids.add(t.captain_id)
+        if t.created_by_advisor_id:
+            all_uids.add(t.created_by_advisor_id)
+        for m in t.members or []:
+            all_uids.add(m.user_id)
+    users_by_id = _alt_users_by_id(adb, all_uids)
+    grade_rows = (
+        db.query(CompetitionTeamQuestionGrade)
+        .filter(CompetitionTeamQuestionGrade.competition_id == competition_id)
+        .all()
+    )
+    grades_by_team = {int(g.team_id): g for g in grade_rows}
+    items = _build_competition_score_team_items(
+        teams=teams,
+        users_by_id=users_by_id,
+        grades_by_team=grades_by_team,
+    )
+
+    graded_scores = [float(it.total_score) for it in items if it.graded and it.total_score is not None]
     submissions_total = (
         db.query(func.count(func.distinct(CompetitionQuestionAnswer.team_id)))
         .filter(
@@ -6167,28 +6259,15 @@ async def score_summary(
         .scalar()
         or 0
     )
-    reviewed_total = (
-        db.query(func.count(CompetitionTeamQuestionGrade.id))
-        .filter(CompetitionTeamQuestionGrade.competition_id == competition_id)
-        .scalar()
-        or 0
-    )
-    agg = (
-        db.query(
-            func.avg(CompetitionTeamQuestionGrade.total_score),
-            func.max(CompetitionTeamQuestionGrade.total_score),
-            func.min(CompetitionTeamQuestionGrade.total_score),
-        )
-        .filter(CompetitionTeamQuestionGrade.competition_id == competition_id)
-        .first()
-    )
-
-    avg_score = float(agg[0]) if agg and agg[0] is not None else None
-    max_score = float(agg[1]) if agg and agg[1] is not None else None
-    min_score = float(agg[2]) if agg and agg[2] is not None else None
+    reviewed_total = len(graded_scores)
+    avg_score = (sum(graded_scores) / reviewed_total) if reviewed_total else None
+    max_score = max(graded_scores) if graded_scores else None
+    min_score = min(graded_scores) if graded_scores else None
 
     return CompetitionScoreSummaryResponse(
         competition_id=competition_id,
+        division=_parse_score_division_param(division),
+        items=items,
         submissions_total=int(submissions_total),
         reviewed_total=int(reviewed_total),
         avg_score=avg_score,
@@ -6201,60 +6280,78 @@ async def score_summary(
 async def score_rankings(
     competition_id: int,
     limit: int = 50,
+    division: Optional[str] = Query(None, description="default / undergraduate / vocational"),
     db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
-    排行榜：个人参赛与组队参赛**同一排名池**，按各参赛者（队伍或个人）的 `best_score` 全局排序。
-    - 先分别聚合「有评分作品」的队伍与个人，再合并排序；**不在**各自赛道单独截断 limit（避免名次被截断错误）。
-    - `limit` 仅作用于合并排序后的最终结果条数。
+    排行榜：按队伍总分排序，含队名、学校、指导老师、队员与五题分。
     """
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
     _get_competition(db, competition_id)
     if not _can_view_competition_score_insights(db, competition_id, identity):
         raise HTTPException(status_code=403, detail="Not allowed to view rankings for this competition")
 
+    teams = _filter_teams_by_division_query(
+        _load_active_teams_with_members(db, competition_id),
+        division,
+    )
+    all_uids: set[int] = set()
+    for t in teams:
+        all_uids.add(t.captain_id)
+        if t.created_by_advisor_id:
+            all_uids.add(t.created_by_advisor_id)
+        for m in t.members or []:
+            all_uids.add(m.user_id)
+    users_by_id = _alt_users_by_id(adb, all_uids)
     grade_rows = (
         db.query(CompetitionTeamQuestionGrade)
         .filter(CompetitionTeamQuestionGrade.competition_id == competition_id)
         .all()
     )
-    pool = []
-    for g in grade_rows:
-        pool.append(
-            (
-                int(g.team_id),
-                float(g.total_score),
-                float(g.score_q1),
-                float(g.score_q2),
-                float(g.score_q3),
-                float(g.score_q4),
-                float(g.score_q5),
-            )
+    grades_by_team = {int(g.team_id): g for g in grade_rows}
+    board = [
+        it
+        for it in _build_competition_score_team_items(
+            teams=teams,
+            users_by_id=users_by_id,
+            grades_by_team=grades_by_team,
         )
-    pool.sort(key=lambda x: (-x[1], x[0]))
+        if it.graded and it.total_score is not None
+    ]
+    board.sort(key=lambda x: (-float(x.total_score), int(x.team_id)))
 
     items: List[CompetitionScoreRankingItem] = []
     rank_val = 1
-    for i, (tid, total, s1, s2, s3, s4, s5) in enumerate(pool):
-        if i > 0 and total < pool[i - 1][1]:
+    for i, row in enumerate(board):
+        total = float(row.total_score)
+        if i > 0 and total < float(board[i - 1].total_score):
             rank_val = i + 1
         items.append(
             CompetitionScoreRankingItem(
                 rank=rank_val,
-                team_id=tid,
+                team_id=row.team_id,
                 student_id=None,
+                team_name=row.team_name,
+                school=row.school,
+                advisor_name=row.advisor_name,
+                members=row.members,
                 best_score=total,
                 reviewed_submissions=1,
-                score_q1=s1,
-                score_q2=s2,
-                score_q3=s3,
-                score_q4=s4,
-                score_q5=s5,
+                score_q1=row.score_q1,
+                score_q2=row.score_q2,
+                score_q3=row.score_q3,
+                score_q4=row.score_q4,
+                score_q5=row.score_q5,
             )
         )
 
-    return CompetitionScoreRankingResponse(competition_id=competition_id, items=items[:limit])
+    return CompetitionScoreRankingResponse(
+        competition_id=competition_id,
+        division=_parse_score_division_param(division),
+        items=items[: max(1, min(int(limit or 50), 500))],
+    )
 
 
 @router.get("/{competition_id}/scores/me", response_model=MyCompetitionScoresResponse)

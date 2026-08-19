@@ -1376,14 +1376,33 @@ class ReviewResponse(BaseModel):
         from_attributes = True
 
 
+class CompetitionScoreTeamItem(BaseModel):
+    """评分汇总/排行榜共用的队伍行：队伍信息 + 五题分 + 总分。"""
+
+    team_id: int
+    team_name: str
+    school: Optional[str] = None
+    advisor_name: Optional[str] = None
+    members: str = Field("", description="队员姓名，队长标注")
+    score_q1: Optional[float] = None
+    score_q2: Optional[float] = None
+    score_q3: Optional[float] = None
+    score_q4: Optional[float] = None
+    score_q5: Optional[float] = None
+    total_score: Optional[float] = None
+    graded: bool = False
+    feedback: Optional[str] = None
+
+
 class CompetitionScoreSummaryResponse(BaseModel):
     competition_id: int
     division: CompetitionDivision = Field(
         CompetitionDivision.DEFAULT,
         description="统计所属学历组别（与 query division 一致）",
     )
-    submissions_total: int
-    reviewed_total: int
+    items: List[CompetitionScoreTeamItem] = Field(default_factory=list)
+    submissions_total: int = 0
+    reviewed_total: int = 0
     avg_score: Optional[float] = None
     max_score: Optional[float] = None
     min_score: Optional[float] = None
@@ -1391,16 +1410,20 @@ class CompetitionScoreSummaryResponse(BaseModel):
 
 class CompetitionScoreRankingItem(BaseModel):
     """
-    排行榜一行：个人与队伍**同一排名池**，按 `best_score` 统一排序后的名次见 `rank`。
+    排行榜一行：按队伍总分排序。
     - `team_id` 非空：组队参赛（以队伍为单位）
-    - `team_id` 为空且 `student_id` 非空：个人参赛（以学生为单位）
+    - `team_id` 为空且 `student_id` 非空：个人参赛（兼容旧字段）
     """
 
     rank: int = Field(..., description="统一排名名次（同分并列同名次，下一名次跳过；仅对已产生评分的参赛者）")
     team_id: Optional[int] = None
     student_id: Optional[int] = None
+    team_name: Optional[str] = None
+    school: Optional[str] = None
+    advisor_name: Optional[str] = None
+    members: Optional[str] = None
     best_score: float
-    reviewed_submissions: int
+    reviewed_submissions: int = 1
     score_q1: Optional[float] = None
     score_q2: Optional[float] = None
     score_q3: Optional[float] = None

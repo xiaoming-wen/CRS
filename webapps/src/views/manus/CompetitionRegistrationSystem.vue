@@ -2269,24 +2269,91 @@
       </div>
     </a-modal>
 
-    <!-- 评分汇总弹窗（表格） -->
+    <!-- 评分汇总弹窗（按队伍；超管可改分） -->
     <a-modal
       v-model="showScoresSummaryModal"
       title="评分汇总"
       :maskClosable="false"
       :footer="null"
-      width="560px"
+      width="95%"
       wrap-class-name="competition-admin-table-modal-wrap"
     >
-      <a-empty v-if="scoresSummary == null" description="暂无评分汇总数据" />
+      <a-empty v-if="!summaryScoreRows.length" description="暂无评分汇总数据" />
       <a-table
         v-else
-        :columns="summaryTableColumns"
-        :data-source="summaryTableData"
-        :pagination="false"
+        :columns="summaryScoreTableColumns"
+        :data-source="summaryScoreRows"
+        :pagination="{ pageSize: 10, showSizeChanger: true }"
         size="small"
         bordered
-      />
+        :scroll="{ x: 1280 }"
+        row-key="team_id"
+      >
+        <template slot="score_q1" slot-scope="text, record">
+          <a-input
+            v-if="canEditSummaryScores"
+            :value="record.edit_q1"
+            placeholder="0～100"
+            style="width: 72px"
+            @change="e => onSummaryScoreInput(record, 1, e && e.target ? e.target.value : '')"
+          />
+          <span v-else>{{ formatQuestionScoreCell(text) }}</span>
+        </template>
+        <template slot="score_q2" slot-scope="text, record">
+          <a-input
+            v-if="canEditSummaryScores"
+            :value="record.edit_q2"
+            placeholder="0～100"
+            style="width: 72px"
+            @change="e => onSummaryScoreInput(record, 2, e && e.target ? e.target.value : '')"
+          />
+          <span v-else>{{ formatQuestionScoreCell(text) }}</span>
+        </template>
+        <template slot="score_q3" slot-scope="text, record">
+          <a-input
+            v-if="canEditSummaryScores"
+            :value="record.edit_q3"
+            placeholder="0～100"
+            style="width: 72px"
+            @change="e => onSummaryScoreInput(record, 3, e && e.target ? e.target.value : '')"
+          />
+          <span v-else>{{ formatQuestionScoreCell(text) }}</span>
+        </template>
+        <template slot="score_q4" slot-scope="text, record">
+          <a-input
+            v-if="canEditSummaryScores"
+            :value="record.edit_q4"
+            placeholder="0～100"
+            style="width: 72px"
+            @change="e => onSummaryScoreInput(record, 4, e && e.target ? e.target.value : '')"
+          />
+          <span v-else>{{ formatQuestionScoreCell(text) }}</span>
+        </template>
+        <template slot="score_q5" slot-scope="text, record">
+          <a-input
+            v-if="canEditSummaryScores"
+            :value="record.edit_q5"
+            placeholder="0～100"
+            style="width: 72px"
+            @change="e => onSummaryScoreInput(record, 5, e && e.target ? e.target.value : '')"
+          />
+          <span v-else>{{ formatQuestionScoreCell(text) }}</span>
+        </template>
+        <template slot="total_score" slot-scope="text, record">
+          <span>{{ canEditSummaryScores ? summaryRowAutoTotal(record) : formatQuestionScoreCell(text) }}</span>
+        </template>
+        <template slot="actions" slot-scope="text, record">
+          <a-button
+            v-if="canEditSummaryScores"
+            type="link"
+            size="small"
+            :loading="!!record.saving"
+            @click="saveSummaryTeamGrade(record)"
+          >
+            保存
+          </a-button>
+        </template>
+      </a-table>
     </a-modal>
 
     <!-- 排行榜弹窗（表格） -->
@@ -2295,7 +2362,7 @@
       title="排行榜"
       :maskClosable="false"
       :footer="null"
-      width="90%"
+      width="95%"
       wrap-class-name="competition-admin-table-modal-wrap"
     >
       <div class="row" style="margin-bottom: 16px">
@@ -2313,6 +2380,7 @@
         :pagination="{ pageSize: 10 }"
         size="small"
         bordered
+        :scroll="{ x: 1200 }"
         row-key="rowIndex"
       />
     </a-modal>
@@ -2936,25 +3004,25 @@ export default {
       summaryLoading: false,
       scoresSummary: null,
       showScoresSummaryModal: false,
+      summaryScoreRows: [],
 
       rankingsLimit: 50,
       rankingsLoading: false,
       scoresRankings: null,
       showScoresRankingsModal: false,
 
-      summaryTableColumns: [
-        { title: '指标', dataIndex: 'label', key: 'label', width: 160 },
-        { title: '数值', dataIndex: 'value', key: 'value' }
-      ],
       rankingsTableColumns: [
         { title: '排名', dataIndex: 'rowIndex', key: 'rowIndex', width: 72 },
-        { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 100 },
-        { title: '第1题', dataIndex: 'score_q1', key: 'score_q1', width: 80 },
-        { title: '第2题', dataIndex: 'score_q2', key: 'score_q2', width: 80 },
-        { title: '第3题', dataIndex: 'score_q3', key: 'score_q3', width: 80 },
-        { title: '第4题', dataIndex: 'score_q4', key: 'score_q4', width: 80 },
-        { title: '第5题', dataIndex: 'score_q5', key: 'score_q5', width: 80 },
-        { title: '总分', dataIndex: 'best_score', key: 'best_score', width: 88 }
+        { title: '队伍名称', dataIndex: 'team_name', key: 'team_name', ellipsis: true, width: 140 },
+        { title: '学校', dataIndex: 'school', key: 'school', ellipsis: true, width: 140 },
+        { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', ellipsis: true, width: 100 },
+        { title: '队员', dataIndex: 'members', key: 'members', ellipsis: true, width: 180 },
+        { title: '第1题', dataIndex: 'score_q1', key: 'score_q1', width: 72 },
+        { title: '第2题', dataIndex: 'score_q2', key: 'score_q2', width: 72 },
+        { title: '第3题', dataIndex: 'score_q3', key: 'score_q3', width: 72 },
+        { title: '第4题', dataIndex: 'score_q4', key: 'score_q4', width: 72 },
+        { title: '第5题', dataIndex: 'score_q5', key: 'score_q5', width: 72 },
+        { title: '总分', dataIndex: 'best_score', key: 'best_score', width: 80 }
       ],
       myScoresTableColumns: [
         { title: '竞赛ID', dataIndex: 'competition_id', key: 'competition_id', width: 80 },
@@ -3945,17 +4013,26 @@ export default {
       if (!c) return '-'
       return this.formatHeroDateRange(c.start_at, c.end_at)
     },
-    summaryTableData () {
-      const s = this.scoresSummary
-      if (!s) return []
-      return [
-        { key: 'competition_id', label: '竞赛ID', value: s.competition_id != null ? s.competition_id : '-' },
-        { key: 'submissions_total', label: '已提交队伍数', value: s.submissions_total != null ? s.submissions_total : '-' },
-        { key: 'reviewed_total', label: '已评队伍数', value: s.reviewed_total != null ? s.reviewed_total : '-' },
-        { key: 'avg_score', label: '平均总分', value: s.avg_score != null ? s.avg_score : '-' },
-        { key: 'max_score', label: '最高总分', value: s.max_score != null ? s.max_score : '-' },
-        { key: 'min_score', label: '最低总分', value: s.min_score != null ? s.min_score : '-' }
+    canEditSummaryScores () {
+      return this.isSuperAdmin
+    },
+    summaryScoreTableColumns () {
+      const cols = [
+        { title: '队伍名称', dataIndex: 'team_name', key: 'team_name', ellipsis: true, width: 140 },
+        { title: '学校', dataIndex: 'school', key: 'school', ellipsis: true, width: 140 },
+        { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', ellipsis: true, width: 100 },
+        { title: '队员', dataIndex: 'members', key: 'members', ellipsis: true, width: 180 },
+        { title: '第1题', dataIndex: 'score_q1', key: 'score_q1', width: 88, scopedSlots: { customRender: 'score_q1' } },
+        { title: '第2题', dataIndex: 'score_q2', key: 'score_q2', width: 88, scopedSlots: { customRender: 'score_q2' } },
+        { title: '第3题', dataIndex: 'score_q3', key: 'score_q3', width: 88, scopedSlots: { customRender: 'score_q3' } },
+        { title: '第4题', dataIndex: 'score_q4', key: 'score_q4', width: 88, scopedSlots: { customRender: 'score_q4' } },
+        { title: '第5题', dataIndex: 'score_q5', key: 'score_q5', width: 88, scopedSlots: { customRender: 'score_q5' } },
+        { title: '总分', dataIndex: 'total_score', key: 'total_score', width: 80, scopedSlots: { customRender: 'total_score' } }
       ]
+      if (this.canEditSummaryScores) {
+        cols.push({ title: '操作', key: 'actions', width: 80, fixed: 'right', scopedSlots: { customRender: 'actions' } })
+      }
+      return cols
     },
     rankingsTableData () {
       const r = this.scoresRankings
@@ -3963,6 +4040,10 @@ export default {
       return (r.items || []).map((item, index) => ({
         rowIndex: item.rank != null ? item.rank : index + 1,
         team_id: item.team_id != null ? item.team_id : '-',
+        team_name: item.team_name || (item.team_id != null ? `队伍${item.team_id}` : '-'),
+        school: item.school || '-',
+        advisor_name: item.advisor_name || '-',
+        members: item.members || '-',
         score_q1: this.formatQuestionScoreCell(item.score_q1),
         score_q2: this.formatQuestionScoreCell(item.score_q2),
         score_q3: this.formatQuestionScoreCell(item.score_q3),
@@ -8131,13 +8212,118 @@ export default {
           this.buildCompetitionDivisionQueryOptions()
         )
         this.scoresSummary = res
+        this.summaryScoreRows = this.buildSummaryScoreRows(res)
         if (openModal) this.showScoresSummaryModal = true
       } catch (e) {
         this.scoresSummary = null
+        this.summaryScoreRows = []
         this.$message.error('获取汇总失败：' + (e && e.message ? e.message : '未知错误'))
         if (openModal) this.showScoresSummaryModal = false
       } finally {
         this.summaryLoading = false
+      }
+    },
+
+    buildSummaryScoreRows (payload) {
+      const list = payload && Array.isArray(payload.items) ? payload.items : []
+      return list.map(item => {
+        const q = n => (item['score_q' + n] != null && item['score_q' + n] !== '' ? String(item['score_q' + n]) : '')
+        return {
+          team_id: item.team_id,
+          team_name: item.team_name || `队伍${item.team_id}`,
+          school: item.school || '-',
+          advisor_name: item.advisor_name || '-',
+          members: item.members || '-',
+          score_q1: item.score_q1,
+          score_q2: item.score_q2,
+          score_q3: item.score_q3,
+          score_q4: item.score_q4,
+          score_q5: item.score_q5,
+          total_score: item.total_score,
+          graded: !!item.graded,
+          feedback: item.feedback || '',
+          edit_q1: q(1),
+          edit_q2: q(2),
+          edit_q3: q(3),
+          edit_q4: q(4),
+          edit_q5: q(5),
+          saving: false
+        }
+      })
+    },
+
+    onSummaryScoreInput (record, questionNo, value) {
+      if (!record) return
+      this.$set(record, 'edit_q' + questionNo, value == null ? '' : String(value))
+    },
+
+    summaryRowAutoTotal (record) {
+      if (!record) return '—'
+      const nums = [1, 2, 3, 4, 5].map(n => parseFloat(record['edit_q' + n]))
+      if (nums.some(v => Number.isNaN(v))) return '—'
+      const sum = nums.reduce((a, b) => a + b, 0)
+      return String(Math.round(sum * 100) / 100)
+    },
+
+    async saveSummaryTeamGrade (record) {
+      if (!this.canEditSummaryScores || !record || !this.activeCompetitionId) return
+      const scores = {}
+      for (const n of [1, 2, 3, 4, 5]) {
+        const parsed = this.parseTeamQuestionScoreInput(record['edit_q' + n], `第${n}题`)
+        if (parsed == null) return
+        scores['score_q' + n] = parsed
+      }
+      const payload = {
+        ...scores,
+        feedback: record.feedback || ''
+      }
+      this.$set(record, 'saving', true)
+      try {
+        let res
+        if (record.graded) {
+          res = await patchTeamQuestionGrade(this.activeCompetitionId, record.team_id, payload)
+        } else {
+          res = await putTeamQuestionGrade(this.activeCompetitionId, record.team_id, payload)
+        }
+        this.$set(record, 'graded', true)
+        this.$set(record, 'score_q1', res && res.score_q1 != null ? res.score_q1 : scores.score_q1)
+        this.$set(record, 'score_q2', res && res.score_q2 != null ? res.score_q2 : scores.score_q2)
+        this.$set(record, 'score_q3', res && res.score_q3 != null ? res.score_q3 : scores.score_q3)
+        this.$set(record, 'score_q4', res && res.score_q4 != null ? res.score_q4 : scores.score_q4)
+        this.$set(record, 'score_q5', res && res.score_q5 != null ? res.score_q5 : scores.score_q5)
+        this.$set(record, 'total_score', res && res.total_score != null ? res.total_score : null)
+        this.$set(record, 'edit_q1', String(record.score_q1))
+        this.$set(record, 'edit_q2', String(record.score_q2))
+        this.$set(record, 'edit_q3', String(record.score_q3))
+        this.$set(record, 'edit_q4', String(record.score_q4))
+        this.$set(record, 'edit_q5', String(record.score_q5))
+        this.$message.success('评分已保存')
+        if (this.showScoresRankingsModal) {
+          void this.refreshRankings()
+        }
+      } catch (e) {
+        const msg = (e && e.message) ? e.message : '未知错误'
+        if (/already graded|already|已评/i.test(msg) && !record.graded) {
+          try {
+            const res = await patchTeamQuestionGrade(this.activeCompetitionId, record.team_id, payload)
+            this.$set(record, 'graded', true)
+            this.$set(record, 'score_q1', res.score_q1)
+            this.$set(record, 'score_q2', res.score_q2)
+            this.$set(record, 'score_q3', res.score_q3)
+            this.$set(record, 'score_q4', res.score_q4)
+            this.$set(record, 'score_q5', res.score_q5)
+            this.$set(record, 'total_score', res.total_score)
+            this.$message.success('评分已更新')
+            if (this.showScoresRankingsModal) void this.refreshRankings()
+            return
+          } catch (e2) {
+            this.$message.error('保存评分失败：' + ((e2 && e2.message) ? e2.message : msg))
+            return
+          }
+        }
+        this.$message.error('保存评分失败：' + msg)
+      } finally {
+        this.$set(record, 'saving', false)
       }
     },
 
@@ -9488,6 +9674,37 @@ export default {
     background: transparent !important;
     color: rgba(255, 255, 255, 0.92) !important;
     border-color: rgba(255, 255, 255, 0.16) !important;
+  }
+
+  /* 固定列（如评分汇总「操作」）默认白底，与弹窗深色底对齐 */
+  .ant-table-fixed,
+  .ant-table-fixed-left,
+  .ant-table-fixed-right,
+  .ant-table-fixed-header,
+  .ant-table-fixed-body,
+  .ant-table-body-outer,
+  .ant-table-scroll .ant-table-header,
+  .ant-table-fixed-left table,
+  .ant-table-fixed-right table {
+    background: transparent !important;
+  }
+
+  .ant-table-fixed-left .ant-table-thead > tr > th,
+  .ant-table-fixed-left .ant-table-tbody > tr > td,
+  .ant-table-fixed-right .ant-table-thead > tr > th,
+  .ant-table-fixed-right .ant-table-tbody > tr > td,
+  .ant-table-fixed .ant-table-thead > tr > th,
+  .ant-table-fixed .ant-table-tbody > tr > td {
+    background: rgba(14, 10, 30, 0.98) !important;
+    color: rgba(255, 255, 255, 0.92) !important;
+    border-color: rgba(255, 255, 255, 0.16) !important;
+  }
+
+  .ant-table-tbody > tr:hover > td,
+  .ant-table-tbody > tr.ant-table-row-hover > td,
+  .ant-table-fixed-right .ant-table-tbody > tr:hover > td,
+  .ant-table-fixed-left .ant-table-tbody > tr:hover > td {
+    background: rgba(255, 255, 255, 0.06) !important;
   }
 
   .ant-table-thead > tr > th {
