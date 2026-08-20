@@ -3861,23 +3861,7 @@ async def update_competition(
                 if logo_changed:
                     paired.logo_path = competition.logo_path
 
-    briefing_meta_keys = (
-        "target_audience",
-        "contact_name",
-        "contact_phone",
-        "location",
-        "environment",
-        "description",
-        "rules_text",
-    )
-    if any(k in update_data for k in briefing_meta_keys):
-        paired_id = getattr(competition, "paired_competition_id", None)
-        if paired_id is not None:
-            paired = db.query(Competition).filter(Competition.id == int(paired_id)).first()
-            if paired is not None:
-                for key in briefing_meta_keys:
-                    if key in update_data:
-                        setattr(paired, key, getattr(competition, key, None))
+    # 简介/规则/联系人等文本字段仅改本场，不再同步到关联初赛/决赛
 
     db.commit()
     for old_path in old_paths_to_delete:

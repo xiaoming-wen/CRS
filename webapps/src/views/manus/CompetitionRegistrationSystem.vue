@@ -2238,7 +2238,7 @@
         <a-alert
           type="info"
           show-icon
-          message="仅提交有变化的文本字段；更换二维码须在下方重新上传图片（未上传则不替换）。图片须为 png/jpeg/gif/webp，且能被识别为二维码。初赛/决赛会同步同一套二维码。"
+          message="仅提交有变化的文本字段（简介/规则/联系人等只改本场，不联动初赛或决赛）。更换二维码须在下方重新上传图片（未上传则不替换）。图片须为 png/jpeg/gif/webp，且能被识别为二维码。初赛/决赛仍会同步同一套二维码与 Logo。"
           style="margin-bottom: 16px"
         />
         <a-form-item label="竞赛ID">
