@@ -3,7 +3,7 @@
     <div class="alt-identity-user-layout">
       <div class="alt-identity-card">
         <div v-if="mode !== 'embedded'" class="brand brand-competition">
-          <div class="title-main">合肥大学AI竞赛报名系统</div>
+          <div class="title-main">2026年安徽省AI大模型创新应用竞赛报名系统</div>
           <div class="sub">
             独立账号登录；与主站 <code>/api/v1/auth</code> 隔离。访问竞赛接口时：已登录主站则优先主站 JWT；仅独立账号时使用第二套 JWT。<code>/api/alt-identity/me</code> 等仅接受第二套令牌。
           </div>

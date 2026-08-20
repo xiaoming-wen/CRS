@@ -9,7 +9,7 @@
       <div class="container">
         <div class="top">
           <div class="header competition-auth-header">
-            <span class="title">合肥大学AI竞赛报名系统</span>
+            <span class="title">2026年安徽省AI大模型创新应用竞赛报名系统</span>
           </div>
         </div>
 
