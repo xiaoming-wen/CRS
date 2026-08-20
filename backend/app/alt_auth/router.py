@@ -26,6 +26,8 @@ from app.alt_auth.payloads import (
     AltAuthProfileResponse,
     AltAuthRegisterPayload,
     AltAuthRegisterResult,
+    AltAuthResetPasswordPayload,
+    AltAuthResetPasswordResult,
     AltAuthSendSmsCodePayload,
     AltAuthSendSmsCodeResult,
 )
@@ -116,9 +118,9 @@ def _consume_sms_code(db: Session, phone: str, purpose: str, code: str) -> None:
 @router.post(
     "/send-sms-code",
     response_model=AltAuthSendSmsCodeResult,
-    summary="发送注册短信验证码",
+    summary="发送短信验证码（注册 / 忘记密码）",
     responses={
-        400: {"description": "手机号无效或发送过于频繁"},
+        400: {"description": "手机号无效、用途不匹配或发送过于频繁"},
         500: {"description": "短信发送失败"},
     },
 )
@@ -136,11 +138,23 @@ async def alt_identity_send_sms_code(
         .filter(AltAuthUserRecord.phone == phone)
         .first()
     )
-    if existing_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="该手机号已被注册",
-        )
+    if purpose == "register":
+        if existing_user is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="该手机号已被注册",
+            )
+    elif purpose == "reset_password":
+        if existing_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="该手机号未注册",
+            )
+        if not bool(getattr(existing_user, "is_active", True)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="账号已停用，请联系管理员",
+            )
 
     now = utc_now_naive()
     latest = (
@@ -190,6 +204,57 @@ async def alt_identity_send_sms_code(
         result.debug_code = code
         result.message = "验证码已发送（调试模式）"
     return result
+
+
+@router.post(
+    "/reset-password",
+    response_model=AltAuthResetPasswordResult,
+    summary="忘记密码：手机号验证码重置密码",
+    responses={
+        400: {"description": "手机号未注册或验证码无效"},
+    },
+)
+async def alt_identity_reset_password(
+    body: AltAuthResetPasswordPayload,
+    db: Session = Depends(get_alt_auth_db),
+):
+    phone = body.phone
+    user = (
+        db.query(AltAuthUserRecord)
+        .filter(AltAuthUserRecord.phone == phone)
+        .first()
+    )
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该手机号未注册",
+        )
+    if not bool(getattr(user, "is_active", True)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="账号已停用，请联系管理员",
+        )
+
+    try:
+        _consume_sms_code(db, phone, "reset_password", body.sms_code)
+        user.hashed_password = hash_password_plain(body.new_password)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.exception("reset password failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="重置密码失败，请稍后重试",
+        ) from e
+
+    return AltAuthResetPasswordResult(
+        ok=True,
+        message="密码已重置，请使用新密码登录",
+        username=user.username,
+    )
 
 
 @router.post(

@@ -48,7 +48,13 @@
                 </a-input>
               </a-form-item>
               <a-form-item>
-                <a-checkbox v-model="rememberMe">自动登录</a-checkbox>
+                <a-button
+                  type="link"
+                  html-type="button"
+                  class="forgot-password-link"
+                  style="height: auto; line-height: 1.5; padding: 0;"
+                  @click.stop.prevent="onForgotPasswordClick"
+                >忘记密码</a-button>
                 <a-button
                   type="link"
                   html-type="button"
@@ -78,19 +84,78 @@
         </div>
       </div>
     </div>
+
+    <a-modal
+      v-model="showForgotPasswordModal"
+      title="忘记密码"
+      :confirmLoading="resetPasswordLoading"
+      okText="重置密码"
+      cancelText="取消"
+      destroy-on-close
+      @ok="handleResetPasswordSubmit"
+      @cancel="closeForgotPasswordModal"
+    >
+      <p class="forgot-password-hint">请使用注册时绑定的手机号收取验证码，并设置新密码。</p>
+      <a-form layout="vertical" class="forgot-password-form">
+        <a-form-item label="手机号" required>
+          <a-input
+            v-model="forgotForm.phone"
+            size="large"
+            maxlength="11"
+            placeholder="请输入注册手机号"
+            autocomplete="tel"
+          />
+        </a-form-item>
+        <a-form-item label="短信验证码" required>
+          <div class="forgot-password-sms-row">
+            <a-input
+              v-model="forgotForm.sms_code"
+              size="large"
+              maxlength="8"
+              placeholder="请输入验证码"
+              autocomplete="one-time-code"
+            />
+            <a-button
+              size="large"
+              :loading="forgotSmsSending"
+              :disabled="forgotSmsCooldown > 0 || forgotSmsSending"
+              @click="handleForgotSendSms"
+            >
+              {{ forgotSmsCooldown > 0 ? `${forgotSmsCooldown}s` : '获取验证码' }}
+            </a-button>
+          </div>
+        </a-form-item>
+        <a-form-item label="新密码" required>
+          <a-input
+            v-model="forgotForm.new_password"
+            size="large"
+            type="password"
+            placeholder="至少 6 位"
+            autocomplete="new-password"
+          />
+        </a-form-item>
+        <a-form-item label="确认新密码" required>
+          <a-input
+            v-model="forgotForm.confirm_password"
+            size="large"
+            type="password"
+            placeholder="再次输入新密码"
+            autocomplete="new-password"
+          />
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
 <script>
 import {
   altIdentitySession,
+  altIdentitySendSmsCode,
+  altIdentityResetPassword,
   saveAltSession,
   clearAltIdentityStorage,
   clearAltLoginRemember,
-  saveAltLoginRemember,
-  isAltLoginAutoEnabled,
-  getAltLoginRememberUsername,
-  getAltLoginRememberPassword,
   markAltLoginSkipAutoOnce,
   consumeAltLoginSkipAutoOnce,
   fetchAltIdentityMe,
@@ -106,6 +171,16 @@ function validateUsername (raw) {
   return { ok: true, value: s }
 }
 
+function validateCnMobile (raw) {
+  let s = String(raw || '').trim().replace(/\s|-/g, '')
+  if (s.startsWith('+86')) s = s.slice(3)
+  if (s.startsWith('86') && s.length === 13) s = s.slice(2)
+  if (!/^1[3-9]\d{9}$/.test(s)) {
+    return { ok: false, msg: '请输入正确的11位手机号' }
+  }
+  return { ok: true, value: s }
+}
+
 export default {
   name: 'ManuAltIdentityPanel',
   props: {
@@ -116,48 +191,47 @@ export default {
   },
   data () {
     return {
-      rememberMe: false,
       loginLoading: false,
       autoLoginTried: false,
       loginForm: {
         username: '',
         password: ''
       },
-      altProfile: {}
+      altProfile: {},
+      showForgotPasswordModal: false,
+      resetPasswordLoading: false,
+      forgotSmsSending: false,
+      forgotSmsCooldown: 0,
+      forgotSmsTimer: null,
+      forgotForm: {
+        phone: '',
+        sms_code: '',
+        new_password: '',
+        confirm_password: ''
+      }
     }
   },
   computed: {
     altLoggedIn () {
-      return !!getStoredAltToken()
+      return !!(this.altProfile && (this.altProfile.username || this.altProfile.role))
     },
     profileDisplayName () {
-      const u = this.altProfile.username
-      const n = this.altProfile.full_name
+      const p = this.altProfile || {}
+      const u = p.username
+      const n = p.full_name
       if (u && n) return `${u}（${n}）`
-      return u || n || '-'
+      return u || n || '用户'
     }
   },
   mounted () {
-    this.restoreRememberedAccount()
+    clearAltLoginRemember()
     this.refreshProfile()
-    void this.tryAutoLoginOnMount()
+    void this.tryResumeSessionOnMount()
+  },
+  beforeDestroy () {
+    this.clearForgotSmsTimer()
   },
   methods: {
-    restoreRememberedAccount () {
-      const remembered = getAltLoginRememberUsername()
-      const auto = isAltLoginAutoEnabled()
-      if (remembered) {
-        this.loginForm.username = remembered
-      }
-      if (auto) {
-        this.rememberMe = true
-        const secret = getAltLoginRememberPassword()
-        if (secret && !this.loginForm.password) {
-          this.loginForm.password = secret
-        }
-      }
-    },
-
     refreshProfile () {
       try {
         const raw =
@@ -169,39 +243,26 @@ export default {
       }
     },
 
-    async tryAutoLoginOnMount () {
+    /** 仅恢复已有令牌会话；不再用记住的账号密码静默登录 */
+    async tryResumeSessionOnMount () {
       if (this.autoLoginTried) return
       this.autoLoginTried = true
       if (consumeAltLoginSkipAutoOnce()) return
-      if (!isAltLoginAutoEnabled()) return
-
-      // 已有持久化令牌：校验后直接进入
-      if (getStoredAltToken()) {
-        try {
-          const me = await fetchAltIdentityMe()
-          applyAltIdentityMeToStorage(me)
-          this.refreshProfile()
-          this.$emit('session-changed')
-          return
-        } catch (e) {
-          clearAltIdentityStorage()
-        }
+      if (!getStoredAltToken()) return
+      try {
+        const me = await fetchAltIdentityMe()
+        applyAltIdentityMeToStorage(me)
+        this.refreshProfile()
+        this.$emit('session-changed')
+      } catch (e) {
+        clearAltIdentityStorage()
       }
-
-      // 无令牌：用当时勾选自动登录保存的账号密码静默登录
-      const username = getAltLoginRememberUsername()
-      const password = getAltLoginRememberPassword()
-      if (!username || !password) return
-      this.loginForm.username = username
-      this.loginForm.password = password
-      this.rememberMe = true
-      await this.handleAltLogin({ silent: true })
     },
 
     handleAltLogout () {
       markAltLoginSkipAutoOnce()
       clearAltIdentityStorage()
-      // 保留「自动登录」凭据；下次刷新仍可自动登回（本次已跳过）
+      clearAltLoginRemember()
       this.refreshProfile()
       this.$message.success('已退出独立账号')
       this.$emit('session-changed')
@@ -230,23 +291,133 @@ export default {
       this.$router.push({ name: 'ManuVideoCompetitionRegister' }).catch(() => {})
     },
 
-    async handleAltLogin (options = {}) {
-      const silent = !!(options && options.silent)
+    onForgotPasswordClick () {
+      this.resetForgotForm()
+      this.showForgotPasswordModal = true
+    },
+
+    resetForgotForm () {
+      this.clearForgotSmsTimer()
+      this.forgotSmsCooldown = 0
+      this.forgotSmsSending = false
+      this.resetPasswordLoading = false
+      this.forgotForm = {
+        phone: '',
+        sms_code: '',
+        new_password: '',
+        confirm_password: ''
+      }
+    },
+
+    closeForgotPasswordModal () {
+      this.showForgotPasswordModal = false
+      this.resetForgotForm()
+    },
+
+    clearForgotSmsTimer () {
+      if (this.forgotSmsTimer) {
+        clearInterval(this.forgotSmsTimer)
+        this.forgotSmsTimer = null
+      }
+    },
+
+    startForgotSmsCooldown (seconds) {
+      const sec = Math.max(1, Number(seconds) || 60)
+      this.clearForgotSmsTimer()
+      this.forgotSmsCooldown = sec
+      this.forgotSmsTimer = setInterval(() => {
+        if (this.forgotSmsCooldown <= 1) {
+          this.forgotSmsCooldown = 0
+          this.clearForgotSmsTimer()
+          return
+        }
+        this.forgotSmsCooldown -= 1
+      }, 1000)
+    },
+
+    async handleForgotSendSms () {
+      if (this.forgotSmsSending || this.forgotSmsCooldown > 0) return
+      const phoneCheck = validateCnMobile(this.forgotForm.phone)
+      if (!phoneCheck.ok) {
+        this.$message.warning(phoneCheck.msg)
+        return
+      }
+      this.forgotForm.phone = phoneCheck.value
+      this.forgotSmsSending = true
+      try {
+        const res = await altIdentitySendSmsCode({
+          phone: phoneCheck.value,
+          purpose: 'reset_password'
+        })
+        const cooldown = (res && res.cooldown_seconds != null) ? Number(res.cooldown_seconds) : 60
+        this.startForgotSmsCooldown(cooldown)
+        if (res && res.debug_code) {
+          this.forgotForm.sms_code = String(res.debug_code)
+          this.$message.success(`验证码已发送（调试：${res.debug_code}）`)
+        } else {
+          this.$message.success((res && res.message) || '验证码已发送')
+        }
+      } catch (e) {
+        this.$message.error((e && e.message) ? e.message : '发送失败')
+      } finally {
+        this.forgotSmsSending = false
+      }
+    },
+
+    async handleResetPasswordSubmit () {
+      const phoneCheck = validateCnMobile(this.forgotForm.phone)
+      if (!phoneCheck.ok) {
+        this.$message.warning(phoneCheck.msg)
+        return Promise.reject(new Error(phoneCheck.msg))
+      }
+      const code = String(this.forgotForm.sms_code || '').trim()
+      if (!code || !/^\d{4,8}$/.test(code)) {
+        this.$message.warning('请输入正确的短信验证码')
+        return Promise.reject(new Error('invalid sms'))
+      }
+      const pwd = String(this.forgotForm.new_password || '')
+      const confirm = String(this.forgotForm.confirm_password || '')
+      if (!pwd || pwd.length < 6) {
+        this.$message.warning('新密码至少 6 位')
+        return Promise.reject(new Error('short password'))
+      }
+      if (pwd !== confirm) {
+        this.$message.warning('两次输入的新密码不一致')
+        return Promise.reject(new Error('mismatch'))
+      }
+
+      this.resetPasswordLoading = true
+      try {
+        const res = await altIdentityResetPassword({
+          phone: phoneCheck.value,
+          sms_code: code,
+          new_password: pwd
+        })
+        const uname = res && res.username ? String(res.username) : ''
+        this.$message.success((res && res.message) || '密码已重置，请使用新密码登录')
+        if (uname) this.loginForm.username = uname
+        this.loginForm.password = ''
+        this.closeForgotPasswordModal()
+      } catch (e) {
+        this.$message.error((e && e.message) ? e.message : '重置失败')
+        return Promise.reject(e)
+      } finally {
+        this.resetPasswordLoading = false
+      }
+    },
+
+    async handleAltLogin () {
       const u = validateUsername(this.loginForm.username)
       if (!u.ok) {
-        if (!silent) this.$message.warning(u.msg)
+        this.$message.warning(u.msg)
         return
       }
       if (!this.loginForm.password) {
-        if (!silent) this.$message.warning('请输入密码')
+        this.$message.warning('请输入密码')
         return
       }
 
-      if (this.rememberMe) {
-        saveAltLoginRemember(u.value, this.loginForm.password)
-      } else {
-        clearAltLoginRemember()
-      }
+      clearAltLoginRemember()
 
       this.loginLoading = true
       try {
@@ -255,7 +426,8 @@ export default {
           password: this.loginForm.password
         })
         if (res && res.access_token) {
-          saveAltSession(res, { username: u.value }, { persist: !!this.rememberMe })
+          // 登录成功后持久化令牌，刷新页面可保持登录（不再保存明文密码）
+          saveAltSession(res, { username: u.value }, { persist: true })
           try {
             const me = await fetchAltIdentityMe()
             applyAltIdentityMeToStorage(me)
@@ -263,20 +435,13 @@ export default {
             console.warn('[ManuAltIdentityPanel] sync /me after login failed:', syncErr)
           }
           this.refreshProfile()
-          if (!silent) this.$message.success('登录成功')
+          this.$message.success('登录成功')
           this.$emit('session-changed', res)
-        } else if (!silent) {
+        } else {
           this.$message.error('登录失败：未返回令牌')
         }
       } catch (e) {
-        if (silent) {
-          // 自动登录失败：清掉无效凭据，避免反复失败
-          clearAltLoginRemember()
-          this.rememberMe = false
-          this.loginForm.password = ''
-        } else {
-          this.$message.warning(this.formatAltLoginError(e))
-        }
+        this.$message.warning(this.formatAltLoginError(e))
       } finally {
         this.loginLoading = false
       }
@@ -338,12 +503,34 @@ export default {
   margin-top: 8px;
 }
 
+.forgot-password-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.65);
+  line-height: 1.5;
+}
+
+.forgot-password-sms-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+
+  .ant-input {
+    flex: 1;
+  }
+
+  .ant-btn {
+    flex-shrink: 0;
+  }
+}
+
 .user-layout-login {
   label {
     font-size: 14px;
   }
 
-  .register-link {
+  .register-link,
+  .forgot-password-link {
     font-size: 14px;
     color: #1890ff !important;
     text-decoration: none;

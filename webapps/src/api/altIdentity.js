@@ -53,12 +53,26 @@ export async function altIdentityRegister (body) {
 }
 
 /**
- * 发送注册短信验证码 POST /api/alt-identity/send-sms-code
- * body：{ phone, purpose?: 'register' }
+ * 发送短信验证码 POST /api/alt-identity/send-sms-code
+ * body：{ phone, purpose?: 'register' | 'reset_password' }
  */
 export async function altIdentitySendSmsCode (body) {
   try {
     return await altClient.post('alt-identity/send-sms-code', body || {}, {
+      headers: { 'Content-Type': 'application/json' }
+    })
+  } catch (e) {
+    throw unwrapError(e)
+  }
+}
+
+/**
+ * 忘记密码重置 POST /api/alt-identity/reset-password
+ * body：{ phone, sms_code, new_password }
+ */
+export async function altIdentityResetPassword (body) {
+  try {
+    return await altClient.post('alt-identity/reset-password', body || {}, {
       headers: { 'Content-Type': 'application/json' }
     })
   } catch (e) {

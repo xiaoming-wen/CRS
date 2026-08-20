@@ -25,7 +25,10 @@ def normalize_cn_mobile(raw: str) -> str:
 
 class AltAuthSendSmsCodePayload(BaseModel):
     phone: str = Field(..., min_length=11, max_length=20, description="中国大陆手机号")
-    purpose: str = Field("register", description="用途：目前支持 register")
+    purpose: str = Field(
+        "register",
+        description="用途：register=注册；reset_password=忘记密码重置",
+    )
 
     @field_validator("phone")
     @classmethod
@@ -39,8 +42,8 @@ class AltAuthSendSmsCodePayload(BaseModel):
     @classmethod
     def purpose_allowed(cls, v: str) -> str:
         s = (v or "register").strip().lower() or "register"
-        if s != "register":
-            raise ValueError("purpose 仅支持 register")
+        if s not in ("register", "reset_password"):
+            raise ValueError("purpose 仅支持 register / reset_password")
         return s
 
 
@@ -50,6 +53,43 @@ class AltAuthSendSmsCodeResult(BaseModel):
     cooldown_seconds: int = 60
     # 仅 ALIYUN_SMS_DEBUG=true 时可能返回，便于联调
     debug_code: Optional[str] = None
+
+
+class AltAuthResetPasswordPayload(BaseModel):
+    """忘记密码：手机号 + 短信验证码 + 新密码。"""
+
+    phone: str = Field(..., min_length=11, max_length=20)
+    sms_code: str = Field(..., min_length=4, max_length=8, description="短信验证码")
+    new_password: str = Field(..., min_length=6, max_length=128, description="新密码")
+
+    @field_validator("phone")
+    @classmethod
+    def phone_cn_mobile(cls, v: str) -> str:
+        s = normalize_cn_mobile(v)
+        if not _CN_MOBILE_RE.match(s):
+            raise ValueError("请输入正确的11位手机号")
+        return s
+
+    @field_validator("sms_code")
+    @classmethod
+    def sms_code_digits(cls, v: str) -> str:
+        s = str(v or "").strip()
+        if not s or not s.isdigit():
+            raise ValueError("验证码格式不正确")
+        return s
+
+    @field_validator("new_password")
+    @classmethod
+    def password_non_empty(cls, v: str) -> str:
+        if v is None or not str(v).strip():
+            raise ValueError("新密码不能为空")
+        return str(v)
+
+
+class AltAuthResetPasswordResult(BaseModel):
+    ok: bool = True
+    message: str = "密码已重置，请使用新密码登录"
+    username: Optional[str] = None
 
 
 class AltAuthRegisterPayload(BaseModel):

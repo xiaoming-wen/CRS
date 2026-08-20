@@ -65,6 +65,20 @@ async def startup_event():
         pass
 
     for ts in (
+        "ALTER TABLE competitions ADD COLUMN target_audience TEXT",
+        "ALTER TABLE competitions ADD COLUMN contact_name VARCHAR(100)",
+        "ALTER TABLE competitions ADD COLUMN contact_phone VARCHAR(100)",
+        "ALTER TABLE competitions ADD COLUMN location VARCHAR(500)",
+        "ALTER TABLE competitions ADD COLUMN environment TEXT",
+    ):
+        try:
+            with user_engine.connect() as conn:
+                conn.execute(text(ts))
+                conn.commit()
+        except Exception:
+            pass
+
+    for ts in (
         "ALTER TABLE competitions ADD COLUMN exam_paper_path VARCHAR(512)",
         "ALTER TABLE competitions ADD COLUMN exam_paper_filename VARCHAR(255)",
         "ALTER TABLE competitions ADD COLUMN exam_paper_path_undergraduate VARCHAR(512)",

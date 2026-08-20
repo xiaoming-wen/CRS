@@ -52,6 +52,13 @@ class Competition(Base):
     description = Column(Text)
     rules_text = Column(Text)
 
+    # 参赛对象、联系人、地点与环境（详情 briefing 展示）
+    target_audience = Column(Text, nullable=True, comment="参赛对象")
+    contact_name = Column(String(100), nullable=True, comment="竞赛联系人")
+    contact_phone = Column(String(100), nullable=True, comment="联系方式")
+    location = Column(String(500), nullable=True, comment="竞赛地点")
+    environment = Column(Text, nullable=True, comment="竞赛环境")
+
     status = Column(String(30), default=CompetitionStatus.DRAFT, nullable=False)
     start_at = Column(DateTime, nullable=True)
     end_at = Column(DateTime, nullable=True)

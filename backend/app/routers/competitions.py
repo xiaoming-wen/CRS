@@ -648,6 +648,11 @@ def _competition_create_from_form(form) -> CompetitionCreate:
         "name": str(name_raw).strip(),
         "description": _form_optional_str(form.get("description")),
         "rules_text": _form_optional_str(form.get("rules_text")),
+        "target_audience": _form_optional_str(form.get("target_audience")),
+        "contact_name": _form_optional_str(form.get("contact_name")),
+        "contact_phone": _form_optional_str(form.get("contact_phone")),
+        "location": _form_optional_str(form.get("location")),
+        "environment": _form_optional_str(form.get("environment")),
         "start_at": _form_optional_str(form.get("start_at")),
         "end_at": _form_optional_str(form.get("end_at")),
         "allow_individual": _form_bool(form.get("allow_individual"), True),
@@ -682,7 +687,19 @@ def _competition_update_from_form(form) -> CompetitionUpdate:
         if name_raw is None or not str(name_raw).strip():
             raise HTTPException(status_code=400, detail="name cannot be empty")
         payload["name"] = str(name_raw).strip()
-    for key in ("description", "rules_text", "start_at", "end_at", "final_start_at", "final_end_at"):
+    for key in (
+        "description",
+        "rules_text",
+        "target_audience",
+        "contact_name",
+        "contact_phone",
+        "location",
+        "environment",
+        "start_at",
+        "end_at",
+        "final_start_at",
+        "final_end_at",
+    ):
         if key in form:
             payload[key] = _form_optional_str(form.get(key))
     if "allow_individual" in form:
@@ -2129,6 +2146,11 @@ async def create_competition(
             name=f"{series_name}-初赛",
             description=competition.description,
             rules_text=competition.rules_text,
+            target_audience=competition.target_audience,
+            contact_name=competition.contact_name,
+            contact_phone=competition.contact_phone,
+            location=competition.location,
+            environment=competition.environment,
             status="draft",
             start_at=competition.start_at,
             end_at=competition.end_at,
@@ -2149,6 +2171,11 @@ async def create_competition(
             name=f"{series_name}-决赛",
             description=competition.description,
             rules_text=competition.rules_text,
+            target_audience=competition.target_audience,
+            contact_name=competition.contact_name,
+            contact_phone=competition.contact_phone,
+            location=competition.location,
+            environment=competition.environment,
             status="draft",
             start_at=competition.final_start_at,
             end_at=competition.final_end_at,
@@ -2182,6 +2209,11 @@ async def create_competition(
         name=series_name,
         description=competition.description,
         rules_text=competition.rules_text,
+        target_audience=competition.target_audience,
+        contact_name=competition.contact_name,
+        contact_phone=competition.contact_phone,
+        location=competition.location,
+        environment=competition.environment,
         status="draft",
         start_at=competition.start_at,
         end_at=competition.end_at,
@@ -3743,6 +3775,11 @@ async def update_competition(
                     name=f"{base_name}-决赛",
                     description=competition.description,
                     rules_text=competition.rules_text,
+                    target_audience=getattr(competition, "target_audience", None),
+                    contact_name=getattr(competition, "contact_name", None),
+                    contact_phone=getattr(competition, "contact_phone", None),
+                    location=getattr(competition, "location", None),
+                    environment=getattr(competition, "environment", None),
                     status=competition.status or "draft",
                     start_at=final_start_at,
                     end_at=final_end_at,
@@ -3823,6 +3860,24 @@ async def update_competition(
                     paired.qr_code_path_vocational = competition.qr_code_path_vocational
                 if logo_changed:
                     paired.logo_path = competition.logo_path
+
+    briefing_meta_keys = (
+        "target_audience",
+        "contact_name",
+        "contact_phone",
+        "location",
+        "environment",
+        "description",
+        "rules_text",
+    )
+    if any(k in update_data for k in briefing_meta_keys):
+        paired_id = getattr(competition, "paired_competition_id", None)
+        if paired_id is not None:
+            paired = db.query(Competition).filter(Competition.id == int(paired_id)).first()
+            if paired is not None:
+                for key in briefing_meta_keys:
+                    if key in update_data:
+                        setattr(paired, key, getattr(competition, key, None))
 
     db.commit()
     for old_path in old_paths_to_delete:

@@ -478,6 +478,11 @@ class CompetitionBase(BaseModel):
     name: str
     description: Optional[str] = None
     rules_text: Optional[str] = None
+    target_audience: Optional[str] = Field(None, description="参赛对象")
+    contact_name: Optional[str] = Field(None, description="竞赛联系人")
+    contact_phone: Optional[str] = Field(None, description="联系方式")
+    location: Optional[str] = Field(None, description="竞赛地点")
+    environment: Optional[str] = Field(None, description="竞赛环境")
     start_at: OptionalUtcDatetime = None
     end_at: OptionalUtcDatetime = None
     allow_individual: bool = False
@@ -500,6 +505,11 @@ class CompetitionUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     rules_text: Optional[str] = None
+    target_audience: Optional[str] = Field(None, description="参赛对象")
+    contact_name: Optional[str] = Field(None, description="竞赛联系人")
+    contact_phone: Optional[str] = Field(None, description="联系方式")
+    location: Optional[str] = Field(None, description="竞赛地点")
+    environment: Optional[str] = Field(None, description="竞赛环境")
     start_at: Optional[datetime] = None
     end_at: Optional[datetime] = None
     allow_individual: Optional[bool] = None

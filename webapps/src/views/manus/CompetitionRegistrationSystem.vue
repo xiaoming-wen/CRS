@@ -236,7 +236,7 @@
                     <div v-else class="competition-briefing__qr-placeholder">暂无二维码</div>
 
                     <div v-if="studentBriefingContactLine" class="competition-briefing__contact">
-                      电话联系方式：<span class="competition-briefing__contact-num">{{ studentBriefingContactLine }}</span>
+                      联系人 / 方式：<span class="competition-briefing__contact-num">{{ studentBriefingContactLine }}</span>
                     </div>
                     <div v-else class="competition-briefing__contact muted-soft">
                       联系电话请见群内公告或主办方通知。
@@ -260,10 +260,13 @@
             <a-descriptions-item label="竞赛名称">{{ activeCompetition.name }}</a-descriptions-item>
             <a-descriptions-item label="简介" :span="2">{{ activeCompetition.description || '-' }}</a-descriptions-item>
             <a-descriptions-item label="规则说明" :span="2">{{ activeCompetition.rules_text || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="参赛对象" :span="2">{{ activeCompetition.target_audience || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="联系人">{{ activeCompetition.contact_name || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="联系方式">{{ activeCompetition.contact_phone || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="竞赛地点" :span="2">{{ activeCompetition.location || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="竞赛环境" :span="2">{{ activeCompetition.environment || '-' }}</a-descriptions-item>
             <a-descriptions-item label="开始时间">{{ formatDateTime(activeCompetition.start_at) }}</a-descriptions-item>
             <a-descriptions-item label="结束时间">{{ formatDateTime(activeCompetition.end_at) }}</a-descriptions-item>
-            <a-descriptions-item label="允许个人参赛">{{ activeCompetition.allow_individual ? '是' : '否' }}</a-descriptions-item>
-            <a-descriptions-item label="允许团队参赛">{{ activeCompetition.allow_team ? '是' : '否' }}</a-descriptions-item>
             <a-descriptions-item label="状态">{{ getStatusText(activeCompetition.status) }}</a-descriptions-item>
             <a-descriptions-item label="创建时间">{{ formatDateTime(activeCompetition.created_at) }}</a-descriptions-item>
             <a-descriptions-item label="更新时间" :span="2">{{ formatDateTime(activeCompetition.updated_at) }}</a-descriptions-item>
@@ -1978,6 +1981,13 @@
         <a-form-item label="规则说明" required>
           <a-textarea v-model="createCompetitionForm.rules_text" :rows="4" placeholder="必填" />
         </a-form-item>
+        <a-form-item label="参赛对象" extra="选填；将展示在竞赛详情「参赛对象」区块。">
+          <a-textarea
+            v-model="createCompetitionForm.target_audience"
+            :rows="3"
+            placeholder="如：全日制在校本科生、高职学生等"
+          />
+        </a-form-item>
         <a-form-item
           label="竞赛 Logo"
           extra="可选；请上传透明底 Logo（推荐 PNG），以免在深色详情页出现白底方块。亦支持 jpeg / gif / webp，单张不超过 5MB。"
@@ -2063,6 +2073,22 @@
             </a-upload>
           </a-form-item>
         </template>
+        <a-form-item label="竞赛联系人" extra="选填；展示在竞赛详情二维码下方。">
+          <a-input v-model="createCompetitionForm.contact_name" placeholder="如：张老师" />
+        </a-form-item>
+        <a-form-item label="联系方式" extra="选填；电话/微信/邮箱等。">
+          <a-input v-model="createCompetitionForm.contact_phone" placeholder="如：138xxxx 或微信 xxx" />
+        </a-form-item>
+        <a-form-item label="竞赛地点">
+          <a-input v-model="createCompetitionForm.location" placeholder="如：合肥大学某某楼 / 线上" />
+        </a-form-item>
+        <a-form-item label="竞赛环境" extra="选填；软硬件环境、网络等要求说明。">
+          <a-textarea
+            v-model="createCompetitionForm.environment"
+            :rows="3"
+            placeholder="如：需自备笔记本电脑，现场提供 Wi-Fi 等"
+          />
+        </a-form-item>
         <template v-if="createCompetitionForm.stage_mode === 'prelim_final'">
           <a-form-item label="初赛开始时间">
             <a-input type="datetime-local" v-model="createCompetitionForm.start_at" />
@@ -2133,6 +2159,14 @@
 
         <a-form-item label="规则说明">
           <a-textarea v-model="editCompetitionForm.rules_text" :rows="4" placeholder="修改后保存；与当前一致则不提交" />
+        </a-form-item>
+
+        <a-form-item label="参赛对象">
+          <a-textarea
+            v-model="editCompetitionForm.target_audience"
+            :rows="3"
+            placeholder="修改后保存；与当前一致则不提交"
+          />
         </a-form-item>
 
         <a-form-item label="当前 Logo">
@@ -2244,6 +2278,23 @@
             </a-upload>
           </a-form-item>
         </template>
+
+        <a-form-item label="竞赛联系人">
+          <a-input v-model="editCompetitionForm.contact_name" placeholder="修改后保存；与当前一致则不提交" />
+        </a-form-item>
+        <a-form-item label="联系方式">
+          <a-input v-model="editCompetitionForm.contact_phone" placeholder="修改后保存；与当前一致则不提交" />
+        </a-form-item>
+        <a-form-item label="竞赛地点">
+          <a-input v-model="editCompetitionForm.location" placeholder="修改后保存；与当前一致则不提交" />
+        </a-form-item>
+        <a-form-item label="竞赛环境">
+          <a-textarea
+            v-model="editCompetitionForm.environment"
+            :rows="3"
+            placeholder="修改后保存；与当前一致则不提交"
+          />
+        </a-form-item>
 
         <!-- 已有初赛：只改本场初赛时间 -->
         <template v-if="editCompetitionOriginalStage === 'preliminary'">
@@ -2900,6 +2951,11 @@ export default {
         name: '',
         description: '',
         rules_text: '',
+        target_audience: '',
+        contact_name: '',
+        contact_phone: '',
+        location: '',
+        environment: '',
         start_at: '',
         end_at: '',
         final_start_at: '',
@@ -2946,6 +3002,11 @@ export default {
         name: '',
         description: '',
         rules_text: '',
+        target_audience: '',
+        contact_name: '',
+        contact_phone: '',
+        location: '',
+        environment: '',
         start_at: '',
         end_at: '',
         final_start_at: '',
@@ -3812,30 +3873,42 @@ export default {
       return `${parts.join('；')}。具体资格条件见赛事要求。`
     },
     studentBriefingBlocks () {
-      const segs = this.studentBriefingRulesSegments
+      const c = this.activeCompetition || {}
+      const audience = String(c.target_audience || '').trim()
       const modeLine = this.participantModesSummary
-      if (segs.length >= 2) {
-        return [
-          { num: '01', title: '参赛对象', body: segs[0] },
-          { num: '02', title: '规则说明', body: segs.slice(1).join('\n\n') }
-        ]
-      }
-      if (segs.length === 1) {
-        return [
-          { num: '01', title: '参赛对象', body: modeLine },
-          { num: '02', title: '规则说明', body: segs[0] }
-        ]
-      }
-      return [
-        { num: '01', title: '参赛对象', body: modeLine },
-        { num: '02', title: '规则说明', body: '作品格式、提交方式及截止时间等请以上方简介与主办方后续通知为准。' }
+      const rules = String(c.rules_text || '').trim()
+      const location = String(c.location || '').trim()
+      const environment = String(c.environment || '').trim()
+      const blocks = [
+        {
+          num: '01',
+          title: '参赛对象',
+          body: audience || modeLine
+        },
+        {
+          num: '02',
+          title: '规则说明',
+          body: rules || '作品格式、提交方式及截止时间等请以上方简介与主办方后续通知为准。'
+        }
       ]
+      if (location) {
+        blocks.push({ num: String(blocks.length + 1).padStart(2, '0'), title: '竞赛地点', body: location })
+      }
+      if (environment) {
+        blocks.push({ num: String(blocks.length + 1).padStart(2, '0'), title: '竞赛环境', body: environment })
+      }
+      return blocks
     },
     studentBriefingContactLine () {
       const c = this.activeCompetition || {}
-      const p = c.contact_phone || c.contact_tel || c.phone || c.hotline || c.contact
-      if (p == null || String(p).trim() === '') return ''
-      return String(p).trim()
+      const name = c.contact_name != null ? String(c.contact_name).trim() : ''
+      const phone = c.contact_phone != null ? String(c.contact_phone).trim() : ''
+      if (name && phone) return `${name} ${phone}`
+      if (phone) return phone
+      if (name) return name
+      const legacy = c.contact_tel || c.phone || c.hotline || c.contact
+      if (legacy == null || String(legacy).trim() === '') return ''
+      return String(legacy).trim()
     },
     divisionPickCompetitionName () {
       const c = this.divisionPickTarget || this.activeCompetition
@@ -7280,6 +7353,11 @@ export default {
         name: '',
         description: '',
         rules_text: '',
+        target_audience: '',
+        contact_name: '',
+        contact_phone: '',
+        location: '',
+        environment: '',
         start_at: '',
         end_at: '',
         final_start_at: '',
@@ -7463,6 +7541,16 @@ export default {
         fd.append('name', name)
         fd.append('description', description)
         fd.append('rules_text', rulesText)
+        const targetAudience = (this.createCompetitionForm.target_audience || '').trim()
+        const contactName = (this.createCompetitionForm.contact_name || '').trim()
+        const contactPhone = (this.createCompetitionForm.contact_phone || '').trim()
+        const location = (this.createCompetitionForm.location || '').trim()
+        const environment = (this.createCompetitionForm.environment || '').trim()
+        if (targetAudience) fd.append('target_audience', targetAudience)
+        if (contactName) fd.append('contact_name', contactName)
+        if (contactPhone) fd.append('contact_phone', contactPhone)
+        if (location) fd.append('location', location)
+        if (environment) fd.append('environment', environment)
         const stageMode = this.createCompetitionForm.stage_mode || 'single'
         fd.append('stage_mode', stageMode)
         const startAt = toISO(this.createCompetitionForm.start_at)
@@ -7810,6 +7898,17 @@ export default {
         const rules = form.rules_text != null ? String(form.rules_text) : ''
         if (rules !== (o.rules_text != null ? String(o.rules_text) : '')) changes.rules_text = rules || null
 
+        const cmpText = (formKey, origKey) => {
+          const next = form[formKey] != null ? String(form[formKey]).trim() : ''
+          const prev = o[origKey] != null ? String(o[origKey]).trim() : ''
+          if (next !== prev) changes[formKey] = next || null
+        }
+        cmpText('target_audience', 'target_audience')
+        cmpText('contact_name', 'contact_name')
+        cmpText('contact_phone', 'contact_phone')
+        cmpText('location', 'location')
+        cmpText('environment', 'environment')
+
         const startISO = this.toISOFromDateTimeLocal(form.start_at)
         if (startISO !== o.start_at) changes.start_at = startISO
 
@@ -7928,6 +8027,11 @@ export default {
           name: comp.name || '',
           description: comp.description || '',
           rules_text: comp.rules_text || '',
+          target_audience: comp.target_audience || '',
+          contact_name: comp.contact_name || '',
+          contact_phone: comp.contact_phone || '',
+          location: comp.location || '',
+          environment: comp.environment || '',
           start_at: comp.start_at ? (new Date(comp.start_at)).toISOString() : null,
           end_at: comp.end_at ? (new Date(comp.end_at)).toISOString() : null,
           final_start_at: finalStartISO,
@@ -7945,6 +8049,11 @@ export default {
         name: (comp && comp.name) || '',
         description: (comp && (comp.description || '')) || '',
         rules_text: (comp && (comp.rules_text || '')) || '',
+        target_audience: (comp && (comp.target_audience || '')) || '',
+        contact_name: (comp && (comp.contact_name || '')) || '',
+        contact_phone: (comp && (comp.contact_phone || '')) || '',
+        location: (comp && (comp.location || '')) || '',
+        environment: (comp && (comp.environment || '')) || '',
         start_at: (comp && this.toDateTimeLocalValue(comp.start_at)) || '',
         end_at: (comp && this.toDateTimeLocalValue(comp.end_at)) || '',
         final_start_at: finalStartLocal,
@@ -9364,13 +9473,18 @@ export default {
   max-width: 240px;
   padding: 22px 18px 20px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
+  align-self: stretch;
 }
 
 .competition-briefing__aside-inner {
   width: 100%;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .competition-briefing__section {
