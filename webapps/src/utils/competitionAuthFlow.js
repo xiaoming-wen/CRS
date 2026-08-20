@@ -91,3 +91,17 @@ export function isCompetitionAltShellPath (pathOrFullPath) {
   const base = pathOnly(pathOrFullPath)
   return COMPETITION_ALT_GATE_ROUTES.includes(base)
 }
+
+/** 登录/注册页：锁定 html/body，避免出现页面级滚动条 */
+export function lockAuthViewport () {
+  document.documentElement.style.overflow = 'hidden'
+  document.body.style.overflow = 'hidden'
+  document.body.classList.add('userLayout')
+}
+
+/** 离开登录/注册页时恢复滚动 */
+export function unlockAuthViewport () {
+  document.documentElement.style.overflow = ''
+  document.body.style.overflow = ''
+  document.body.classList.remove('userLayout')
+}

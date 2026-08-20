@@ -1,32 +1,40 @@
 <template>
-  <div class="competition-full-page-root">
-    <!-- ① 未登录独立账号：与主站登录页同款布局，仅账号密码登录 -->
+  <div :class="['competition-full-page-root', { 'is-auth': !altGateOk }]">
+    <!-- ① 未登录独立账号：居中登录卡片 -->
     <div
       v-if="!altGateOk"
       id="competitionAuthLayout"
-      :class="['competition-user-layout-wrapper', device]"
+      :class="['competition-user-layout-wrapper', 'competition-auth-shell', device]"
     >
-      <div class="container">
-        <div class="top">
-          <div class="header competition-auth-header">
-            <span class="title">2026年安徽省AI大模型创新应用竞赛报名系统</span>
-          </div>
-        </div>
+      <AuthTechBackground />
+      <div class="auth-shell">
+        <div class="auth-card">
+          <header class="auth-card__brand">
+            <div class="auth-card__logo" aria-hidden="true">
+              <a-icon type="deployment-unit" />
+            </div>
+            <p class="auth-card__eyebrow">2026年</p>
+            <h1 class="auth-card__title">安徽省AI大模型创新应用竞赛</h1>
+            <p class="auth-card__subtitle">报名系统</p>
+          </header>
 
-        <div class="main">
-          <ManuAltIdentityPanel
-            mode="embedded"
-            @session-changed="onAltGateSessionChanged"
-            @switch-to-register="goToCompetitionRegister"
-          />
-        </div>
-
-        <div class="footer">
-          <div class="links">
-            <a href="_self">帮助</a>
-            <a href="_self">隐私</a>
-            <a href="_self">条款</a>
+          <div class="auth-card__body">
+            <ManuAltIdentityPanel
+              mode="embedded"
+              @session-changed="onAltGateSessionChanged"
+              @switch-to-register="goToCompetitionRegister"
+            />
           </div>
+
+          <footer class="auth-card__footer">
+            <div class="auth-footer__links">
+              <a href="_self">帮助</a>
+              <span class="auth-footer__sep" aria-hidden="true">|</span>
+              <a href="_self">隐私</a>
+              <span class="auth-footer__sep" aria-hidden="true">|</span>
+              <a href="_self">条款</a>
+            </div>
+          </footer>
         </div>
       </div>
     </div>
@@ -113,7 +121,7 @@ import CompetitionSchoolAdminApplication from '@/views/manus/CompetitionSchoolAd
 import CompetitionSchoolAdminTeamReview from '@/views/manus/CompetitionSchoolAdminTeamReview.vue'
 import MyCompetitionEnrollments from '@/views/manus/MyCompetitionEnrollments.vue'
 import ManuAltIdentityPanel from '@/views/manus/ManuAltIdentityPanel.vue'
-import { sanitizeCompetitionReturnPath, getStudentAdvisorLandingFullPath, getStudentAdvisorLandingRouteLocation, getStudentAdvisorLandingCompetitionId, markCompetitionShareSessionAuthed } from '@/utils/competitionAuthFlow'
+import { sanitizeCompetitionReturnPath, getStudentAdvisorLandingFullPath, getStudentAdvisorLandingRouteLocation, getStudentAdvisorLandingCompetitionId, markCompetitionShareSessionAuthed, lockAuthViewport, unlockAuthViewport } from '@/utils/competitionAuthFlow'
 import {
   getStoredAltToken,
   clearAltIdentityStorage,
@@ -128,6 +136,7 @@ import {
   getAltProfileFromStorage
 } from '@/api/altIdentity'
 import { getCompetitionLogo } from '@/api/competition'
+import AuthTechBackground from '@/views/manus/AuthTechBackground.vue'
 
 const SECTION_LIST = 'competition-list'
 const SECTION_EXPERTS = 'expert-assignment'
@@ -146,7 +155,8 @@ export default {
     CompetitionSchoolAdminApplication,
     CompetitionSchoolAdminTeamReview,
     MyCompetitionEnrollments,
-    ManuAltIdentityPanel
+    ManuAltIdentityPanel,
+    AuthTechBackground
   },
   mixins: [mixinDevice],
   data () {
@@ -224,7 +234,7 @@ export default {
       async handler (ok) {
         if (ok) {
           this.competitionBootstrapDone = false
-          document.body.classList.remove('userLayout')
+          unlockAuthViewport()
           await this.refreshAltIdentityProfile()
           if (!getStoredAltToken()) return
           // 学生/指导老师：优先跳转默认竞赛详情，避免先闪一下列表页
@@ -239,7 +249,7 @@ export default {
         } else {
           this.competitionBootstrapDone = false
           this.clearCatalogLogo()
-          document.body.classList.add('userLayout')
+          lockAuthViewport()
         }
       },
       immediate: true
@@ -265,7 +275,7 @@ export default {
   },
   beforeDestroy () {
     this.clearCatalogLogo()
-    document.body.classList.remove('userLayout')
+    unlockAuthViewport()
     window.removeEventListener('alt-identity-changed', this.bumpAltGateTick)
   },
   methods: {
@@ -419,93 +429,135 @@ export default {
 <style scoped lang="less">
 .competition-full-page-root {
   min-height: 100vh;
+
+  &.is-auth {
+    height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
+  }
 }
 
-/* 与 UserLayout.vue 对齐的全屏登录/注册壳 */
-.competition-user-layout-wrapper {
-  min-height: 100vh;
+/* 登录壳：固定视口，禁止页面滚动 */
+.competition-auth-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  background: #010618;
+}
+
+.auth-shell {
+  position: relative;
+  z-index: 1;
   height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px ~'max(24px, 6vw)' 28px ~'max(24px, 8vw)';
+  box-sizing: border-box;
+  overflow: hidden;
+}
 
-  &.mobile .container .main {
-    max-width: 368px;
-    width: 98%;
-  }
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow:
+    0 8px 28px rgba(26, 40, 80, 0.1),
+    0 2px 8px rgba(26, 40, 80, 0.06);
+  padding: 32px 28px 28px;
+  box-sizing: border-box;
+}
 
-  .container {
-    width: 100%;
-    min-height: 100vh;
-    background: #f0f2f5 url(~@/assets/background.svg) no-repeat center center;
-    background-size: cover;
-    /* 与 UserLayout.vue .container 一致 */
-    padding: 110px 0 144px;
-    position: relative;
-    box-sizing: border-box;
+.auth-card__brand {
+  text-align: center;
+  margin-bottom: 8px;
+}
 
-    a {
-      text-decoration: none;
+.auth-card__logo {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 26px;
+  background: linear-gradient(135deg, #4361ee 0%, #1a73e8 55%, #3a86ff 100%);
+  box-shadow: 0 6px 16px rgba(26, 115, 232, 0.35);
+}
+
+.auth-card__eyebrow {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: #6c757d;
+  line-height: 1.4;
+}
+
+.auth-card__title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  background: linear-gradient(100deg, #1a1a2e 10%, #1a73e8 55%, #4361ee 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.auth-card__subtitle {
+  margin: 0 0 18px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #495057;
+  letter-spacing: 0.2em;
+}
+
+.auth-card__body {
+  border-top: 1px solid rgba(26, 115, 232, 0.18);
+  padding-top: 8px;
+}
+
+.auth-card__footer {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #eef1f5;
+  text-align: center;
+}
+
+.auth-footer__links {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #6c757d;
+
+  a {
+    color: #6c757d;
+    text-decoration: none;
+    transition: color 0.2s;
+
+    &:hover {
+      color: #1a73e8;
     }
   }
+}
 
-  .competition-auth-header .title {
-    display: inline-block;
-  }
-
-  .top {
-    text-align: center;
-
-    .header {
-      height: auto;
-      min-height: 44px;
-      line-height: 1.3;
-
-      .logo {
-        height: 44px;
-        vertical-align: top;
-        margin-right: 16px;
-        border-style: none;
-      }
-
-      .title {
-        font-size: 28px;
-        color: rgba(0, 0, 0, 0.85);
-        font-family: Avenir, 'Helvetica Neue', Arial, Helvetica, sans-serif;
-        font-weight: 600;
-        position: relative;
-        top: 2px;
-        max-width: 92vw;
-        padding: 0 12px;
-      }
-    }
-  }
-
-  .main {
-    min-width: 260px;
-    width: 368px;
-    margin: 0 auto;
-  }
-
-  .footer {
-    position: absolute;
-    width: 100%;
-    bottom: 40px;
-    padding: 0 16px;
-    margin: 48px 0 24px;
-    text-align: center;
-
-    .links {
-      margin-bottom: 8px;
-      font-size: 14px;
-
-      a {
-        color: rgba(0, 0, 0, 0.45);
-        transition: all 0.3s;
-
-        &:not(:last-child) {
-          margin-right: 40px;
-        }
-      }
-    }
-  }
+.auth-footer__sep {
+  color: #c5cad1;
+  user-select: none;
 }
 
 .competition-registration-full {

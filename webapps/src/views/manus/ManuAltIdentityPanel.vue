@@ -22,44 +22,47 @@
         </a-alert>
 
         <!-- 与 Login.vue 一致：仅「账号密码登录」一 Tab -->
-        <a-tabs :tabBarStyle="{ textAlign: 'center', borderBottom: 'unset' }">
+        <a-tabs
+          class="alt-login-tabs"
+          :class="{ 'alt-login-tabs--embedded': mode === 'embedded' }"
+          :tabBarStyle="{ textAlign: 'center', borderBottom: 'unset' }"
+        >
           <a-tab-pane key="tab1" tab="账号密码登录">
             <a-form id="formAltLogin" class="user-layout-login" @submit.prevent="handleLoginSubmit">
               <a-form-item>
                 <a-input
                   v-model="loginForm.username"
+                  class="auth-field-input"
                   size="large"
                   type="text"
                   autocomplete="username"
                   placeholder="请输入用户名"
                 >
-                  <a-icon slot="prefix" type="user" :style="{ color: 'rgba(0,0,0,.25)' }" />
+                  <a-icon slot="prefix" type="user" class="auth-field-icon" />
                 </a-input>
               </a-form-item>
               <a-form-item>
-                <a-input
+                <a-input-password
                   v-model="loginForm.password"
+                  class="auth-field-input"
                   size="large"
-                  type="password"
                   autocomplete="off"
                   placeholder="请输入密码"
                 >
-                  <a-icon slot="prefix" type="lock" :style="{ color: 'rgba(0,0,0,.25)' }" />
-                </a-input>
+                  <a-icon slot="prefix" type="lock" class="auth-field-icon" />
+                </a-input-password>
               </a-form-item>
-              <a-form-item>
+              <a-form-item class="auth-links-row">
                 <a-button
                   type="link"
                   html-type="button"
                   class="forgot-password-link"
-                  style="height: auto; line-height: 1.5; padding: 0;"
                   @click.stop.prevent="onForgotPasswordClick"
                 >忘记密码</a-button>
                 <a-button
                   type="link"
                   html-type="button"
                   class="register-link"
-                  style="float: right; height: auto; line-height: 1.5; padding: 0;"
                   @click.stop.prevent="onRegisterClick"
                 >注册</a-button>
               </a-form-item>
@@ -72,7 +75,7 @@
                   :loading="loginLoading"
                   :disabled="loginLoading"
                 >
-                  确定
+                  登录
                 </a-button>
               </a-form-item>
             </a-form>
@@ -568,27 +571,156 @@ export default {
     font-size: 14px;
   }
 
+  .auth-links-row {
+    margin-bottom: 8px;
+
+    ::v-deep .ant-form-item-children {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+  }
+
   .register-link,
   .forgot-password-link {
+    height: auto;
+    line-height: 1.5;
+    padding: 0;
     font-size: 14px;
-    color: #1890ff !important;
+    color: #1a73e8 !important;
     text-decoration: none;
 
     &:hover {
       text-decoration: underline;
-      color: #40a9ff !important;
+      color: #1557b0 !important;
     }
   }
 
   .login-submit-item {
-    margin-top: 24px;
+    margin-top: 16px;
+    margin-bottom: 0;
   }
 
   button.login-button {
     padding: 0 15px;
     font-size: 16px;
-    height: 40px;
+    font-weight: 600;
+    letter-spacing: 0.28em;
+    text-indent: 0.28em;
+    height: 46px;
     width: 100%;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(90deg, #4361ee 0%, #1a73e8 55%, #3a86ff 100%);
+    box-shadow: 0 6px 16px rgba(26, 115, 232, 0.28);
+    transition: filter 0.2s, box-shadow 0.2s, transform 0.15s;
+
+    &:hover,
+    &:focus {
+      background: linear-gradient(90deg, #3a56d4 0%, #1557b0 55%, #2f75e8 100%);
+      filter: brightness(1.02);
+      box-shadow: 0 8px 18px rgba(26, 115, 232, 0.36);
+    }
+
+    &:active {
+      transform: translateY(1px);
+    }
+  }
+
+  .auth-field-icon {
+    color: #1a73e8 !important;
+    font-size: 16px;
+  }
+
+  ::v-deep .auth-field-input.ant-input-affix-wrapper,
+  ::v-deep .auth-field-input.ant-input-password {
+    border-radius: 8px;
+    border-color: #d9dce0;
+    padding-top: 0;
+    padding-bottom: 0;
+    height: 44px;
+    box-shadow: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+
+    .ant-input {
+      height: 42px;
+      background: transparent;
+    }
+
+    .ant-input-prefix {
+      margin-right: 10px;
+    }
+
+    &:hover {
+      border-color: #a8c5f0;
+    }
+
+    &.ant-input-affix-wrapper-focused,
+    &:focus,
+    &.ant-input-password-focused {
+      border-color: #1a73e8;
+      box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15);
+    }
+  }
+
+  ::v-deep .auth-field-input.ant-input {
+    height: 44px;
+    border-radius: 8px;
+    border-color: #d9dce0;
+
+    &:focus {
+      border-color: #1a73e8;
+      box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15);
+    }
+  }
+}
+
+.alt-login-tabs {
+  ::v-deep .ant-tabs-bar {
+    margin-bottom: 18px;
+  }
+
+  ::v-deep .ant-tabs-nav .ant-tabs-tab {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1a73e8;
+    padding: 8px 0;
+  }
+
+  ::v-deep .ant-tabs-ink-bar {
+    display: none !important;
+  }
+
+  &--embedded {
+    ::v-deep .ant-tabs-nav-wrap {
+      display: flex;
+      justify-content: center;
+    }
+
+    ::v-deep .ant-tabs-nav .ant-tabs-tab {
+      position: relative;
+      padding: 10px 28px;
+      margin: 0;
+
+      &::before,
+      &::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        width: 22px;
+        height: 1px;
+        background: rgba(26, 115, 232, 0.35);
+      }
+
+      &::before {
+        left: 0;
+      }
+
+      &::after {
+        right: 0;
+      }
+    }
   }
 }
 

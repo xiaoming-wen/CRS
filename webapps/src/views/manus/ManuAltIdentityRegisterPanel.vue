@@ -567,11 +567,7 @@ export default {
   }
 }
 
-.alt-identity-register-panel--embedded {
-  max-height: 62vh;
-  overflow-y: auto;
-  padding-right: 4px;
-}
+
 
 .embedded-login-link-item {
   margin-bottom: 0;
