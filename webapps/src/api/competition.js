@@ -158,6 +158,22 @@ export function getCompetitionQrCode (competitionId, options = {}) {
   })
 }
 
+/** 竞赛 Logo 图（GET）；已发布竞赛可匿名访问 */
+export function getCompetitionLogo (competitionId, options = {}) {
+  return axios({
+    url: `/v1/competitions/${encodeURIComponent(competitionId)}/logo`,
+    method: 'get',
+    params: {
+      _t: (options && options.cacheBust) || Date.now()
+    },
+    responseType: 'blob',
+    headers: {
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache'
+    }
+  })
+}
+
 // 8.6 查看我报名的竞赛（当前 Alt 主体；响应 student_id 为 alt_auth_users.id，权限 VIEW_COMPETITIONS）
 export function getMyCompetitionEnrollments () {
   return axios({

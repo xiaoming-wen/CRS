@@ -597,6 +597,11 @@ class CompetitionResponse(CompetitionBase):
         None,
         description="兼容字段：single 或 dual+shared 时的二维码 URL",
     )
+    logo_path: Optional[str] = Field(None, description="竞赛 Logo 相对路径")
+    logo_image_url: Optional[str] = Field(
+        None,
+        description="竞赛 Logo 下载地址（有上传时）",
+    )
     exam_papers: Optional[CompetitionExamPapers] = Field(
         None,
         description="各组别试卷是否已发布及下载地址（元信息）",

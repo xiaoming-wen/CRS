@@ -34,6 +34,10 @@
     <!-- ② 已登录独立账号：进入竞赛目录，默认「竞赛列表与报名」 -->
     <div v-else class="competition-registration-full">
       <div class="competition-registration-full-toolbar">
+        <div v-if="catalogLogoUrl" class="toolbar-logo-wrap">
+          <img :src="catalogLogoUrl" alt="竞赛 Logo" class="toolbar-logo-img">
+        </div>
+        <div v-else class="toolbar-logo-spacer" />
         <a-dropdown :trigger="['click']" placement="bottomRight">
           <span class="toolbar-avatar-trigger">
             <a-avatar class="toolbar-avatar">{{ altAvatarInitial }}</a-avatar>
@@ -72,6 +76,7 @@
         <a-layout-content class="competition-registration-body">
           <CompetitionRegistrationSystem
             v-if="currentSection === 'competition-list' && competitionBootstrapDone"
+            @catalog-logo-changed="onCatalogLogoChanged"
           />
           <CompetitionExpertAssignment
             v-else-if="currentSection === 'expert-assignment' && isSuperAdmin && competitionBootstrapDone"
@@ -121,6 +126,7 @@ import {
   getAltProfileFromStorage
 } from '@/api/altIdentity'
 import { sanitizeCompetitionReturnPath } from '@/utils/competitionAuthFlow'
+import { getCompetitionLogo } from '@/api/competition'
 
 const SECTION_LIST = 'competition-list'
 const SECTION_EXPERTS = 'expert-assignment'
@@ -147,7 +153,10 @@ export default {
       altGateTick: 0,
       currentSection: SECTION_LIST,
       /** 独立账号 /me 同步完成后再挂载竞赛接口子组件，避免登录瞬间无令牌或顺序竞态 */
-      competitionBootstrapDone: false
+      competitionBootstrapDone: false,
+      catalogLogoUrl: null,
+      catalogLogoCompetitionId: null,
+      catalogLogoLoadSeq: 0
     }
   },
   computed: {
@@ -225,6 +234,7 @@ export default {
           })
         } else {
           this.competitionBootstrapDone = false
+          this.clearCatalogLogo()
           document.body.classList.add('userLayout')
         }
       },
@@ -238,6 +248,11 @@ export default {
     },
     isSchoolAdmin () {
       this.syncSectionWithCatalog()
+    },
+    currentSection (section) {
+      if (section !== SECTION_LIST) {
+        this.clearCatalogLogo()
+      }
     }
   },
   mounted () {
@@ -245,12 +260,54 @@ export default {
     window.addEventListener('alt-identity-changed', this.bumpAltGateTick)
   },
   beforeDestroy () {
+    this.clearCatalogLogo()
     document.body.classList.remove('userLayout')
     window.removeEventListener('alt-identity-changed', this.bumpAltGateTick)
   },
   methods: {
     bumpAltGateTick () {
       this.altGateTick++
+    },
+    clearCatalogLogo () {
+      this.catalogLogoLoadSeq += 1
+      if (this.catalogLogoUrl) {
+        try {
+          URL.revokeObjectURL(this.catalogLogoUrl)
+        } catch (e) { /* noop */ }
+      }
+      this.catalogLogoUrl = null
+      this.catalogLogoCompetitionId = null
+    },
+    async onCatalogLogoChanged (competitionId) {
+      const id = competitionId != null && String(competitionId).trim() !== ''
+        ? Number(competitionId)
+        : null
+      if (!id || !Number.isFinite(id)) {
+        this.clearCatalogLogo()
+        return
+      }
+      if (String(this.catalogLogoCompetitionId) === String(id) && this.catalogLogoUrl) {
+        return
+      }
+      const seq = ++this.catalogLogoLoadSeq
+      try {
+        const blob = await getCompetitionLogo(id)
+        if (seq !== this.catalogLogoLoadSeq) return
+        if (!blob || typeof blob.size !== 'number' || blob.size <= 0) {
+          this.clearCatalogLogo()
+          return
+        }
+        if (this.catalogLogoUrl) {
+          try {
+            URL.revokeObjectURL(this.catalogLogoUrl)
+          } catch (e) { /* noop */ }
+        }
+        this.catalogLogoUrl = URL.createObjectURL(blob)
+        this.catalogLogoCompetitionId = id
+      } catch (e) {
+        if (seq !== this.catalogLogoLoadSeq) return
+        this.clearCatalogLogo()
+      }
     },
     async refreshAltIdentityProfile () {
       if (!getStoredAltToken()) return
@@ -428,18 +485,43 @@ export default {
 .competition-registration-full-toolbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   flex-shrink: 0;
+  gap: 16px;
   padding: 10px 16px;
   background: #fff;
   border-bottom: 1px solid #f0f0f0;
+
+  .toolbar-logo-wrap {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    margin-right: auto;
+  }
+
+  .toolbar-logo-spacer {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .toolbar-logo-img {
+    display: block;
+    max-height: 36px;
+    max-width: ~'min(280px, 50vw)';
+    width: auto;
+    height: auto;
+    object-fit: contain;
+  }
 
   .toolbar-avatar-trigger {
     display: inline-flex;
     align-items: center;
     cursor: pointer;
     line-height: 1;
+    flex-shrink: 0;
     max-width: ~'min(320px, 50vw)';
+    margin-left: auto;
   }
 
   .toolbar-avatar {

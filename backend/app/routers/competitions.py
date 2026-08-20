@@ -133,6 +133,12 @@ MAX_QR_IMAGE_BYTES = 5 * 1024 * 1024
 _ALLOWED_QR_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 _ALLOWED_QR_MIME = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
+COMPETITION_LOGO_DIR = "competition_logos"
+os.makedirs(COMPETITION_LOGO_DIR, exist_ok=True)
+MAX_LOGO_IMAGE_BYTES = 5 * 1024 * 1024
+_ALLOWED_LOGO_EXT = _ALLOWED_QR_EXT
+_ALLOWED_LOGO_MIME = _ALLOWED_QR_MIME
+
 COMPETITION_EXAM_PAPER_DIR = "competition_exam_papers"
 os.makedirs(COMPETITION_EXAM_PAPER_DIR, exist_ok=True)
 MAX_EXAM_PAPER_BYTES = 100 * 1024 * 1024
@@ -753,6 +759,59 @@ async def _save_qr_code_upload(upload: StarletteUploadFile, competition_id: int)
     fname = f"comp_{competition_id}_{uuid.uuid4().hex}{ext}"
     rel = _normalize_stored_qr_path(os.path.join(COMPETITION_QR_DIR, fname))
     abs_path = _resolve_qr_fs_path(rel)
+    with open(abs_path, "wb") as f:
+        f.write(body)
+    return rel
+
+
+def _delete_stored_logo_file(stored: Optional[str]) -> None:
+    if not stored:
+        return
+    try:
+        fs = _resolve_logo_fs_path(stored)
+        if os.path.isfile(fs):
+            os.remove(fs)
+    except Exception as e:
+        logger.warning("Failed to remove competition logo file %s: %s", stored, e)
+
+
+def _resolve_logo_fs_path(stored: str) -> str:
+    """将库中记录的相对路径解析为绝对路径，并限制在 competition_logos 目录内。"""
+    if not stored or not stored.strip():
+        raise HTTPException(status_code=404, detail="Logo not found")
+    base_dir = os.path.abspath(COMPETITION_LOGO_DIR)
+    if os.path.isabs(stored):
+        full = os.path.abspath(stored)
+    else:
+        full = os.path.abspath(os.path.normpath(os.path.join(os.getcwd(), stored)))
+    if not full.startswith(base_dir + os.sep) and full != base_dir:
+        raise HTTPException(status_code=404, detail="Logo not found")
+    return full
+
+
+async def _save_logo_upload(upload: StarletteUploadFile, competition_id: int) -> str:
+    if not upload.filename or not str(upload.filename).strip():
+        raise HTTPException(status_code=400, detail="logo_image requires a filename")
+    ext = os.path.splitext(upload.filename)[1].lower()
+    if ext not in _ALLOWED_LOGO_EXT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"logo_image: only image extensions {sorted(_ALLOWED_LOGO_EXT)} allowed",
+        )
+    ct = (upload.content_type or "").split(";")[0].strip().lower()
+    if ct and ct not in _ALLOWED_LOGO_MIME:
+        raise HTTPException(status_code=400, detail="logo_image: invalid image content type")
+
+    body = await upload.read()
+    if len(body) > MAX_LOGO_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"logo_image too large (max {MAX_LOGO_IMAGE_BYTES // (1024 * 1024)} MiB)",
+        )
+
+    fname = f"comp_{competition_id}_{uuid.uuid4().hex}{ext}"
+    rel = _normalize_stored_qr_path(os.path.join(COMPETITION_LOGO_DIR, fname))
+    abs_path = _resolve_logo_fs_path(rel)
     with open(abs_path, "wb") as f:
         f.write(body)
     return rel
@@ -2009,7 +2068,8 @@ async def create_competition(
     """
     创建竞赛。
     - **application/json**：与原先一致，请求体为 CompetitionCreate（无文件上传）。
-    - **multipart/form-data**：文本字段与 JSON 相同（`name`、`description`…），可选文件字段 **`qr_code_image`** 上传二维码图片（png/jpg/gif/webp，最大 5MiB）。
+    - **multipart/form-data**：文本字段与 JSON 相同（`name`、`description`…），可选文件字段
+      **`qr_code_image`** 上传二维码、**`logo_image`** 上传竞赛 Logo（均为 png/jpg/gif/webp，最大 5MiB）。
     - **stage_mode=prelim_final**：一次创建初赛+决赛两场；`name` 为系列名，自动生成「{name}-初赛」「{name}-决赛」；
       `start_at`/`end_at` 为初赛时间，`final_start_at`/`final_end_at` 为决赛时间。返回初赛对象（含 paired_competition_id）。
     """
@@ -2019,6 +2079,7 @@ async def create_competition(
     qr_upload = None
     qr_upload_undergraduate = None
     qr_upload_vocational = None
+    logo_upload = None
     if "application/json" in ct:
         try:
             body = await request.json()
@@ -2031,6 +2092,7 @@ async def create_competition(
         qr_upload = _pick_qr_upload(form, "qr_code_image")
         qr_upload_undergraduate = _pick_qr_upload(form, "qr_code_image_undergraduate")
         qr_upload_vocational = _pick_qr_upload(form, "qr_code_image_vocational")
+        logo_upload = _pick_qr_upload(form, "logo_image") or _pick_qr_upload(form, "logo")
     else:
         raise HTTPException(
             status_code=415,
@@ -2044,7 +2106,7 @@ async def create_competition(
     if not series_name:
         raise HTTPException(status_code=400, detail="name is required")
 
-    async def _apply_qr(comp: Competition) -> None:
+    async def _apply_uploads(comp: Competition) -> None:
         if qr_upload is not None:
             comp.qr_code_path = await _save_qr_code_upload(qr_upload, comp.id)
         if qr_upload_undergraduate is not None:
@@ -2055,6 +2117,8 @@ async def create_competition(
             comp.qr_code_path_vocational = await _save_qr_code_upload(
                 qr_upload_vocational, comp.id
             )
+        if logo_upload is not None:
+            comp.logo_path = await _save_logo_upload(logo_upload, comp.id)
 
     if stage_mode == "prelim_final":
         prelim_id = allocate_eight_digit_id(db, Competition)
@@ -2078,6 +2142,7 @@ async def create_competition(
             qr_code_path=None,
             qr_code_path_undergraduate=None,
             qr_code_path_vocational=None,
+            logo_path=None,
         )
         final = Competition(
             id=final_id,
@@ -2097,15 +2162,17 @@ async def create_competition(
             qr_code_path=None,
             qr_code_path_undergraduate=None,
             qr_code_path_vocational=None,
+            logo_path=None,
         )
         db.add(prelim)
         db.add(final)
         db.flush()
-        await _apply_qr(prelim)
-        # 决赛共用同一套二维码文件路径引用（同相对路径可读）
+        await _apply_uploads(prelim)
+        # 决赛共用同一套二维码/Logo 文件路径引用（同相对路径可读）
         final.qr_code_path = prelim.qr_code_path
         final.qr_code_path_undergraduate = prelim.qr_code_path_undergraduate
         final.qr_code_path_vocational = prelim.qr_code_path_vocational
+        final.logo_path = prelim.logo_path
         db.commit()
         db.refresh(prelim)
         return prelim
@@ -2128,10 +2195,11 @@ async def create_competition(
         qr_code_path=None,
         qr_code_path_undergraduate=None,
         qr_code_path_vocational=None,
+        logo_path=None,
     )
     db.add(comp)
     db.flush()
-    await _apply_qr(comp)
+    await _apply_uploads(comp)
     # 单阶段：series_id 取自身 id，便于后续扩展
     comp.series_id = comp.id
     db.commit()
@@ -2308,6 +2376,48 @@ async def get_competition_qr_code(
             "Pragma": "no-cache",
             "Expires": "0",
             "ETag": f'W/"qr-{competition_id}-{mtime}-{os.path.basename(fs_path)}"',
+        },
+    )
+
+
+@router.get("/{competition_id}/logo")
+async def get_competition_logo(
+    competition_id: int,
+    db: Session = Depends(get_db),
+    identity: Optional[AltAuthUserRecord] = Depends(get_optional_alt_identity),
+):
+    """
+    下载/查看竞赛 Logo。
+
+    - **已登录**：须具备 VIEW_COMPETITIONS。
+    - **未登录**：仅已发布/已结束竞赛可读（分享链接，无需 Bearer）。
+    """
+    competition = _get_competition(db, competition_id)
+    if identity is None:
+        _ensure_competition_shareable(competition)
+    else:
+        require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+
+    stored = getattr(competition, "logo_path", None)
+    if not stored or not str(stored).strip():
+        raise HTTPException(status_code=404, detail="No logo for this competition")
+    fs_path = _resolve_logo_fs_path(stored)
+    if not os.path.isfile(fs_path):
+        raise HTTPException(status_code=404, detail="Logo file missing on server")
+    mime, _ = mimetypes.guess_type(fs_path)
+    try:
+        mtime = int(os.path.getmtime(fs_path))
+    except OSError:
+        mtime = 0
+    return FileResponse(
+        path=fs_path,
+        filename=os.path.basename(fs_path),
+        media_type=mime or "application/octet-stream",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "ETag": f'W/"logo-{competition_id}-{mtime}-{os.path.basename(fs_path)}"',
         },
     )
 
@@ -3559,7 +3669,8 @@ async def update_competition(
     """
     修改竞赛（字段可选，只传需要改的）。
     - **application/json**：与原先一致，请求体为 CompetitionUpdate（无文件上传）。
-    - **multipart/form-data**：文本字段同名且仅提交需修改项；可选 **`qr_code_image`** 替换二维码（规则同创建）。
+    - **multipart/form-data**：文本字段同名且仅提交需修改项；可选 **`qr_code_image`** 替换二维码、
+      **`logo_image`** 替换 Logo（规则同创建）。
     """
     require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
     competition = _get_competition(db, competition_id)
@@ -3568,6 +3679,7 @@ async def update_competition(
     qr_upload = None
     qr_upload_undergraduate = None
     qr_upload_vocational = None
+    logo_upload = None
     if "application/json" in ct:
         try:
             body = await request.json()
@@ -3582,6 +3694,7 @@ async def update_competition(
         qr_upload = _pick_qr_upload(form, "qr_code_image")
         qr_upload_undergraduate = _pick_qr_upload(form, "qr_code_image_undergraduate")
         qr_upload_vocational = _pick_qr_upload(form, "qr_code_image_vocational")
+        logo_upload = _pick_qr_upload(form, "logo_image") or _pick_qr_upload(form, "logo")
     else:
         raise HTTPException(
             status_code=415,
@@ -3643,6 +3756,7 @@ async def update_competition(
                     qr_code_path=competition.qr_code_path,
                     qr_code_path_undergraduate=competition.qr_code_path_undergraduate,
                     qr_code_path_vocational=competition.qr_code_path_vocational,
+                    logo_path=getattr(competition, "logo_path", None),
                 )
                 competition.series_id = series_id
                 competition.stage = CompetitionStage.PRELIMINARY
@@ -3664,9 +3778,11 @@ async def update_competition(
         if has_final_end:
             final.end_at = final_end_at
 
-    # 初赛/决赛创建时共用同一套二维码路径；替换后须同步关联场次，再删旧文件，避免关联场仍指向已删除文件
+    # 初赛/决赛创建时共用同一套二维码/Logo 路径；替换后须同步关联场次，再删旧文件，避免关联场仍指向已删除文件
     old_paths_to_delete = []
+    old_logo_paths_to_delete = []
     qr_changed = False
+    logo_changed = False
     if qr_upload is not None:
         old_path = competition.qr_code_path
         competition.qr_code_path = await _save_qr_code_upload(qr_upload, competition_id)
@@ -3689,19 +3805,30 @@ async def update_competition(
         if old_path and old_path != competition.qr_code_path_vocational:
             old_paths_to_delete.append(old_path)
         qr_changed = True
+    if logo_upload is not None:
+        old_logo = getattr(competition, "logo_path", None)
+        competition.logo_path = await _save_logo_upload(logo_upload, competition_id)
+        if old_logo and old_logo != competition.logo_path:
+            old_logo_paths_to_delete.append(old_logo)
+        logo_changed = True
 
-    if qr_changed:
+    if qr_changed or logo_changed:
         paired_id = getattr(competition, "paired_competition_id", None)
         if paired_id is not None:
             paired = db.query(Competition).filter(Competition.id == int(paired_id)).first()
             if paired is not None:
-                paired.qr_code_path = competition.qr_code_path
-                paired.qr_code_path_undergraduate = competition.qr_code_path_undergraduate
-                paired.qr_code_path_vocational = competition.qr_code_path_vocational
+                if qr_changed:
+                    paired.qr_code_path = competition.qr_code_path
+                    paired.qr_code_path_undergraduate = competition.qr_code_path_undergraduate
+                    paired.qr_code_path_vocational = competition.qr_code_path_vocational
+                if logo_changed:
+                    paired.logo_path = competition.logo_path
 
     db.commit()
     for old_path in old_paths_to_delete:
         _delete_stored_qr_file(old_path)
+    for old_logo in old_logo_paths_to_delete:
+        _delete_stored_logo_file(old_logo)
     db.refresh(competition)
     return competition
 
@@ -3715,6 +3842,7 @@ async def delete_competition(
     require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
     competition = _get_competition(db, competition_id)
     qr_storage = competition.qr_code_path
+    logo_storage = getattr(competition, "logo_path", None)
 
     db.query(Review).filter(
         Review.submission_id.in_(
@@ -3744,6 +3872,7 @@ async def delete_competition(
 
     db.commit()
     _delete_stored_qr_file(qr_storage)
+    _delete_stored_logo_file(logo_storage)
 
     return {"ok": True, "detail": f"Competition {competition_id} and all related data deleted"}
 

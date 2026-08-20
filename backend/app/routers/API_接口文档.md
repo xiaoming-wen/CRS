@@ -2520,6 +2520,8 @@ curl -X DELETE "http://localhost:8000/api/v1/competitions/1/experts/12" \
 | 不分组 / 双组共用 | `qr_code_image` 或 `qr_code_image_shared` |
 | 双组分开 | `qr_code_image_undergraduate`、`qr_code_image_vocational` |
 
+**Logo 上传（multipart 可选）**：字段名 **`logo_image`**（兼容 **`logo`**），格式与二维码相同（png/jpeg/gif/webp，最大 5MiB）。响应含 `logo_path`、`logo_image_url`（有上传时为 `/api/v1/competitions/{id}/logo`）。
+
 创建成功后响应含 **`qr_codes`**（结构化 URL）及兼容字段 **`qr_code_image_url`**（`single` 或 `dual+shared` 时）。
 
 **请求体参数**：
@@ -2537,6 +2539,7 @@ curl -X DELETE "http://localhost:8000/api/v1/competitions/1/experts/12" \
 | qr_code_image | file | | **仅 multipart**：共用/单组别二维码 |
 | qr_code_image_undergraduate | file | | **仅 multipart**：本科组二维码（`dual`+`separate`） |
 | qr_code_image_vocational | file | | **仅 multipart**：高职组二维码（`dual`+`separate`） |
+| logo_image | file | | **仅 multipart**：竞赛 Logo（亦可用字段名 `logo`） |
 
 **请求示例（JSON）**：
 ```bash
@@ -2807,6 +2810,8 @@ curl -X PUT "http://localhost:8000/api/v1/competitions/1/publish" \
 | 不分组 / 双组共用 | `qr_code_image` 或 `qr_code_image_shared` |
 | 双组分开 | `qr_code_image_undergraduate`、`qr_code_image_vocational`（可只传其中一张以单独替换） |
 
+**Logo 上传（multipart 可选）**：字段名 **`logo_image`**（兼容 **`logo`**）；上传后替换 `logo_path`，未传则保留原 Logo。
+
 > 修改 `division_mode` / `qr_layout` 时，请与实际上传的二维码字段一致；`single` 时若改为 `dual+separate`，需补传两张分组码（或先改策略再分次上传）。
 
 **请求体参数**（均可选，只传需要改的）：
@@ -2824,6 +2829,7 @@ curl -X PUT "http://localhost:8000/api/v1/competitions/1/publish" \
 | qr_code_image | file | | **仅 multipart**：共用/单组别二维码（替换 `qr_code_path`） |
 | qr_code_image_undergraduate | file | | **仅 multipart**：本科组二维码（`dual`+`separate`） |
 | qr_code_image_vocational | file | | **仅 multipart**：高职组二维码（`dual`+`separate`） |
+| logo_image | file | | **仅 multipart**：竞赛 Logo（替换 `logo_path`；亦可用字段名 `logo`） |
 
 **请求示例（JSON，只改文案与组别策略）**：
 ```bash

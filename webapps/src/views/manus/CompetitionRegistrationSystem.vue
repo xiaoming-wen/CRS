@@ -1979,6 +1979,25 @@
           <a-textarea v-model="createCompetitionForm.rules_text" :rows="4" placeholder="必填" />
         </a-form-item>
         <a-form-item
+          label="竞赛 Logo"
+          extra="可选；请上传透明底 Logo（推荐 PNG），以免在深色详情页出现白底方块。亦支持 jpeg / gif / webp，单张不超过 5MB。"
+        >
+          <a-upload
+            list-type="picture-card"
+            class="create-competition-qr-upload"
+            accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,.png,.jpg,.jpeg,.gif,.webp"
+            :file-list="logoFileList"
+            :before-upload="beforeLogoUpload"
+            :show-upload-list="{ showPreviewIcon: true, showRemoveIcon: true }"
+            @remove="handleLogoRemove"
+          >
+            <div v-if="logoFileList.length < 1">
+              <a-icon type="plus" />
+              <div class="ant-upload-text">上传 Logo</div>
+            </div>
+          </a-upload>
+        </a-form-item>
+        <a-form-item
           v-if="createCompetitionNeedsSharedQr"
           label="竞赛二维码"
           required
@@ -2114,6 +2133,33 @@
 
         <a-form-item label="规则说明">
           <a-textarea v-model="editCompetitionForm.rules_text" :rows="4" placeholder="修改后保存；与当前一致则不提交" />
+        </a-form-item>
+
+        <a-form-item label="当前 Logo">
+          <div v-if="editCurrentLogoPreviewUrl" class="edit-competition-current-qr">
+            <img :src="editCurrentLogoPreviewUrl" alt="竞赛 Logo" class="edit-competition-current-qr__img" />
+          </div>
+          <div v-else class="muted edit-competition-qr-empty">暂无 Logo</div>
+        </a-form-item>
+
+        <a-form-item
+          label="上传 Logo（选填）"
+          extra="上传新图将替换当前 Logo。请使用透明底 Logo（推荐 PNG），以免在深色详情页出现白底方块。亦支持 jpeg / gif / webp，单张不超过 5MB。"
+        >
+          <a-upload
+            list-type="picture-card"
+            class="create-competition-qr-upload"
+            accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,.png,.jpg,.jpeg,.gif,.webp"
+            :file-list="editLogoFileList"
+            :before-upload="beforeEditLogoUpload"
+            :show-upload-list="{ showPreviewIcon: true, showRemoveIcon: true }"
+            @remove="handleEditLogoRemove"
+          >
+            <div v-if="editLogoFileList.length < 1">
+              <a-icon type="plus" />
+              <div class="ant-upload-text">选择图片</div>
+            </div>
+          </a-upload>
         </a-form-item>
 
         <a-form-item label="当前二维码">
@@ -2596,6 +2642,7 @@ import {
   getMyCompetitionScores,
   getMyCompetitionEnrollments,
   getCompetitionQrCode,
+  getCompetitionLogo,
   withdrawCompetition,
   uploadCompetitionExamPaper,
   getCompetitionExamPapers,
@@ -2866,6 +2913,9 @@ export default {
       createCompetitionQrFile: null,
       createCompetitionQrUndergraduateFile: null,
       createCompetitionQrVocationalFile: null,
+      createCompetitionLogoFile: null,
+      logoFileList: [],
+      createLogoBlobUrl: null,
       qrCodeFileList: [],
       qrCodeUndergraduateFileList: [],
       qrCodeVocationalFileList: [],
@@ -2913,6 +2963,11 @@ export default {
       editCompetitionQrFile: null,
       editCompetitionQrUndergraduateFile: null,
       editCompetitionQrVocationalFile: null,
+      editCompetitionLogoFile: null,
+      editLogoFileList: [],
+      editLogoBlobUrl: null,
+      editCurrentLogoPreviewUrl: null,
+      editCurrentLogoIsBlob: false,
       editQrCodeFileList: [],
       editQrCodeUndergraduateFileList: [],
       editQrCodeVocationalFileList: [],
@@ -4222,6 +4277,8 @@ export default {
       } else {
         this.promotionList = []
       }
+
+      this.emitCatalogLogoChanged()
     },
     enrollMode (newMode) {
       this.submissionMode = newMode
@@ -4349,6 +4406,7 @@ export default {
       } else {
         this.competitions = [...(this.competitions || []), detail]
       }
+      this.emitCatalogLogoChanged()
     },
 
     /** §8.1.1：是否弹「本科/高职」选择框，以详情接口 division_mode === 'dual' 为准 */
@@ -5209,8 +5267,29 @@ export default {
         this.competitions = []
       } finally {
         this.competitionsLoading = false
+        this.emitCatalogLogoChanged()
       }
     },
+
+    competitionHasLogo (comp) {
+      return !!(comp && (comp.logo_path || comp.logo_image_url))
+    },
+
+    /** 侧栏 Logo：优先当前选中竞赛；否则取列表中第一个已上传 Logo 的竞赛 */
+    resolveCatalogLogoCompetitionId () {
+      if (this.standaloneDetailMode) return null
+      const active = this.activeCompetition
+      if (this.competitionHasLogo(active)) return active.id
+      const list = this.competitions || []
+      const hit = list.find(c => this.competitionHasLogo(c))
+      return hit ? hit.id : null
+    },
+
+    emitCatalogLogoChanged () {
+      if (this.standaloneDetailMode) return
+      this.$emit('catalog-logo-changed', this.resolveCatalogLogoCompetitionId())
+    },
+
     selectCompetition (id) {
       if (id === undefined || id === null || id === '') {
         this.selectedCompetitionId = null
@@ -7086,6 +7165,9 @@ export default {
           )
         }
       }
+      if (this.createCompetitionLogoFile) {
+        fd.append('logo_image', this.createCompetitionLogoFile, this.createCompetitionLogoFile.name)
+      }
     },
 
     appendEditCompetitionQrFiles (fd) {
@@ -7108,13 +7190,17 @@ export default {
           )
         }
       }
+      if (this.editCompetitionLogoFile) {
+        fd.append('logo_image', this.editCompetitionLogoFile, this.editCompetitionLogoFile.name)
+      }
     },
 
     hasEditCompetitionQrUploads () {
       return !!(
         this.editCompetitionQrFile ||
         this.editCompetitionQrUndergraduateFile ||
-        this.editCompetitionQrVocationalFile
+        this.editCompetitionQrVocationalFile ||
+        this.editCompetitionLogoFile
       )
     },
 
@@ -7132,6 +7218,7 @@ export default {
       this.revokeBlobUrl('createQrBlobUrl')
       this.revokeBlobUrl('createQrUndergraduateBlobUrl')
       this.revokeBlobUrl('createQrVocationalBlobUrl')
+      this.revokeBlobUrl('createLogoBlobUrl')
     },
 
     clearCreateSharedQrFiles () {
@@ -7188,6 +7275,7 @@ export default {
       this.revokeCreateQrPreviewUrls()
       this.clearCreateSharedQrFiles()
       this.clearCreateSeparateQrFiles()
+      this.clearCreateLogoUpload()
       this.createCompetitionForm = {
         name: '',
         description: '',
@@ -7202,6 +7290,41 @@ export default {
         division_mode: 'single',
         qr_layout: 'shared'
       }
+    },
+
+    clearCreateLogoUpload () {
+      this.revokeBlobUrl('createLogoBlobUrl')
+      this.createCompetitionLogoFile = null
+      this.logoFileList = []
+    },
+
+    handleLogoRemove () {
+      this.clearCreateLogoUpload()
+      return true
+    },
+
+    validateCompetitionLogoImageFile (file) {
+      const MAX = 5 * 1024 * 1024
+      const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/pjpeg', 'image/gif', 'image/webp']
+      if (!allowed.includes(file.type)) {
+        this.$message.warning('Logo 仅支持 png、jpeg、gif、webp 格式')
+        return false
+      }
+      if (file.size > MAX) {
+        this.$message.warning('Logo 图片不能超过 5MB')
+        return false
+      }
+      return true
+    },
+
+    beforeLogoUpload (file) {
+      if (!this.validateCompetitionLogoImageFile(file)) return false
+      this.revokeBlobUrl('createLogoBlobUrl')
+      const url = URL.createObjectURL(file)
+      this.createLogoBlobUrl = url
+      this.createCompetitionLogoFile = file
+      this.logoFileList = [{ uid: 'logo-1', name: file.name, status: 'done', url }]
+      return false
     },
 
     handleQrCodeRemove () {
@@ -7524,8 +7647,41 @@ export default {
     resetEditCompetitionQrState () {
       this.clearEditSharedQrUpload()
       this.clearEditSeparateQrUploads()
+      this.clearEditLogoUpload()
       this.revokeEditCurrentQrPreviews()
+      this.revokeEditCurrentLogoPreview()
       this.editCurrentQrLoading = false
+    },
+
+    clearEditLogoUpload () {
+      this.revokeBlobUrl('editLogoBlobUrl')
+      this.editCompetitionLogoFile = null
+      this.editLogoFileList = []
+    },
+
+    revokeEditCurrentLogoPreview () {
+      if (this.editCurrentLogoIsBlob && this.editCurrentLogoPreviewUrl) {
+        try {
+          URL.revokeObjectURL(this.editCurrentLogoPreviewUrl)
+        } catch (e) { /* noop */ }
+      }
+      this.editCurrentLogoPreviewUrl = null
+      this.editCurrentLogoIsBlob = false
+    },
+
+    handleEditLogoRemove () {
+      this.clearEditLogoUpload()
+      return true
+    },
+
+    beforeEditLogoUpload (file) {
+      if (!this.validateCompetitionLogoImageFile(file)) return false
+      this.revokeBlobUrl('editLogoBlobUrl')
+      const url = URL.createObjectURL(file)
+      this.editLogoBlobUrl = url
+      this.editCompetitionLogoFile = file
+      this.editLogoFileList = [{ uid: 'edit-logo-1', name: file.name, status: 'done', url }]
+      return false
     },
 
     handleEditQrCodeRemove () {
@@ -7620,6 +7776,22 @@ export default {
         this.editCurrentQrPreviews = previews
       } finally {
         this.editCurrentQrLoading = false
+      }
+    },
+
+    async fetchEditCompetitionCurrentLogo (competitionId, comp) {
+      this.revokeEditCurrentLogoPreview()
+      if (!competitionId) return
+      const hasLogo = !!(comp && (comp.logo_path || comp.logo_image_url))
+      if (!hasLogo) return
+      try {
+        const blob = await getCompetitionLogo(competitionId)
+        if (!blob) return
+        const url = URL.createObjectURL(blob)
+        this.editCurrentLogoPreviewUrl = url
+        this.editCurrentLogoIsBlob = true
+      } catch (e) {
+        /* 无 Logo 或无权限时忽略 */
       }
     },
 
@@ -7724,6 +7896,7 @@ export default {
       this.adminEditLoading = false
       this.showEditCompetitionModal = true
       void this.fetchEditCompetitionCurrentQr(id, comp)
+      void this.fetchEditCompetitionCurrentLogo(id, comp)
 
       const stage = comp && comp.stage ? String(comp.stage).toLowerCase() : 'single'
       this.editCompetitionOriginalStage = stage
@@ -7797,7 +7970,7 @@ export default {
       }
 
       if (!hasQr && Object.keys(changes).length === 0) {
-        this.$message.info('未检测到需要修改的字段（更换二维码请先在下方上传新图片）')
+        this.$message.info('未检测到需要修改的字段（更换二维码/Logo 请先在下方上传新图片）')
         return Promise.reject(new Error('no changes'))
       }
 
@@ -7815,7 +7988,7 @@ export default {
         if (changes.stage_mode === 'prelim_final' && this.editCompetitionOriginalStage === 'single') {
           this.$message.success('已升级为初赛+决赛')
         } else {
-          this.$message.success(hasQr ? '修改成功（二维码已更新）' : '修改成功')
+          this.$message.success(hasQr ? '修改成功（图片已更新）' : '修改成功')
         }
         this.showEditCompetitionModal = false
         this.resetEditCompetitionQrState()

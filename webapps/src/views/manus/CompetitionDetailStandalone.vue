@@ -10,6 +10,13 @@
         <a-icon type="left" />
         返回竞赛列表
       </a-button>
+      <div
+        v-if="detailLogoUrl"
+        class="detail-logo-wrap"
+        :class="{ 'detail-logo-wrap--after-back': showStandaloneBackButton }"
+      >
+        <img :src="detailLogoUrl" alt="竞赛 Logo" class="detail-logo-img">
+      </div>
       <div v-if="showStandaloneGuestToolbar" class="detail-toolbar-right">
         <a-button type="primary" ghost class="detail-toolbar-btn" @click="openLoginModal">
           登录
@@ -143,6 +150,7 @@ import {
   applyAltIdentityMeToStorage
 } from '@/api/altIdentity'
 import { buildAbsoluteRouteUrl } from '@/utils/openRouteInNewTab'
+import { getCompetitionLogo } from '@/api/competition'
 
 export default {
   name: 'CompetitionDetailStandalone',
@@ -159,7 +167,9 @@ export default {
       /** 子组件报名成功后同步，用于顶栏「提交作品」显示 */
       childHasEnrollment: false,
       /** 当前是否决赛阶段（决赛不显示报名入口） */
-      childIsFinalStage: false
+      childIsFinalStage: false,
+      detailLogoUrl: null,
+      detailLogoLoadSeq: 0
     }
   },
   created () {
@@ -169,12 +179,58 @@ export default {
     window.addEventListener('alt-identity-changed', this.bumpToolbarIdentityTick)
     this.$nextTick(() => {
       void this.ensureWorkbenchDetailAutoSession()
+      void this.loadDetailLogo()
     })
   },
   beforeDestroy () {
     window.removeEventListener('alt-identity-changed', this.bumpToolbarIdentityTick)
+    this.clearDetailLogo()
+  },
+  watch: {
+    numericId () {
+      void this.loadDetailLogo()
+    }
   },
   methods: {
+    clearDetailLogo () {
+      this.detailLogoLoadSeq += 1
+      if (this.detailLogoUrl) {
+        try {
+          URL.revokeObjectURL(this.detailLogoUrl)
+        } catch (e) { /* noop */ }
+      }
+      this.detailLogoUrl = null
+    },
+    async loadDetailLogo () {
+      const id = this.numericId
+      if (!id) {
+        this.clearDetailLogo()
+        return
+      }
+      const seq = ++this.detailLogoLoadSeq
+      try {
+        const blob = await getCompetitionLogo(id)
+        if (seq !== this.detailLogoLoadSeq) return
+        if (!blob || typeof blob.size !== 'number' || blob.size <= 0) {
+          this.clearDetailLogo()
+          return
+        }
+        const t = (blob.type || '').toLowerCase()
+        if (t.includes('json') || t.includes('html') || t.includes('text/plain')) {
+          this.clearDetailLogo()
+          return
+        }
+        if (this.detailLogoUrl) {
+          try {
+            URL.revokeObjectURL(this.detailLogoUrl)
+          } catch (e) { /* noop */ }
+        }
+        this.detailLogoUrl = URL.createObjectURL(blob)
+      } catch (e) {
+        if (seq !== this.detailLogoLoadSeq) return
+        this.clearDetailLogo()
+      }
+    },
     bumpToolbarIdentityTick () {
       this.toolbarIdentityTick += 1
     },
@@ -232,6 +288,7 @@ export default {
         this.shareSessionActive = true
       }
       this.bumpToolbarIdentityTick()
+      void this.loadDetailLogo()
       this.$nextTick(() => {
         const sys = this.$refs.registrationSys
         if (sys && typeof sys.bootstrapStandaloneDetail === 'function') {
@@ -447,6 +504,7 @@ export default {
     },
     showDetailTopBar () {
       return (
+        !!this.detailLogoUrl ||
         this.showStandaloneBackButton ||
         this.showStandaloneGuestToolbar ||
         this.showStandaloneStudentToolbar ||
@@ -470,12 +528,36 @@ export default {
 }
 
 .detail-back-bar {
-  margin: 0 0 12px;
-  padding: 4px 0;
+  margin: 0 -16px 12px;
+  padding: 4px 0 4px 16px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 12px 16px;
+  width: calc(100% + 32px);
+  box-sizing: border-box;
+}
+
+.detail-logo-wrap {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  max-width: min(280px, 46vw);
+}
+
+/* 超管/专家：顶栏右侧靠右，略向左留白 */
+.detail-logo-wrap--after-back {
+  margin-left: auto;
+  margin-right: 24px;
+}
+
+.detail-logo-img {
+  display: block;
+  max-height: 44px;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
 }
 
 .detail-toolbar-right {
@@ -484,6 +566,7 @@ export default {
   gap: 10px;
   flex-shrink: 0;
   margin-left: auto;
+  padding-right: 16px;
 }
 
 .detail-toolbar-btn {

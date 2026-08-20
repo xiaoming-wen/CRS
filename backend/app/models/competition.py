@@ -89,6 +89,9 @@ class Competition(Base):
     qr_code_path_undergraduate = Column(String(512), nullable=True)
     qr_code_path_vocational = Column(String(512), nullable=True)
 
+    # 竞赛 Logo（创建/修改时 multipart 上传）
+    logo_path = Column(String(512), nullable=True)
+
     # 竞赛试卷（上传即发布；dual 时本科/高职各一份）
     exam_paper_path = Column(String(512), nullable=True)
     exam_paper_filename = Column(String(255), nullable=True)
@@ -102,6 +105,12 @@ class Competition(Base):
 
     teams = relationship("Team", back_populates="competition")
     enrollments = relationship("CompetitionEnrollment", back_populates="competition")
+
+    @property
+    def logo_image_url(self):
+        if self.logo_path and str(self.logo_path).strip():
+            return f"/api/v1/competitions/{self.id}/logo"
+        return None
 
 
 class CompetitionPromotion(Base):
