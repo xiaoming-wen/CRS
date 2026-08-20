@@ -3,7 +3,7 @@
     <div class="alt-identity-user-layout">
       <div class="alt-identity-card">
         <div v-if="mode !== 'embedded'" class="brand brand-competition">
-          <div class="title-main">竞赛报名系统</div>
+          <div class="title-main">合肥大学AI竞赛报名系统</div>
           <div class="sub">
             独立账号登录；与主站 <code>/api/v1/auth</code> 隔离。访问竞赛接口时：已登录主站则优先主站 JWT；仅独立账号时使用第二套 JWT。<code>/api/alt-identity/me</code> 等仅接受第二套令牌。
           </div>
@@ -295,11 +295,12 @@ export default {
 }
 
 .alt-identity-user-layout {
-  background: #f0f2f5 url(~@/assets/background.svg) no-repeat 50%;
-  background-size: 100%;
+  background: #f0f2f5 url(~@/assets/background.svg) no-repeat center center;
+  background-size: cover;
   padding: 24px 16px 40px;
   border-radius: 2px;
-  min-height: 480px;
+  min-height: 100vh;
+  box-sizing: border-box;
 }
 
 .alt-identity-card {
@@ -315,7 +316,7 @@ export default {
   margin-bottom: 20px;
 
   .title-main {
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 600;
     color: rgba(0, 0, 0, 0.85);
     font-family: Avenir, 'Helvetica Neue', Arial, Helvetica, sans-serif;

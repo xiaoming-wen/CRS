@@ -105,7 +105,6 @@
             :pagination="competitionListPagination"
             :row-selection="competitionListRowSelection"
             :row-class-name="competitionListRowClassName"
-            :scroll="{ x: 1040 }"
           >
             <template slot="status" slot-scope="text">
               <a-tag

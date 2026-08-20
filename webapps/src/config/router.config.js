@@ -16,7 +16,7 @@ export const constantRouterMap = [
     path: '/manu/competition-register',
     name: 'ManuVideoCompetitionRegister',
     component: () => import('@/views/manus/CompetitionAltRegister.vue'),
-    meta: { title: '竞赛报名系统注册', keepAlive: false, hideHeader: true }
+    meta: { title: '合肥大学AI竞赛报名系统注册', keepAlive: false, hideHeader: true }
   },
   {
     path: '/manu/competition-detail',

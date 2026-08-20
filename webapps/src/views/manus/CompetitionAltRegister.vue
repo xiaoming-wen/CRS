@@ -7,7 +7,7 @@
       <div class="container">
         <div class="top">
           <div class="header competition-auth-header">
-            <span class="title">竞赛报名系统</span>
+            <span class="title">合肥大学AI竞赛报名系统</span>
           </div>
         </div>
 
@@ -62,6 +62,7 @@ export default {
 }
 
 .competition-user-layout-wrapper {
+  min-height: 100vh;
   height: 100%;
 
   &.mobile .container .main {
@@ -71,11 +72,12 @@ export default {
 
   .container {
     width: 100%;
-    min-height: 100%;
-    background: #f0f2f5 url(~@/assets/background.svg) no-repeat 50%;
-    background-size: 100%;
+    min-height: 100vh;
+    background: #f0f2f5 url(~@/assets/background.svg) no-repeat center center;
+    background-size: cover;
     padding: 110px 0 144px;
     position: relative;
+    box-sizing: border-box;
 
     a {
       text-decoration: none;
@@ -90,16 +92,19 @@ export default {
     text-align: center;
 
     .header {
-      height: 44px;
-      line-height: 44px;
+      height: auto;
+      min-height: 44px;
+      line-height: 1.3;
 
       .title {
-        font-size: 33px;
+        font-size: 28px;
         color: rgba(0, 0, 0, 0.85);
         font-family: Avenir, 'Helvetica Neue', Arial, Helvetica, sans-serif;
         font-weight: 600;
         position: relative;
         top: 2px;
+        max-width: 92vw;
+        padding: 0 12px;
       }
     }
   }
@@ -113,7 +118,7 @@ export default {
   .footer {
     position: absolute;
     width: 100%;
-    bottom: 0;
+    bottom: 40px;
     padding: 0 16px;
     margin: 48px 0 24px;
     text-align: center;

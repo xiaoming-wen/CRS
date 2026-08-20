@@ -9,7 +9,7 @@
       <div class="container">
         <div class="top">
           <div class="header competition-auth-header">
-            <span class="title">竞赛报名系统</span>
+            <span class="title">合肥大学AI竞赛报名系统</span>
           </div>
         </div>
 
@@ -333,6 +333,7 @@ export default {
 
 /* 与 UserLayout.vue 对齐的全屏登录/注册壳 */
 .competition-user-layout-wrapper {
+  min-height: 100vh;
   height: 100%;
 
   &.mobile .container .main {
@@ -342,12 +343,13 @@ export default {
 
   .container {
     width: 100%;
-    min-height: 100%;
-    background: #f0f2f5 url(~@/assets/background.svg) no-repeat 50%;
-    background-size: 100%;
+    min-height: 100vh;
+    background: #f0f2f5 url(~@/assets/background.svg) no-repeat center center;
+    background-size: cover;
     /* 与 UserLayout.vue .container 一致 */
     padding: 110px 0 144px;
     position: relative;
+    box-sizing: border-box;
 
     a {
       text-decoration: none;
@@ -362,8 +364,9 @@ export default {
     text-align: center;
 
     .header {
-      height: 44px;
-      line-height: 44px;
+      height: auto;
+      min-height: 44px;
+      line-height: 1.3;
 
       .logo {
         height: 44px;
@@ -373,12 +376,14 @@ export default {
       }
 
       .title {
-        font-size: 33px;
+        font-size: 28px;
         color: rgba(0, 0, 0, 0.85);
         font-family: Avenir, 'Helvetica Neue', Arial, Helvetica, sans-serif;
         font-weight: 600;
         position: relative;
         top: 2px;
+        max-width: 92vw;
+        padding: 0 12px;
       }
     }
   }
@@ -392,7 +397,7 @@ export default {
   .footer {
     position: absolute;
     width: 100%;
-    bottom: 0;
+    bottom: 40px;
     padding: 0 16px;
     margin: 48px 0 24px;
     text-align: center;
@@ -460,7 +465,8 @@ export default {
 }
 
 .competition-catalog-sider {
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   min-height: calc(100vh - 52px);
 
   &::v-deep .ant-layout-sider-children {
@@ -482,11 +488,11 @@ export default {
 
 .competition-registration-body {
   padding: 16px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: #f5f5f5;
   min-height: calc(100vh - 52px);
   box-sizing: border-box;
-  /* flex 子项默认 min-width:auto，会被子内容撑开，宽表无法在卡片内产生横向滚动 */
   min-width: 0;
 }
 </style>
