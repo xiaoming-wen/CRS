@@ -45,6 +45,9 @@ const err = (error) => {
             const reqUrl = error.config && error.config.url
             const isCompetitionReq = isCompetitionApiPath(reqUrl)
             const usedAltAuth = error.config && error.config.__authSource === 'alt'
+            const isAltIdentityRequired =
+                typeof errorDetail === 'string' &&
+                /alt-identity token|第二套|独立账号/i.test(errorDetail)
 
             if (isCompetitionReq && usedAltAuth) {
                 clearAltIdentityStorage()
@@ -52,9 +55,10 @@ const err = (error) => {
                     message: '竞赛账号登录已失效',
                     description: errorDetail || '请重新登录竞赛报名系统独立账号'
                 })
-            } else if (isCompetitionReq && getStoredAltToken()) {
+            } else if (isCompetitionReq || isAltIdentityRequired) {
+                // 竞赛接口缺 Alt 令牌：提示重新登录，勿清主站 JWT / 整页刷新
                 notification.warning({
-                    message: '未授权',
+                    message: '请先登录竞赛账号',
                     description: errorDetail || '请使用竞赛报名系统独立账号登录后再试'
                 })
             } else {

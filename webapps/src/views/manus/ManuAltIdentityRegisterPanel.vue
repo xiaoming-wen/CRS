@@ -161,18 +161,16 @@
           ]"
           @change="handleRoleChange"
         >
-          <template v-if="mode === 'embedded'">
-            <a-select-option value="student">学生</a-select-option>
-            <a-select-option value="advisor">指导老师</a-select-option>
-          </template>
-          <template v-else>
+          <a-select-option value="student">学生</a-select-option>
+          <a-select-option value="advisor">指导老师</a-select-option>
+          <template v-if="mode !== 'embedded'">
             <a-select-option value="expert">专家</a-select-option>
             <a-select-option value="school_admin">校管理员</a-select-option>
           </template>
         </a-select>
       </a-form-item>
 
-      <a-form-item v-if="mode === 'embedded' && form.getFieldValue('role') === 'student'">
+      <a-form-item v-if="form.getFieldValue('role') === 'student'">
         <a-input
           size="large"
           type="text"
@@ -186,7 +184,7 @@
         </a-input>
       </a-form-item>
 
-      <a-form-item v-if="mode === 'embedded' && form.getFieldValue('role') === 'advisor'">
+      <a-form-item v-if="isAdvisorRegisterRole(form.getFieldValue('role'))">
         <a-input
           size="large"
           type="text"
@@ -248,7 +246,7 @@
       </a-form-item>
       <a-form-item v-else>
         <router-link
-          :to="{ name: 'ManuVideoCompetition' }"
+          :to="loginLinkLocation"
           class="login-link"
           style="text-align: center; display: block;"
         >
@@ -267,6 +265,10 @@ import {
   filterSchoolsByKeyword,
   isSchoolInProvince
 } from '@/data/chinaSchoolsByProvince'
+import {
+  sanitizeCompetitionReturnPath,
+  getStudentAdvisorLandingFullPath
+} from '@/utils/competitionAuthFlow'
 
 export default {
   name: 'ManuAltIdentityRegisterPanel',
@@ -298,6 +300,14 @@ export default {
     }
   },
   computed: {
+    loginLinkLocation () {
+      const raw = this.$route && this.$route.query ? this.$route.query.redirectAfterAlt : ''
+      const next = sanitizeCompetitionReturnPath(raw) || getStudentAdvisorLandingFullPath()
+      return {
+        name: 'ManuVideoCompetition',
+        query: { redirectAfterAlt: next }
+      }
+    },
     schoolNotFoundContent () {
       if (!this.selectedProvince) return '请先选择省份'
       if (!this.schoolSearchKeyword) return '请输入关键字搜索学校'

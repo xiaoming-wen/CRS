@@ -113,6 +113,7 @@ import CompetitionSchoolAdminApplication from '@/views/manus/CompetitionSchoolAd
 import CompetitionSchoolAdminTeamReview from '@/views/manus/CompetitionSchoolAdminTeamReview.vue'
 import MyCompetitionEnrollments from '@/views/manus/MyCompetitionEnrollments.vue'
 import ManuAltIdentityPanel from '@/views/manus/ManuAltIdentityPanel.vue'
+import { sanitizeCompetitionReturnPath, getStudentAdvisorLandingFullPath, getStudentAdvisorLandingRouteLocation, getStudentAdvisorLandingCompetitionId, markCompetitionShareSessionAuthed } from '@/utils/competitionAuthFlow'
 import {
   getStoredAltToken,
   clearAltIdentityStorage,
@@ -121,11 +122,11 @@ import {
   isAltCompetitionSuperAdmin,
   isAltCompetitionSchoolAdmin,
   isAltCompetitionStudent,
+  getAltRoleNormalized,
   fetchAltIdentityMe,
   applyAltIdentityMeToStorage,
   getAltProfileFromStorage
 } from '@/api/altIdentity'
-import { sanitizeCompetitionReturnPath } from '@/utils/competitionAuthFlow'
 import { getCompetitionLogo } from '@/api/competition'
 
 const SECTION_LIST = 'competition-list'
@@ -225,10 +226,13 @@ export default {
           this.competitionBootstrapDone = false
           document.body.classList.remove('userLayout')
           await this.refreshAltIdentityProfile()
+          if (!getStoredAltToken()) return
+          // 学生/指导老师：优先跳转默认竞赛详情，避免先闪一下列表页
+          if (this.consumeRedirectAfterAltIfPresent()) return
+          if (this.redirectStudentOrAdvisorToLanding()) return
           this.currentSection = this.resolveDefaultSection()
           this.competitionBootstrapDone = true
           this.$nextTick(() => {
-            this.consumeRedirectAfterAltIfPresent()
             this.applyExpertUserIdQuerySection()
             this.syncSectionWithCatalog()
           })
@@ -316,11 +320,14 @@ export default {
         applyAltIdentityMeToStorage(me)
         this.altGateTick++
       } catch (e) {
-        const msg = e && e.message ? e.message : ''
+        const msg = e && e.message ? String(e.message) : ''
         if (msg) console.warn('同步独立账号资料失败:', msg)
-        // 令牌失效：回到登录门；若勾选过自动登录，面板会静默登回原账号
-        clearAltIdentityStorage()
-        this.altGateTick++
+        // 仅在令牌明确失效时清会话，避免短暂网络错误或跳转竞态误清已登录态
+        const tokenDead = /invalid or expired|未授权|401|缺少第二套令牌|alt-identity token/i.test(msg)
+        if (tokenDead) {
+          clearAltIdentityStorage()
+          this.altGateTick++
+        }
       }
     },
     syncSectionWithCatalog () {
@@ -331,25 +338,51 @@ export default {
     },
     onAltGateSessionChanged () {
       this.altGateTick++
-      if (getStoredAltToken()) {
-        this.currentSection = this.resolveDefaultSection()
-        this.$nextTick(() => {
-          this.consumeRedirectAfterAltIfPresent()
-          this.syncSectionWithCatalog()
-        })
-      }
     },
     goToCompetitionRegister () {
-      this.$router.push({ name: 'ManuVideoCompetitionRegister' }).catch(() => {})
+      this.$router.push({
+        name: 'ManuVideoCompetitionRegister',
+        query: { redirectAfterAlt: getStudentAdvisorLandingFullPath() }
+      }).catch(() => {})
     },
     /** 主站重新登录后经 redirectAfterAlt 进入本页：独立账号就绪后跳回原竞赛界面 */
     consumeRedirectAfterAltIfPresent () {
-      if (!getStoredAltToken() || !this.competitionBootstrapDone) return
+      if (!getStoredAltToken()) return false
       const raw = this.$route.query.redirectAfterAlt
-      if (raw == null || String(raw).trim() === '') return
+      if (raw == null || String(raw).trim() === '') return false
       const next = sanitizeCompetitionReturnPath(raw)
-      if (!next) return
+      if (!next) return false
+      if (next.indexOf('/manu/competition-detail') === 0) {
+        try {
+          const q = next.indexOf('?') >= 0 ? next.slice(next.indexOf('?') + 1) : ''
+          const params = new URLSearchParams(q)
+          const id = params.get('id') || getStudentAdvisorLandingCompetitionId()
+          markCompetitionShareSessionAuthed(id, params.get('division') || '')
+        } catch (e) {
+          markCompetitionShareSessionAuthed(getStudentAdvisorLandingCompetitionId())
+        }
+      }
       this.$router.replace(next).catch(() => {})
+      return true
+    },
+    /** 学生 / 指导老师：主页登录后进入默认竞赛详情（分享页布局） */
+    redirectStudentOrAdvisorToLanding () {
+      if (!getStoredAltToken()) return false
+      const role = getAltRoleNormalized()
+      // 仅学生、指导老师；teacher/超管/专家/校管仍留在主页目录
+      if (role !== 'student' && role !== 'advisor') return false
+
+      const landingId = String(getStudentAdvisorLandingCompetitionId())
+      if (
+        this.$route.path === '/manu/competition-detail' &&
+        String(this.$route.query.id || '') === landingId
+      ) {
+        return false
+      }
+
+      markCompetitionShareSessionAuthed(landingId)
+      this.$router.replace(getStudentAdvisorLandingRouteLocation()).catch(() => {})
+      return true
     },
     /** 专家注册成功后若带 expertUserId 查询参数，管理员直达「专家指派」步骤 1 */
     applyExpertUserIdQuerySection () {

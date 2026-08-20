@@ -148,48 +148,93 @@
           <div class="competition-hero-banner__glow" aria-hidden="true" />
           <div class="competition-hero-banner__inner competition-hero-banner__inner--center">
             <div class="competition-hero-banner__copy">
-              <div v-if="competitionHeroYear" class="competition-hero-banner__year">{{ competitionHeroYear }}</div>
-              <h1 class="competition-hero-banner__title">
-                {{ activeCompetition ? activeCompetition.name : `竞赛 #${activeCompetitionId}` }}
-              </h1>
-              <div class="competition-hero-banner__title-meta">
-                <a-tag
+              <div class="competition-hero-banner__title-wrap">
+                <span
+                  v-if="competitionHeroYear"
+                  class="competition-hero-banner__year"
+                  aria-hidden="true"
+                >{{ competitionHeroYear }}</span>
+                <h1 class="competition-hero-banner__title">
+                  <template v-if="competitionHeroTitleParts.base">
+                    <span class="competition-hero-banner__title-main">{{ competitionHeroTitleParts.base }}</span>
+                    <span
+                      v-if="competitionHeroTitleParts.stage"
+                      class="competition-hero-banner__title-stage"
+                      :class="'competition-hero-banner__title-stage--' + (activeCompetitionStage === 'final' ? 'final' : 'prelim')"
+                    >{{ competitionHeroTitleParts.stage }}</span>
+                  </template>
+                  <template v-else>
+                    {{ activeCompetition ? activeCompetition.name : `竞赛 #${activeCompetitionId}` }}
+                  </template>
+                </h1>
+              </div>
+
+              <div class="competition-hero-banner__capsules">
+                <span
                   v-if="activeCompetition"
-                  class="competition-hero-banner__status-tag"
-                  :color="getStatusColor(activeCompetition.status)"
-                  :style="activeCompetition.status === 'draft' ? { color: '#1a1a1a', borderColor: 'rgba(0,0,0,0.15)' } : null"
+                  class="competition-hero-banner__capsule"
+                  :class="'competition-hero-banner__capsule--status-' + (activeCompetition.status || 'unknown')"
                 >
                   {{ getStatusText(activeCompetition.status) }}
-                </a-tag>
-                <a-tag
+                </span>
+                <span
                   v-if="activeCompetitionStageLabel"
-                  class="competition-hero-banner__division-tag"
-                  :color="activeCompetitionStage === 'final' ? 'purple' : 'cyan'"
+                  class="competition-hero-banner__capsule"
+                  :class="activeCompetitionStage === 'final'
+                    ? 'competition-hero-banner__capsule--stage-final'
+                    : 'competition-hero-banner__capsule--stage-prelim'"
                 >
                   {{ activeCompetitionStageLabel }}
-                </a-tag>
-                <a-alert
-                  v-if="finalStageAccessDenied"
-                  type="error"
-                  show-icon
-                  message="决赛仅限晋级队伍"
-                  description="您未在初赛晋级名单中，登录后仍无法报名、建队或提交决赛作品。"
-                  style="margin: 12px 0 0; text-align: left; max-width: 560px"
-                />
-                <span class="competition-hero-banner__id">ID {{ activeCompetitionId }}</span>
-                <a-tag
+                </span>
+                <span
                   v-if="activeDivisionLabel"
-                  class="competition-hero-banner__division-tag"
-                  color="blue"
+                  class="competition-hero-banner__capsule competition-hero-banner__capsule--division"
                 >
                   {{ activeDivisionLabel }}
-                </a-tag>
+                </span>
               </div>
+
+              <a-alert
+                v-if="finalStageAccessDenied"
+                type="error"
+                show-icon
+                message="决赛仅限晋级队伍"
+                description="您未在初赛晋级名单中，登录后仍无法报名、建队或提交决赛作品。"
+                style="margin: 12px auto 0; text-align: left; max-width: 560px"
+              />
+
               <p v-if="competitionHeroSubtitleEn" class="competition-hero-banner__title-en">{{ competitionHeroSubtitleEn }}</p>
-              <p v-if="competitionHeroSlogan" class="competition-hero-banner__slogan">{{ competitionHeroSlogan }}</p>
+
+              <div v-if="competitionHeroSloganParagraphs.length" class="competition-hero-banner__slogan">
+                <p
+                  v-for="(para, pi) in competitionHeroSloganParagraphs"
+                  :key="'hs-' + pi"
+                  class="competition-hero-banner__slogan-line"
+                >
+                  <template v-for="(seg, si) in highlightHeroSloganSegments(para)">
+                    <mark
+                      v-if="seg.hl"
+                      :key="'hs-' + pi + '-' + si"
+                      class="competition-hero-banner__kw"
+                    >{{ seg.t }}</mark>
+                    <span v-else :key="'hs-' + pi + '-' + si">{{ seg.t }}</span>
+                  </template>
+                </p>
+              </div>
+
               <div v-if="activeCompetition" class="competition-hero-banner__dates">
-                <span class="competition-hero-banner__dates-label">活动时间</span>
+                <span class="competition-hero-banner__dates-label">
+                  <a-icon type="calendar" class="competition-hero-banner__dates-icon" />
+                  活动时间
+                </span>
                 <span class="competition-hero-banner__dates-range">{{ competitionHeroDateRange }}</span>
+                <span
+                  v-if="competitionHeroTimeHint"
+                  class="competition-hero-banner__time-hint"
+                  :class="'competition-hero-banner__time-hint--' + competitionHeroTimeHint.tone"
+                >
+                  {{ competitionHeroTimeHint.text }}
+                </span>
               </div>
             </div>
           </div>
@@ -211,35 +256,99 @@
               <div class="competition-briefing__grid" aria-hidden="true" />
               <div class="competition-briefing__body">
                 <div class="competition-briefing__col competition-briefing__col--main">
-                  <div
+                  <article
                     v-for="block in studentBriefingBlocks"
                     :key="block.num + block.title"
-                    class="competition-briefing__section"
+                    class="briefing-card"
+                    :class="'briefing-card--' + (block.theme || 'default')"
                   >
-                    <span class="competition-briefing__section-bg-num" aria-hidden="true">{{ block.num }}</span>
-                    <h3 class="competition-briefing__section-title">{{ block.title }}</h3>
-                    <div class="competition-briefing__section-text">{{ block.body }}</div>
-                  </div>
-                  <ul class="competition-briefing__footnotes">
+                    <div class="briefing-card__head">
+                      <span class="briefing-card__num" aria-hidden="true">{{ block.num }}</span>
+                      <h3 class="briefing-card__title">{{ block.title }}</h3>
+                    </div>
 
+                    <!-- 参赛对象：导语 + 赛道分项 -->
+                    <div v-if="block.kind === 'tracks' && block.tracks && block.tracks.length" class="briefing-tracks-wrap">
+                      <div v-if="block.intro" class="briefing-card__text briefing-tracks__intro">{{ block.intro }}</div>
+                      <div class="briefing-tracks">
+                        <div
+                          v-for="(track, ti) in block.tracks"
+                          :key="ti"
+                          class="briefing-track"
+                          :class="'briefing-track--' + (ti % 3)"
+                        >
+                          <div class="briefing-track__name">{{ track.name }}</div>
+                          <div class="briefing-track__body">{{ track.body }}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- 规则：图标列表 -->
+                    <ul v-else-if="block.kind === 'list' && block.items && block.items.length" class="briefing-rule-list">
+                      <li v-for="(item, ii) in block.items" :key="ii" class="briefing-rule-item">
+                        <span class="briefing-rule-item__icon" aria-hidden="true">{{ item.icon }}</span>
+                        <div class="briefing-rule-item__content">
+                          <div class="briefing-rule-item__title">{{ item.title }}</div>
+                          <div v-if="item.desc" class="briefing-rule-item__desc">{{ item.desc }}</div>
+                        </div>
+                      </li>
+                    </ul>
+
+                    <!-- 环境：表格 -->
+                    <div v-else-if="block.kind === 'table' && block.table" class="briefing-env-table-wrap">
+                      <table class="briefing-env-table">
+                        <thead>
+                          <tr>
+                            <th v-for="(h, hi) in block.table.headers" :key="'h' + hi">{{ h }}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="(row, ri) in block.table.rows" :key="'r' + ri">
+                            <td v-for="(cell, ci) in row" :key="'c' + ci">{{ cell }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <!-- 默认正文 -->
+                    <div v-else class="briefing-card__text">{{ block.body }}</div>
+                  </article>
+
+                  <ul class="competition-briefing__footnotes">
                     <li>请勿使用未经授权的他人作品素材；提交作品即表示同意遵守主办方公布的赛事规则。</li>
                   </ul>
                 </div>
-                <div class="competition-briefing__col competition-briefing__col--aside">
-                  <div class="competition-briefing__aside-inner">
-                    <img
-                      v-if="studentBriefingQrSrc"
-                      :src="studentBriefingQrSrc"
-                      class="competition-briefing__qr"
-                      :alt="studentBriefingQrAlt"
-                    />
-                    <div v-else class="competition-briefing__qr-placeholder">暂无二维码</div>
 
-                    <div v-if="studentBriefingContactLine" class="competition-briefing__contact">
-                      联系人 / 方式：<span class="competition-briefing__contact-num">{{ studentBriefingContactLine }}</span>
+                <div class="competition-briefing__col competition-briefing__col--aside">
+                  <div class="briefing-aside-panel">
+                    <div class="briefing-aside-panel__qr-wrap">
+                      <img
+                        v-if="studentBriefingQrSrc"
+                        :src="studentBriefingQrSrc"
+                        class="competition-briefing__qr"
+                        :alt="studentBriefingQrAlt"
+                      >
+                      <div v-else class="competition-briefing__qr-placeholder">暂无二维码</div>
                     </div>
-                    <div v-else class="competition-briefing__contact muted-soft">
-                      联系电话请见群内公告或主办方通知。
+                    <div class="briefing-contact-card">
+                      <div class="briefing-contact-card__label">联系人信息</div>
+                      <template v-if="studentBriefingContactParts.name || studentBriefingContactParts.phone || studentBriefingContactParts.email">
+                        <div v-if="studentBriefingContactParts.name" class="briefing-contact-card__row">
+                          <span class="briefing-contact-card__k">联系人</span>
+                          <span class="briefing-contact-card__v">{{ studentBriefingContactParts.name }}</span>
+                        </div>
+                        <div v-if="studentBriefingContactParts.phone" class="briefing-contact-card__row">
+                          <span class="briefing-contact-card__k">电话</span>
+                          <span class="briefing-contact-card__v">{{ studentBriefingContactParts.phone }}</span>
+                        </div>
+                        <div v-if="studentBriefingContactParts.email" class="briefing-contact-card__row">
+                          <span class="briefing-contact-card__k">邮箱</span>
+                          <span class="briefing-contact-card__v">{{ studentBriefingContactParts.email }}</span>
+                        </div>
+                      </template>
+                      <div v-else class="briefing-contact-card__empty">
+                        联系方式请见群内公告或主办方通知
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -280,7 +389,7 @@
           type="info"
           show-icon
           message="请先登录"
-          description="登录后可报名、提交作品；指导老师登录后可在此页组班与管理队伍。点击右上角「登录」或「注册」。"
+          description="登录后可报名、提交作品；指导老师登录后可在此页组班与管理队伍。请点击右上角「登录」或「注册」前往主页完成账号操作。"
           style="margin-top: 8px"
         />
 
@@ -3180,6 +3289,10 @@ export default {
       return !!getStoredAltToken()
     },
     isStudent () {
+      // 独立详情 / 分享页：仅第二套学生令牌，不用主站 roles 误触发报名等鉴权接口
+      if (this.standaloneDetailMode || this.shareGuestMode) {
+        return this.isUsingAltIdentity && isAltCompetitionStudent()
+      }
       if (this.isUsingAltIdentity) return isAltCompetitionStudent()
       const roles = this.$store.getters.roles || []
       return roles.includes('student')
@@ -3190,6 +3303,9 @@ export default {
       return roles.includes('super_admin')
     },
     isAdvisorOrTeacher () {
+      if (this.standaloneDetailMode || this.shareGuestMode) {
+        return this.isUsingAltIdentity && isAltCompetitionAdvisorOrTeacher()
+      }
       if (this.isUsingAltIdentity) return isAltCompetitionAdvisorOrTeacher()
       const roles = this.$store.getters.roles || []
       return roles.includes('advisor') || roles.includes('teacher')
@@ -3872,6 +3988,40 @@ export default {
       if (!parts.length) return '参赛方式以主办方公告为准。'
       return `${parts.join('；')}。具体资格条件见赛事要求。`
     },
+    studentBriefingContactParts () {
+      const c = this.activeCompetition || {}
+      let name = c.contact_name != null ? String(c.contact_name).trim() : ''
+      let phoneRaw = c.contact_phone != null ? String(c.contact_phone).trim() : ''
+      let email = ''
+      let phone = ''
+
+      const emailMatch = phoneRaw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
+      if (emailMatch) {
+        email = emailMatch[0]
+        phoneRaw = phoneRaw.replace(emailMatch[0], ' ').trim()
+      }
+      phoneRaw = phoneRaw
+        .replace(/^(电话|手机|联系方式|微信)[:：\s]*/i, '')
+        .replace(/\s*(邮箱|Email|E-mail)[:：\s]*.*$/i, '')
+        .trim()
+      phone = phoneRaw
+
+      if (!name && !phone && !email) {
+        const legacy = c.contact_tel || c.phone || c.hotline || c.contact
+        if (legacy != null && String(legacy).trim() !== '') {
+          const line = String(legacy).trim()
+          const em = line.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
+          if (em) email = em[0]
+          phone = line.replace(em ? em[0] : '', '').trim() || phone
+        }
+      }
+      return { name, phone, email }
+    },
+    studentBriefingContactLine () {
+      const p = this.studentBriefingContactParts
+      const bits = [p.name, p.phone, p.email].filter(Boolean)
+      return bits.join(' · ')
+    },
     studentBriefingBlocks () {
       const c = this.activeCompetition || {}
       const audience = String(c.target_audience || '').trim()
@@ -3879,36 +4029,70 @@ export default {
       const rules = String(c.rules_text || '').trim()
       const location = String(c.location || '').trim()
       const environment = String(c.environment || '').trim()
-      const blocks = [
-        {
+      const blocks = []
+
+      const audienceParsed = this.parseBriefingTracks(audience)
+      if (audienceParsed.tracks.length >= 2) {
+        blocks.push({
           num: '01',
           title: '参赛对象',
+          kind: 'tracks',
+          theme: 'cyan',
+          intro: audienceParsed.intro,
+          tracks: audienceParsed.tracks,
+          body: audience
+        })
+      } else {
+        blocks.push({
+          num: '01',
+          title: '参赛对象',
+          kind: 'text',
+          theme: 'cyan',
           body: audience || modeLine
-        },
-        {
-          num: '02',
-          title: '规则说明',
-          body: rules || '作品格式、提交方式及截止时间等请以上方简介与主办方后续通知为准。'
-        }
-      ]
-      if (location) {
-        blocks.push({ num: String(blocks.length + 1).padStart(2, '0'), title: '竞赛地点', body: location })
+        })
       }
+
+      // 规则说明整块展示，不拆成多条图标列表
+      blocks.push({
+        num: '02',
+        title: '规则说明',
+        kind: 'text',
+        theme: 'gold',
+        body: rules || '作品格式、提交方式及截止时间等请以上方简介与主办方后续通知为准。'
+      })
+
+      if (location) {
+        blocks.push({
+          num: String(blocks.length + 1).padStart(2, '0'),
+          title: '竞赛地点',
+          kind: 'text',
+          theme: 'violet',
+          body: location
+        })
+      }
+
       if (environment) {
-        blocks.push({ num: String(blocks.length + 1).padStart(2, '0'), title: '竞赛环境', body: environment })
+        const table = this.parseBriefingEnvironmentTable(environment)
+        if (table) {
+          blocks.push({
+            num: String(blocks.length + 1).padStart(2, '0'),
+            title: '竞赛环境',
+            kind: 'table',
+            theme: 'teal',
+            table,
+            body: environment
+          })
+        } else {
+          blocks.push({
+            num: String(blocks.length + 1).padStart(2, '0'),
+            title: '竞赛环境',
+            kind: 'text',
+            theme: 'teal',
+            body: environment
+          })
+        }
       }
       return blocks
-    },
-    studentBriefingContactLine () {
-      const c = this.activeCompetition || {}
-      const name = c.contact_name != null ? String(c.contact_name).trim() : ''
-      const phone = c.contact_phone != null ? String(c.contact_phone).trim() : ''
-      if (name && phone) return `${name} ${phone}`
-      if (phone) return phone
-      if (name) return name
-      const legacy = c.contact_tel || c.phone || c.hotline || c.contact
-      if (legacy == null || String(legacy).trim() === '') return ''
-      return String(legacy).trim()
     },
     divisionPickCompetitionName () {
       const c = this.divisionPickTarget || this.activeCompetition
@@ -4133,6 +4317,21 @@ export default {
       if (Number.isNaN(d.getTime())) return ''
       return String(d.getFullYear())
     },
+    /** 标题拆成主体 + 阶段后缀（名称含初赛/决赛时着色突出） */
+    competitionHeroTitleParts () {
+      const c = this.activeCompetition
+      const name = c ? String(c.name || '').trim() : ''
+      if (!name) return { base: '', stage: '' }
+      const stageLabel = this.activeCompetitionStageLabel
+      if (stageLabel && name.includes(stageLabel)) {
+        const idx = name.lastIndexOf(stageLabel)
+        const before = name.slice(0, idx).replace(/[-—–\s（(]+$/, '').trim()
+        if (before) {
+          return { base: before, stage: stageLabel }
+        }
+      }
+      return { base: name, stage: '' }
+    },
     /** 首行且无中日韩字符时视为英文副标题（如 China AI … Competition） */
     competitionHeroSubtitleEn () {
       const lines = this.competitionHeroDescLines
@@ -4143,25 +4342,67 @@ export default {
     },
     /** 口号：简介中除英文首行外的首条非竞赛名文案；否则取规则首行 */
     competitionHeroSlogan () {
+      const paras = this.competitionHeroSloganParagraphs
+      return paras.length ? paras.join(' ') : ''
+    },
+    /** 头图描述：拆成 2～3 段短句 */
+    competitionHeroSloganParagraphs () {
       const c = this.activeCompetition
       const name = c ? String(c.name || '').trim() : ''
       const lines = this.competitionHeroDescLines
       const en = this.competitionHeroSubtitleEn
-      const rest = en ? lines.slice(1) : lines
-      for (const p of rest) {
-        if (p && p !== name) return p
+      const rest = (en ? lines.slice(1) : lines).filter(p => p && p !== name)
+      let text = rest.join('\n').trim()
+      if (!text && c && c.rules_text) {
+        text = String(c.rules_text).split(/\r?\n+/).map(s => s.trim()).filter(Boolean).join('\n')
       }
-      if (!en && lines[0] && lines[0] !== name) return lines[0]
-      if (c && c.rules_text) {
-        const r0 = String(c.rules_text).split(/\r?\n+/).map(s => s.trim()).filter(Boolean)[0]
-        return r0 || ''
+      if (!text) return []
+      // 已有换行则优先按行；否则按句号拆成短句
+      let parts = text.split(/\r?\n+/).map(s => s.trim()).filter(Boolean)
+      if (parts.length === 1) {
+        const one = parts[0]
+        const sentences = one.match(/[^。！？!?]+[。！？!?]?/g) || [one]
+        parts = sentences.map(s => s.trim()).filter(Boolean)
       }
-      return ''
+      return parts.slice(0, 3)
     },
     competitionHeroDateRange () {
       const c = this.activeCompetition
       if (!c) return '-'
       return this.formatHeroDateRange(c.start_at, c.end_at)
+    },
+    /** 活动时间状态：未开始 / 即将截止 / 已结束 */
+    competitionHeroTimeHint () {
+      const c = this.activeCompetition
+      if (!c) return null
+      const now = Date.now()
+      const start = c.start_at ? new Date(c.start_at).getTime() : NaN
+      const end = c.end_at ? new Date(c.end_at).getTime() : NaN
+      const dayMs = 24 * 60 * 60 * 1000
+      if (!Number.isNaN(end) && now > end) {
+        return { text: '活动已结束', tone: 'ended' }
+      }
+      if (!Number.isNaN(start) && now < start) {
+        const days = Math.ceil((start - now) / dayMs)
+        if (days <= 1) return { text: '即将开始', tone: 'soon' }
+        return { text: `距开始还有 ${days} 天`, tone: 'soon' }
+      }
+      if (!Number.isNaN(end) && now <= end) {
+        const remain = end - now
+        const days = Math.ceil(remain / dayMs)
+        if (remain <= dayMs) {
+          const hours = Math.max(1, Math.ceil(remain / (60 * 60 * 1000)))
+          return { text: `距截止还剩 ${hours} 小时`, tone: 'urgent' }
+        }
+        if (days <= 7) {
+          return { text: `距截止还剩 ${days} 天`, tone: 'urgent' }
+        }
+        return null
+      }
+      if (c.status === 'closed') {
+        return { text: '活动已结束', tone: 'ended' }
+      }
+      return null
     },
     canEditSummaryScores () {
       return this.isSuperAdmin
@@ -5086,7 +5327,8 @@ export default {
       this.manualCompetitionId = null
       this.applyActiveViewDivisionFromRoute()
       await this.refreshAltExpertProfile()
-      if (this.isUsingAltIdentity) {
+      const hasAlt = !!getStoredAltToken() && !this.shareGuestMode
+      if (hasAlt) {
         await this.fetchCompetitions()
       } else {
         this.competitions = []
@@ -5097,14 +5339,19 @@ export default {
         this.selectCompetition(raw)
         await this.ensureCompetitionDetail(raw)
       }
-      void this.refreshExamPapersForDetail()
+      if (hasAlt) {
+        void this.refreshExamPapersForDetail()
+      } else {
+        this.examPapersForDetail = null
+        this.$emit('exam-papers-changed')
+      }
       this.$nextTick(() => {
         this.syncDualDivisionContextAfterCompetitionSelect()
         if (this.showStandaloneCompetitionBriefingLayout && this.activeCompetitionId) {
           void this.fetchStudentBriefingQr()
         }
         // 登录后竞赛 ID 可能未变，不会触发 activeCompetitionId watcher，需主动拉指导老师队伍列表
-        if (this.showAdvisorTeamPanel && this.activeCompetitionId) {
+        if (hasAlt && this.showAdvisorTeamPanel && this.activeCompetitionId) {
           void this.refreshAdvisorTeams()
         } else if (!this.showAdvisorTeamPanel) {
           this.advisorTeams = []
@@ -5154,6 +5401,159 @@ export default {
       void Promise.all(tasks).finally(() => {
         this.showStandaloneMyWorksModal = true
       })
+    },
+
+    /** 参赛对象：拆出导语 + 赛道分项（保留首段总述） */
+    parseBriefingTracks (text) {
+      const raw = String(text || '').trim()
+      if (!raw) return { intro: '', tracks: [] }
+
+      // 1、作品赛道： / 作品赛道： / 【软件赛】 / 软件赛：
+      const re = /(?:^|\n)\s*(?:[0-9一二三四五六七八九十]+[、.．)]\s*)?((?:作品|软件|硬件)赛道|(?:作品|软件|硬件|创新|创意)?赛|【[^】]{1,16}】)\s*[:：]\s*/g
+      const hits = []
+      let m
+      while ((m = re.exec(raw)) !== null) {
+        hits.push({
+          index: m.index + (m[0].match(/^\n/) ? 1 : 0),
+          name: String(m[1]).replace(/^【|】$/g, '').trim(),
+          end: m.index + m[0].length
+        })
+      }
+
+      if (hits.length < 2) {
+        const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+        const named = []
+        const introLines = []
+        let cur = null
+        lines.forEach((line) => {
+          const hm = line.match(/^(?:[0-9一二三四五六七八九十]+[、.．)]\s*)?((?:作品|软件|硬件)赛道|(?:作品|软件|硬件)赛)\s*[:：]?\s*(.*)$/)
+          if (hm) {
+            if (cur) named.push(cur)
+            cur = { name: hm[1].trim(), body: (hm[2] || '').trim() }
+          } else if (cur) {
+            cur.body = cur.body ? `${cur.body}\n${line}` : line
+          } else {
+            introLines.push(line)
+          }
+        })
+        if (cur) named.push(cur)
+        const tracks = named.filter(t => t.name && t.body).slice(0, 8)
+        return { intro: introLines.join('\n'), tracks }
+      }
+
+      const intro = raw.slice(0, hits[0].index).trim()
+      const tracks = []
+      for (let i = 0; i < hits.length; i++) {
+        const start = hits[i].end
+        const end = i + 1 < hits.length ? hits[i + 1].index : raw.length
+        const body = raw.slice(start, end).trim()
+        if (body) tracks.push({ name: hits[i].name, body })
+      }
+      return { intro, tracks }
+    },
+
+    /** 规则说明：拆成「短标题 + 说明」列表 */
+    parseBriefingRuleItems (text) {
+      const raw = String(text || '').trim()
+      if (!raw) return []
+      const iconByTitle = {
+        报名: '📝',
+        赛前准备: '📖',
+        初赛: '🏅',
+        初赛评审: '🏅',
+        决赛: '🏆',
+        提交: '📦',
+        评审: '✅',
+        晋级: '⬆️',
+        答辩: '🎤'
+      }
+      const pickIcon = (title) => {
+        const t = String(title || '')
+        const key = Object.keys(iconByTitle).find(k => t.includes(k))
+        return key ? iconByTitle[key] : '•'
+      }
+      const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+      const items = []
+      lines.forEach((line) => {
+        const cleaned = line.replace(/^[-*•·\d]+[\.\)、]\s*/, '').trim()
+        const m = cleaned.match(/^(.{1,16}?)\s*(?:→|->|：|:|——|—)\s*(.+)$/)
+        if (m) {
+          items.push({ icon: pickIcon(m[1]), title: m[1].trim(), desc: m[2].trim() })
+          return
+        }
+        const m2 = cleaned.match(/^(报名|赛前准备|初赛评审|初赛|决赛|作品提交|评审|晋级|答辩)[:：]?\s*(.*)$/)
+        if (m2) {
+          items.push({ icon: pickIcon(m2[1]), title: m2[1], desc: (m2[2] || '').trim() })
+        }
+      })
+      return items
+    },
+
+    /** 竞赛环境：解析为表格（支持 | 分隔或制表符） */
+    parseBriefingEnvironmentTable (text) {
+      const raw = String(text || '').trim()
+      if (!raw) return null
+      const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+      const splitRow = (line) => {
+        if (line.includes('|')) {
+          return line.split('|').map(c => c.trim()).filter((c, i, arr) => !(arr.length > 2 && c === '' && (i === 0 || i === arr.length - 1)))
+        }
+        if (line.includes('\t')) return line.split('\t').map(c => c.trim())
+        if (/\s{2,}/.test(line)) return line.split(/\s{2,}/).map(c => c.trim())
+        return null
+      }
+      // markdown 表头分隔行跳过
+      const isSep = (cells) => cells && cells.length >= 2 && cells.every(c => /^:?-{3,}:?$/.test(c.replace(/\s/g, '')))
+      const rows = []
+      lines.forEach((line) => {
+        if (/^\|?[\s:-]+\|/.test(line) && !/[A-Za-z\u4e00-\u9fff0-9]/.test(line.replace(/[\s|:-]/g, ''))) return
+        const cells = splitRow(line)
+        if (!cells || cells.length < 2) return
+        if (isSep(cells)) return
+        rows.push(cells)
+      })
+      if (rows.length < 2) {
+        // 回退：每行「赛道：操作系统 / 大模型 / 语言」
+        const fallback = []
+        lines.forEach((line) => {
+          const m = line.match(/^(.+?)\s*[:：]\s*(.+)$/)
+          if (!m) return
+          const rest = m[2].split(/[\/／、,，;；|]/).map(s => s.trim()).filter(Boolean)
+          if (rest.length >= 2) fallback.push([m[1].trim(), ...rest.slice(0, 3)])
+        })
+        if (fallback.length < 2) return null
+        const maxCols = Math.max(...fallback.map(r => r.length))
+        const headers = ['赛道', '操作系统', '大模型/平台', '编程语言'].slice(0, maxCols)
+        while (headers.length < maxCols) headers.push(`列${headers.length + 1}`)
+        return {
+          headers,
+          rows: fallback.map(r => {
+            const row = r.slice()
+            while (row.length < headers.length) row.push('-')
+            return row.slice(0, headers.length)
+          })
+        }
+      }
+      const colCount = Math.max(...rows.map(r => r.length))
+      if (colCount < 2) return null
+      let headers = rows[0].slice()
+      while (headers.length < colCount) headers.push(`列${headers.length + 1}`)
+      // 若首行不像表头，补默认表头
+      const looksHeader = /赛道|系统|模型|语言|平台|环境|操作系统/.test(headers.join(''))
+      let dataRows = rows.slice(1)
+      if (!looksHeader) {
+        headers = ['赛道', '操作系统', '大模型/平台', '编程语言'].slice(0, colCount)
+        while (headers.length < colCount) headers.push(`列${headers.length + 1}`)
+        dataRows = rows
+      }
+      return {
+        headers: headers.slice(0, colCount),
+        rows: dataRows.map(r => {
+          const row = r.slice()
+          while (row.length < colCount) row.push('-')
+          return row.slice(0, colCount)
+        })
+      }
     },
 
     revokeStudentBriefingQrObjectUrl () {
@@ -5413,6 +5813,31 @@ export default {
       const pad = (n) => String(n).padStart(2, '0')
       const fmt = (d) => `${pad(d.getMonth() + 1)}.${pad(d.getDate())}`
       return `${fmt(s)} — ${fmt(e)}`
+    },
+
+    /** 头图简介关键词高亮分段 */
+    highlightHeroSloganSegments (text) {
+      const raw = text != null ? String(text) : ''
+      if (!raw) return []
+      const keywords = [
+        '生成式大语言模型',
+        '多模态大模型',
+        '大模型应用系统开发',
+        '知识库 RAG',
+        '知识库RAG',
+        'AI 智能体 Agent',
+        'AI智能体 Agent',
+        'AI 智能体',
+        'AI智能体',
+        '提示工程',
+        'RAG',
+        'Agent'
+      ]
+      const escaped = keywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      const re = new RegExp(`(${escaped.join('|')})`, 'g')
+      const parts = raw.split(re)
+      const kwSet = new Set(keywords)
+      return parts.filter(p => p !== '').map(p => ({ t: p, hl: kwSet.has(p) }))
     },
 
     /** 从竞赛独立账号资料预填选填项（不覆盖用户已填写内容）；ID 固定为当前用户账号 ID */
@@ -5690,7 +6115,7 @@ export default {
     },
 
     async refreshActiveCompetitionMyEnrollKind () {
-      if (!this.activeCompetitionId || !this.isStudent) {
+      if (!this.activeCompetitionId || !this.isStudent || !getStoredAltToken()) {
         this.activeCompetitionMyEnrollKind = null
         this.activeCompetitionEnrollmentId = null
         this.myEnrolledIndividual = false
@@ -6416,7 +6841,7 @@ export default {
     },
 
     async refreshAdvisorTeams () {
-      if (!this.showAdvisorTeamPanel || !this.activeCompetitionId) return
+      if (!this.showAdvisorTeamPanel || !this.activeCompetitionId || !getStoredAltToken()) return
       this.advisorTeamsLoading = true
       try {
         if (!this.assertCompetitionDivisionQueryContext()) {
@@ -9361,7 +9786,7 @@ export default {
   }
 }
 
-/* 学生独立详情：赛题说明（深色网格底、霓虹描边、01/02 章节号、侧栏二维码） */
+/* 学生/指导老师独立详情：竞赛相关 DIRECTIONS（卡片分区 + 侧栏二维码） */
 .competition-briefing-card {
   ::v-deep > .ant-card-body {
     padding: 0 0 4px;
@@ -9375,77 +9800,48 @@ export default {
 
 .competition-briefing__header {
   text-align: center;
-  margin-bottom: 18px;
+  margin-bottom: 22px;
 }
 
 .competition-briefing__main-title {
-  margin: 0 0 6px;
-  font-size: 26px;
+  margin: 0 0 8px;
+  font-size: 28px;
   font-weight: 800;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   color: #fff;
-  text-shadow: 0 0 28px rgba(120, 200, 255, 0.35);
+  text-shadow: 0 0 28px rgba(120, 200, 255, 0.4);
 }
 
 .competition-briefing__sub-en {
   margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.35em;
-  color: #5ecbff;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.42em;
+  color: #f0c14b;
   text-transform: uppercase;
+  text-shadow: 0 0 18px rgba(240, 193, 75, 0.45);
 }
 
 .competition-briefing__frame {
   position: relative;
-  border: 1px solid rgba(120, 200, 255, 0.55);
-  border-radius: 2px;
+  border: 1px solid rgba(120, 200, 255, 0.45);
+  border-radius: 10px;
   box-shadow:
-    0 0 0 1px rgba(180, 100, 255, 0.12),
-    0 0 32px rgba(80, 160, 255, 0.22),
-    inset 0 0 80px rgba(40, 20, 90, 0.35);
-  background: linear-gradient(
-    165deg,
-    rgba(18, 10, 42, 0.92) 0%,
-    rgba(12, 8, 36, 0.96) 55%,
-    rgba(20, 8, 40, 0.94) 100%
-  );
+    0 0 0 1px rgba(180, 100, 255, 0.1),
+    0 0 36px rgba(80, 160, 255, 0.18),
+    inset 0 0 90px rgba(40, 20, 90, 0.28);
+  background:
+    radial-gradient(ellipse 80% 50% at 10% 0%, rgba(56, 160, 255, 0.16), transparent 55%),
+    radial-gradient(ellipse 70% 45% at 90% 100%, rgba(160, 80, 255, 0.14), transparent 50%),
+    linear-gradient(165deg, rgba(16, 12, 38, 0.88) 0%, rgba(10, 8, 28, 0.94) 55%, rgba(14, 10, 34, 0.9) 100%);
   overflow: hidden;
-  clip-path: polygon(
-    0 14px,
-    14px 0,
-    calc(100% - 18px) 0,
-    100% 18px,
-    100% calc(100% - 14px),
-    calc(100% - 14px) 100%,
-    18px 100%,
-    0 calc(100% - 18px)
-  );
-}
-
-.competition-briefing__frame::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 72px;
-  height: 72px;
-  pointer-events: none;
-  opacity: 0.55;
-  background: repeating-linear-gradient(
-    -35deg,
-    rgba(255, 120, 200, 0.35) 0 4px,
-    rgba(120, 80, 255, 0.2) 4px 8px
-  );
-  mask-image: linear-gradient(135deg, transparent 40%, #000 72%);
-  -webkit-mask-image: linear-gradient(135deg, transparent 40%, #000 72%);
 }
 
 .competition-briefing__grid {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0.14;
+  opacity: 0.1;
   background-image:
     linear-gradient(rgba(160, 210, 255, 0.45) 1px, transparent 1px),
     linear-gradient(90deg, rgba(160, 210, 255, 0.45) 1px, transparent 1px);
@@ -9457,85 +9853,337 @@ export default {
   z-index: 1;
   display: flex;
   align-items: stretch;
-  gap: 0;
-  min-height: 220px;
+  gap: 18px;
+  min-height: 240px;
+  padding: 20px 18px 18px;
 }
 
 .competition-briefing__col--main {
   flex: 1 1 0;
   min-width: 0;
-  padding: 22px 22px 20px 26px;
-  border-right: 1px solid rgba(255, 255, 255, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .competition-briefing__col--aside {
-  flex: 0 0 200px;
-  max-width: 240px;
-  padding: 22px 18px 20px;
+  flex: 0 0 240px;
+  max-width: 280px;
   display: flex;
   align-items: center;
   justify-content: center;
   align-self: stretch;
 }
 
-.competition-briefing__aside-inner {
+.briefing-aside-panel {
   width: 100%;
-  text-align: center;
+  padding: 16px 14px 14px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(248, 250, 255, 0.96) 0%, rgba(232, 240, 255, 0.94) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  color: #1a1a2e;
+}
+
+.briefing-aside-panel__qr-wrap {
+  margin-bottom: 12px;
+}
+
+.competition-briefing__qr {
+  display: block;
+  width: 176px;
+  height: 176px;
+  margin: 0 auto;
+  object-fit: contain;
+  border: 3px solid #fff;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(20, 40, 80, 0.18);
+  background: #fff;
+}
+
+.competition-briefing__qr-placeholder {
+  width: 176px;
+  height: 176px;
+  margin: 0 auto;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
+  font-size: 12px;
+  color: rgba(40, 60, 100, 0.55);
+  border: 1px dashed rgba(80, 120, 180, 0.45);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
 }
 
-.competition-briefing__section {
-  position: relative;
-  margin-bottom: 22px;
-  padding-left: 4px;
+.briefing-contact-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(90, 130, 200, 0.22);
 }
 
-.competition-briefing__section-bg-num {
-  position: absolute;
-  left: -6px;
-  top: -18px;
-  font-size: 56px;
-  font-weight: 900;
-  line-height: 1;
-  color: rgba(60, 180, 255, 0.22);
-  letter-spacing: 0.02em;
-  user-select: none;
-  pointer-events: none;
-}
-
-.competition-briefing__section-title {
-  position: relative;
-  margin: 0 0 10px;
-  padding-top: 8px;
-  font-size: 17px;
+.briefing-contact-card__label {
+  font-size: 12px;
   font-weight: 700;
-  color: #fff;
   letter-spacing: 0.08em;
+  color: #2f6fed;
+  margin-bottom: 8px;
 }
 
-.competition-briefing__section-text {
-  position: relative;
+.briefing-contact-card__row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
   font-size: 13px;
-  line-height: 1.8;
+  line-height: 1.55;
+}
+
+.briefing-contact-card__k {
+  flex: 0 0 42px;
+  color: rgba(30, 40, 70, 0.55);
+  font-size: 12px;
+}
+
+.briefing-contact-card__v {
+  flex: 1;
+  min-width: 0;
+  color: #1a1a2e;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.briefing-contact-card__empty {
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(30, 40, 70, 0.55);
+}
+
+.briefing-card {
+  position: relative;
+  padding: 16px 16px 14px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+
+.briefing-card--cyan {
+  background: linear-gradient(135deg, rgba(40, 140, 220, 0.18), rgba(20, 40, 80, 0.28));
+  border-color: rgba(90, 200, 255, 0.35);
+}
+
+.briefing-card--gold {
+  background: linear-gradient(135deg, rgba(200, 150, 40, 0.16), rgba(40, 28, 20, 0.3));
+  border-color: rgba(240, 193, 75, 0.32);
+}
+
+.briefing-card--violet {
+  background: linear-gradient(135deg, rgba(140, 90, 220, 0.16), rgba(30, 20, 60, 0.3));
+  border-color: rgba(180, 140, 255, 0.32);
+}
+
+.briefing-card--teal {
+  background: linear-gradient(135deg, rgba(40, 180, 160, 0.14), rgba(16, 40, 50, 0.3));
+  border-color: rgba(80, 220, 200, 0.3);
+}
+
+.briefing-card__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.briefing-card__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #0a1628;
+  background: linear-gradient(135deg, #7ad7ff, #5ecbff);
+  box-shadow: 0 0 16px rgba(94, 203, 255, 0.35);
+}
+
+.briefing-card--gold .briefing-card__num {
+  background: linear-gradient(135deg, #ffe08a, #f0c14b);
+  box-shadow: 0 0 16px rgba(240, 193, 75, 0.35);
+}
+
+.briefing-card--violet .briefing-card__num {
+  background: linear-gradient(135deg, #d2b8ff, #b388ff);
+  box-shadow: 0 0 16px rgba(179, 136, 255, 0.35);
+}
+
+.briefing-card--teal .briefing-card__num {
+  background: linear-gradient(135deg, #9af0e0, #5fd4c0);
+  box-shadow: 0 0 16px rgba(95, 212, 192, 0.35);
+}
+
+.briefing-card__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #fff;
+}
+
+.briefing-card__text {
+  font-size: 14px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: pre-wrap;
+}
+
+.briefing-tracks-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.briefing-tracks__intro {
+  margin: 0;
+  opacity: 0.95;
+}
+
+.briefing-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.briefing-track {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  border-left: 3px solid #5ecbff;
+}
+
+.briefing-track--1 {
+  border-left-color: #f0c14b;
+}
+
+.briefing-track--2 {
+  border-left-color: #b388ff;
+}
+
+.briefing-track__name {
+  font-size: 15px;
+  font-weight: 800;
+  margin-bottom: 4px;
+  letter-spacing: 0.04em;
+}
+
+.briefing-track--0 .briefing-track__name { color: #7ad7ff; }
+.briefing-track--1 .briefing-track__name { color: #f0c14b; }
+.briefing-track--2 .briefing-track__name { color: #d2b8ff; }
+
+.briefing-track__body {
+  font-size: 13px;
+  line-height: 1.65;
   color: rgba(255, 255, 255, 0.9);
   white-space: pre-wrap;
 }
 
+.briefing-rule-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.briefing-rule-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.briefing-rule-item__icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(240, 193, 75, 0.18);
+  font-size: 16px;
+}
+
+.briefing-rule-item__title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #ffe08a;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+
+.briefing-rule-item__desc {
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.briefing-env-table-wrap {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(120, 220, 200, 0.28);
+}
+
+.briefing-env-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.briefing-env-table th,
+.briefing-env-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  vertical-align: top;
+}
+
+.briefing-env-table th {
+  background: rgba(40, 180, 160, 0.22);
+  color: #9af0e0;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.briefing-env-table td {
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.briefing-env-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 .competition-briefing__footnotes {
-  margin: 8px 0 0;
+  margin: 4px 0 0;
   padding-left: 1.1em;
   font-size: 12px;
-  line-height: 1.65;
-  color: rgba(230, 238, 255, 0.78);
+  line-height: 1.7;
+  color: rgba(230, 238, 255, 0.72);
   list-style: none;
 }
 
 .competition-briefing__footnotes li {
   position: relative;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   padding-left: 0.5em;
 }
 
@@ -9546,73 +10194,20 @@ export default {
   color: rgba(150, 210, 255, 0.85);
 }
 
-.competition-briefing__qr {
-  display: block;
-  width: 148px;
-  height: 148px;
-  margin: 0 auto 12px;
-  object-fit: contain;
-  border: 3px solid rgba(255, 255, 255, 0.92);
-  border-radius: 4px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
-  background: #fff;
-}
-
-.competition-briefing__qr-placeholder {
-  width: 148px;
-  height: 148px;
-  margin: 0 auto 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  color: rgba(200, 220, 255, 0.65);
-  border: 1px dashed rgba(160, 200, 255, 0.45);
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.competition-briefing__aside-caption {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  color: #fff;
-  margin-bottom: 14px;
-}
-
-.competition-briefing__contact {
-  font-size: 12px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.88);
-  text-align: left;
-}
-
-.competition-briefing__contact-num {
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.competition-briefing .muted-soft {
-  color: rgba(210, 220, 255, 0.65);
-  font-size: 12px;
-  text-align: left;
-}
-
 @media (max-width: 900px) {
   .competition-briefing__body {
     flex-direction: column;
   }
 
-  .competition-briefing__col--main {
-    border-right: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.18);
-    padding-bottom: 18px;
-  }
-
   .competition-briefing__col--aside {
     flex: 1 1 auto;
     max-width: none;
-    padding-top: 18px;
+  }
+
+  .competition-briefing__qr,
+  .competition-briefing__qr-placeholder {
+    width: 160px;
+    height: 160px;
   }
 }
 
@@ -9622,30 +10217,7 @@ export default {
   overflow: hidden;
   border-radius: 12px;
   margin-bottom: 20px;
-  min-height: 200px;
-  color: #fff;
-  background: transparent;
-  box-shadow: none;
-}
-
-.competition-hero-banner--solo {
-  margin-bottom: 24px;
-}
-
-.competition-hero-banner__glow {
-  display: none;
-}
-
-.competition-hero-banner__inner {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  padding: 28px 20px 32px;
-  min-height: 200px;
+  min-height: 240px;
   background: transparent;
 }
 
@@ -9655,26 +10227,46 @@ export default {
 
 .competition-hero-banner__copy {
   width: 100%;
-  max-width: 820px;
+  max-width: 880px;
   margin: 0 auto;
   min-width: 0;
 }
 
+.competition-hero-banner__title-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 0 14px;
+  min-height: 72px;
+  padding: 12px 8px 4px;
+}
+
 .competition-hero-banner__year {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.95);
-  text-shadow: 0 0 24px rgba(120, 200, 255, 0.45);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -54%);
+  z-index: 0;
+  margin: 0;
+  font-size: ~'clamp(64px, 14vw, 112px)';
+  font-weight: 200;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.12);
+  text-shadow: none;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
 }
 
 .competition-hero-banner__title {
-  margin: 0 0 12px;
-  font-size: 26px;
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-size: 28px;
   font-weight: 800;
-  line-height: 1.25;
+  line-height: 1.3;
   letter-spacing: 0.02em;
   color: #fff;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75), 0 2px 24px rgba(0, 0, 0, 0.45);
@@ -9682,8 +10274,102 @@ export default {
 
 @media (min-width: 768px) {
   .competition-hero-banner__title {
-    font-size: 30px;
+    font-size: 36px;
   }
+}
+
+.competition-hero-banner__title-main {
+  font-weight: 800;
+}
+
+.competition-hero-banner__title-stage {
+  display: inline-block;
+  margin-left: 0.28em;
+  font-weight: 800;
+}
+
+.competition-hero-banner__title-stage--prelim {
+  color: #7ad7ff;
+  text-shadow: 0 0 18px rgba(122, 215, 255, 0.55), 0 1px 4px rgba(0, 0, 0, 0.65);
+}
+
+.competition-hero-banner__title-stage--final {
+  color: #d2b8ff;
+  text-shadow: 0 0 18px rgba(210, 184, 255, 0.55), 0 1px 4px rgba(0, 0, 0, 0.65);
+}
+
+.competition-hero-banner__capsules {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin: 0 0 16px;
+}
+
+.competition-hero-banner__capsule {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 2px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  border: 1px solid transparent;
+  backdrop-filter: blur(6px);
+}
+
+.competition-hero-banner__capsule--status-published,
+.competition-hero-banner__capsule--status-open {
+  color: #d8ffe8;
+  background: rgba(22, 163, 74, 0.28);
+  border-color: rgba(134, 239, 172, 0.45);
+}
+
+.competition-hero-banner__capsule--status-draft {
+  color: #1a1a1a;
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.competition-hero-banner__capsule--status-closed {
+  color: #ffe4e4;
+  background: rgba(185, 28, 28, 0.32);
+  border-color: rgba(252, 165, 165, 0.45);
+}
+
+.competition-hero-banner__capsule--status-upcoming {
+  color: #dbeafe;
+  background: rgba(37, 99, 235, 0.28);
+  border-color: rgba(147, 197, 253, 0.45);
+}
+
+.competition-hero-banner__capsule--status-unknown {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.competition-hero-banner__capsule--stage-prelim {
+  color: #e8f7ff;
+  background: rgba(14, 116, 190, 0.42);
+  border-color: rgba(125, 211, 252, 0.55);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+}
+
+.competition-hero-banner__capsule--stage-final {
+  color: #f3e8ff;
+  background: rgba(126, 34, 206, 0.38);
+  border-color: rgba(216, 180, 254, 0.5);
+}
+
+.competition-hero-banner__capsule--division {
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.28);
 }
 
 .competition-hero-banner__title-meta {
@@ -9709,15 +10395,34 @@ export default {
   margin: 0 0 22px;
   font-size: 15px;
   font-weight: 500;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   line-height: 1.75;
-  color: rgba(255, 255, 255, 0.92);
+  color: rgba(255, 255, 255, 0.9);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+}
+
+.competition-hero-banner__slogan-line {
+  margin: 0 0 0.55em;
+}
+
+.competition-hero-banner__slogan-line:last-child {
+  margin-bottom: 0;
+}
+
+.competition-hero-banner__kw {
+  display: inline;
+  padding: 0 2px;
+  margin: 0;
+  color: #ffe566;
+  background: rgba(255, 229, 102, 0.12);
+  border-radius: 2px;
+  font-weight: 700;
+  font-style: normal;
 }
 
 .competition-hero-banner__dates {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: center;
   flex-wrap: wrap;
   gap: 10px 14px;
@@ -9726,30 +10431,62 @@ export default {
 }
 
 .competition-hero-banner__dates-label {
-  display: inline-block;
-  padding: 2px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.14em;
   color: #1a0a12;
   background: linear-gradient(180deg, #ffe566 0%, #f5c400 100%);
-  border-radius: 4px;
+  border-radius: 999px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
+.competition-hero-banner__dates-icon {
+  font-size: 13px;
+}
+
 .competition-hero-banner__dates-range {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 800;
   letter-spacing: 0.08em;
   color: #fff;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
 }
 
-.competition-hero-banner__id {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.88);
+.competition-hero-banner__time-hint {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
   letter-spacing: 0.04em;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65);
+  border: 1px solid transparent;
+}
+
+.competition-hero-banner__time-hint--ended {
+  color: #ffe4e4;
+  background: rgba(185, 28, 28, 0.35);
+  border-color: rgba(252, 165, 165, 0.45);
+}
+
+.competition-hero-banner__time-hint--urgent {
+  color: #fff7ed;
+  background: rgba(234, 88, 12, 0.4);
+  border-color: rgba(253, 186, 116, 0.55);
+}
+
+.competition-hero-banner__time-hint--soon {
+  color: #dbeafe;
+  background: rgba(37, 99, 235, 0.35);
+  border-color: rgba(147, 197, 253, 0.5);
+}
+
+.competition-hero-banner__id {
+  display: none;
 }
 
 .competition-hero-banner__status-tag {

@@ -161,8 +161,15 @@ import {
   fetchAltIdentityMe,
   applyAltIdentityMeToStorage,
   getStoredAltToken,
+  getAltRoleNormalized,
   ALT_PROFILE_KEY
 } from '@/api/altIdentity'
+import {
+  getStudentAdvisorLandingRouteLocation,
+  getStudentAdvisorLandingCompetitionId,
+  markCompetitionShareSessionAuthed,
+  sanitizeCompetitionReturnPath
+} from '@/utils/competitionAuthFlow'
 
 function validateUsername (raw) {
   const s = (raw || '').trim()
@@ -255,7 +262,11 @@ export default {
         this.refreshProfile()
         this.$emit('session-changed')
       } catch (e) {
-        clearAltIdentityStorage()
+        // 恢复会话失败时勿盲目清令牌：可能是瞬时网络问题
+        const msg = e && e.message ? String(e.message) : ''
+        if (/invalid or expired|未授权|401|缺少第二套令牌|alt-identity token/i.test(msg)) {
+          clearAltIdentityStorage()
+        }
       }
     },
 
@@ -437,6 +448,7 @@ export default {
           this.refreshProfile()
           this.$message.success('登录成功')
           this.$emit('session-changed', res)
+          this.redirectStudentOrAdvisorAfterLogin()
         } else {
           this.$message.error('登录失败：未返回令牌')
         }
@@ -445,6 +457,33 @@ export default {
       } finally {
         this.loginLoading = false
       }
+    },
+
+    /** 学生/指导老师登录后进入默认竞赛详情（已登录态） */
+    redirectStudentOrAdvisorAfterLogin () {
+      if (this.mode !== 'embedded') return
+      const role = getAltRoleNormalized()
+      if (role !== 'student' && role !== 'advisor') return
+
+      const raw = this.$route && this.$route.query ? this.$route.query.redirectAfterAlt : ''
+      const next = sanitizeCompetitionReturnPath(raw)
+      if (next && next.indexOf('/manu/competition-detail') === 0) {
+        try {
+          const q = next.indexOf('?') >= 0 ? next.slice(next.indexOf('?') + 1) : ''
+          const params = new URLSearchParams(q)
+          markCompetitionShareSessionAuthed(
+            params.get('id') || getStudentAdvisorLandingCompetitionId(),
+            params.get('division') || ''
+          )
+        } catch (e) {
+          markCompetitionShareSessionAuthed(getStudentAdvisorLandingCompetitionId())
+        }
+        this.$router.replace(next).catch(() => {})
+        return
+      }
+
+      markCompetitionShareSessionAuthed(getStudentAdvisorLandingCompetitionId())
+      this.$router.replace(getStudentAdvisorLandingRouteLocation()).catch(() => {})
     }
   }
 }

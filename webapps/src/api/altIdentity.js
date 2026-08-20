@@ -511,10 +511,8 @@ export function isAltCompetitionTeacherOrAdmin () {
 
 /**
  * 竞赛端「学生」能力：报名、提交作品等。
- * 无 role 记录时按学生端展示，避免误显管理操作。
+ * 须明确 role=student（不再把空 role 当成学生，避免未登录仍打鉴权接口）。
  */
 export function isAltCompetitionStudent () {
-  const r = getAltRoleNormalized()
-  if (r === '') return true
-  return r === 'student'
+  return getAltRoleNormalized() === 'student'
 }

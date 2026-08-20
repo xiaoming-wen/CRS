@@ -9,6 +9,44 @@ const COMPETITION_ALT_GATE_ROUTES = [
   '/manu/my-enrollments'
 ]
 
+/**
+ * 学生 / 指导老师主页登录成功后的默认竞赛详情（可用环境变量覆盖）
+ * 对应：/#/manu/competition-detail?id=…&share=1
+ */
+export function getStudentAdvisorLandingCompetitionId () {
+  const raw = process.env.VUE_APP_STUDENT_ADVISOR_LANDING_COMPETITION_ID
+  const n = raw != null && String(raw).trim() !== '' ? Number(String(raw).trim()) : 58582342
+  return Number.isFinite(n) && n > 0 ? n : 58582342
+}
+
+/** @returns {{ path: string, query: { id: string, share: string } }} */
+export function getStudentAdvisorLandingRouteLocation () {
+  return {
+    path: '/manu/competition-detail',
+    query: {
+      id: String(getStudentAdvisorLandingCompetitionId()),
+      share: '1'
+    }
+  }
+}
+
+/** @returns {string} 如 /manu/competition-detail?id=58582342&share=1 */
+export function getStudentAdvisorLandingFullPath () {
+  const loc = getStudentAdvisorLandingRouteLocation()
+  return `${loc.path}?id=${encodeURIComponent(loc.query.id)}&share=1`
+}
+
+/** 进入分享详情前标记本会话已认证，避免 share=1 首屏清掉主页刚写入的令牌 */
+export function markCompetitionShareSessionAuthed (competitionId, division = '') {
+  const id = competitionId != null ? String(competitionId) : 'x'
+  const div = division != null ? String(division) : ''
+  try {
+    sessionStorage.setItem(`competition_share_authed_${id}_${div}`, '1')
+  } catch (e) {
+    /* ignore */
+  }
+}
+
 function pathOnly (fullPath) {
   const s = String(fullPath || '').trim()
   const i = s.indexOf('?')

@@ -30,7 +30,10 @@
 <script>
 import { mixinDevice } from '@/utils/mixin'
 import ManuAltIdentityRegisterPanel from '@/views/manus/ManuAltIdentityRegisterPanel.vue'
-import { sanitizeCompetitionReturnPath } from '@/utils/competitionAuthFlow'
+import {
+  sanitizeCompetitionReturnPath,
+  getStudentAdvisorLandingFullPath
+} from '@/utils/competitionAuthFlow'
 
 export default {
   name: 'CompetitionAltRegister',
@@ -43,11 +46,19 @@ export default {
     document.body.classList.remove('userLayout')
   },
   methods: {
-    registerSuccessNavigate () {
+    registerSuccessNavigate (payload) {
+      const role = payload && payload.role != null ? String(payload.role) : ''
       const raw = this.$route.query.redirectAfterAlt
-      const next = sanitizeCompetitionReturnPath(raw)
+      let next = sanitizeCompetitionReturnPath(raw)
+      if (!next && (role === 'student' || role === 'advisor')) {
+        next = getStudentAdvisorLandingFullPath()
+      }
+      // 注册不自动登录：回到主页登录，登录成功后再进竞赛详情
       if (next) {
-        this.$router.push(next).catch(() => {})
+        this.$router.push({
+          name: 'ManuVideoCompetition',
+          query: { redirectAfterAlt: next }
+        }).catch(() => {})
         return
       }
       this.$router.push({ name: 'ManuVideoCompetition' }).catch(() => {})

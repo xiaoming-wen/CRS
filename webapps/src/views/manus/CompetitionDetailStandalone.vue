@@ -18,10 +18,10 @@
         <img :src="detailLogoUrl" alt="竞赛 Logo" class="detail-logo-img">
       </div>
       <div v-if="showStandaloneGuestToolbar" class="detail-toolbar-right">
-        <a-button type="primary" ghost class="detail-toolbar-btn" @click="openLoginModal">
+        <a-button type="primary" ghost class="detail-toolbar-btn" @click="goMainLogin">
           登录
         </a-button>
-        <a-button type="primary" ghost class="detail-toolbar-btn" @click="openRegisterModal">
+        <a-button type="primary" ghost class="detail-toolbar-btn" @click="goMainRegister">
           注册
         </a-button>
       </div>
@@ -93,51 +93,11 @@
       @exam-papers-changed="bumpToolbarIdentityTick"
       @enroll-block-changed="onEnrollBlockChanged"
     />
-
-    <a-modal
-      v-model="showLoginModal"
-      title="登录竞赛账号"
-      :footer="null"
-      width="420px"
-      destroy-on-close
-      wrap-class-name="standalone-competition-login-modal"
-      @cancel="showLoginModal = false"
-    >
-      <p class="standalone-auth-hint">
-        请使用竞赛报名系统独立账号登录。登录后将根据您的角色（学生 / 指导老师等）展示相应功能。
-      </p>
-      <ManuAltIdentityPanel
-        mode="embedded"
-        @session-changed="onLoginSuccess"
-        @switch-to-register="openRegisterModal"
-      />
-    </a-modal>
-
-    <a-modal
-      v-model="showRegisterModal"
-      title="注册竞赛账号"
-      :footer="null"
-      width="520px"
-      destroy-on-close
-      wrap-class-name="standalone-competition-register-modal"
-      @cancel="showRegisterModal = false"
-    >
-      <p class="standalone-auth-hint">
-        注册指导老师或学生账号后，请使用该账号登录以报名或组班。
-      </p>
-      <ManuAltIdentityRegisterPanel
-        mode="embedded"
-        @register-success="onRegisterSuccess"
-        @switch-to-login="switchToLoginFromRegister"
-      />
-    </a-modal>
   </div>
 </template>
 
 <script>
 import CompetitionRegistrationSystem from '@/views/manus/CompetitionRegistrationSystem.vue'
-import ManuAltIdentityPanel from '@/views/manus/ManuAltIdentityPanel.vue'
-import ManuAltIdentityRegisterPanel from '@/views/manus/ManuAltIdentityRegisterPanel.vue'
 import {
   getStoredAltToken,
   isAltCompetitionStudent,
@@ -151,17 +111,16 @@ import {
 } from '@/api/altIdentity'
 import { buildAbsoluteRouteUrl } from '@/utils/openRouteInNewTab'
 import { getCompetitionLogo } from '@/api/competition'
+import { markCompetitionShareSessionAuthed, getStudentAdvisorLandingFullPath } from '@/utils/competitionAuthFlow'
 
 export default {
   name: 'CompetitionDetailStandalone',
-  components: { CompetitionRegistrationSystem, ManuAltIdentityPanel, ManuAltIdentityRegisterPanel },
+  components: { CompetitionRegistrationSystem },
   data () {
     return {
       /** 独立账号写入 localStorage 后触发重算登录态与角色 */
       toolbarIdentityTick: 0,
-      showLoginModal: false,
-      showRegisterModal: false,
-      /** 分享链接页：本会话内是否已通过弹窗登录 */
+      /** 分享链接页：本会话内是否已通过主页登录 */
       shareSessionActive: false,
       examPaperToolbarLoading: false,
       /** 子组件报名成功后同步，用于顶栏「提交作品」显示 */
@@ -179,6 +138,7 @@ export default {
     window.addEventListener('alt-identity-changed', this.bumpToolbarIdentityTick)
     this.$nextTick(() => {
       void this.ensureWorkbenchDetailAutoSession()
+      void this.ensureShareLoggedInBootstrap()
       void this.loadDetailLogo()
     })
   },
@@ -251,67 +211,53 @@ export default {
       }
       this.bumpToolbarIdentityTick()
     },
-    /** 分享链接（share=1）：首次进入清除本地独立账号，保证默认未登录 */
+    /** 分享链接（share=1）：有令牌则视为已登录；无令牌才进访客态（不清掉刚写入的登录令牌） */
     initShareLinkGuestSession () {
       if (!this.isShareLink) return
       const key = this.shareSessionStorageKey
-      const active = !!sessionStorage.getItem(key)
-      this.shareSessionActive = active
-      if (!active) {
-        clearAltIdentityStorage()
-      }
-    },
-    openLoginModal () {
-      this.showRegisterModal = false
-      this.showLoginModal = true
-    },
-    openRegisterModal () {
-      this.showLoginModal = false
-      this.$nextTick(() => {
-        this.showRegisterModal = true
-      })
-    },
-    switchToLoginFromRegister () {
-      this.showRegisterModal = false
-      this.showLoginModal = true
-    },
-    onRegisterSuccess ({ role }) {
-      this.showRegisterModal = false
-      if (role === 'expert') return
-      this.$message.success('注册成功，请登录')
-      this.showLoginModal = true
-    },
-    onLoginSuccess () {
-      this.showLoginModal = false
-      if (this.isShareLink) {
-        sessionStorage.setItem(this.shareSessionStorageKey, '1')
+      const hasToken = !!getStoredAltToken()
+      if (hasToken) {
+        try {
+          sessionStorage.setItem(key, '1')
+        } catch (e) { /* ignore */ }
+        markCompetitionShareSessionAuthed(this.numericId, this.initialViewDivision || '')
         this.shareSessionActive = true
+        return
       }
-      this.bumpToolbarIdentityTick()
-      void this.loadDetailLogo()
-      this.$nextTick(() => {
-        const sys = this.$refs.registrationSys
-        if (sys && typeof sys.bootstrapStandaloneDetail === 'function') {
-          void sys.bootstrapStandaloneDetail()
-        }
-      })
+      try {
+        sessionStorage.removeItem(key)
+      } catch (e) { /* ignore */ }
+      this.shareSessionActive = false
+    },
+    /** 详情页访客：改走主页登录（不再弹窗） */
+    goMainLogin () {
+      const returnPath = this.$route.fullPath || getStudentAdvisorLandingFullPath()
+      this.$router.push({
+        name: 'ManuVideoCompetition',
+        query: { redirectAfterAlt: returnPath }
+      }).catch(() => {})
+    },
+    goMainRegister () {
+      const returnPath = this.$route.fullPath || getStudentAdvisorLandingFullPath()
+      this.$router.push({
+        name: 'ManuVideoCompetitionRegister',
+        query: { redirectAfterAlt: returnPath }
+      }).catch(() => {})
     },
     onToolbarLogout () {
       if (this.isShareLink) {
-        sessionStorage.removeItem(this.shareSessionStorageKey)
+        try {
+          sessionStorage.removeItem(this.shareSessionStorageKey)
+        } catch (e) { /* ignore */ }
         this.shareSessionActive = false
       }
       markAltLoginSkipAutoOnce()
       clearAltIdentityStorage()
       this.childHasEnrollment = false
       this.bumpToolbarIdentityTick()
-      this.$message.success('已退出登录')
-      this.$nextTick(() => {
-        const sys = this.$refs.registrationSys
-        if (sys && typeof sys.bootstrapStandaloneDetail === 'function') {
-          void sys.bootstrapStandaloneDetail()
-        }
-      })
+      this.$message.success('已退出登录，请重新登录')
+      // 回到主页面登录门禁
+      this.$router.replace({ name: 'ManuVideoCompetition' }).catch(() => {})
     },
     onToolbarEnroll () {
       const c = this.$refs.registrationSys
@@ -387,6 +333,25 @@ export default {
         const msg = e && e.message ? e.message : ''
         if (msg) console.warn('[CompetitionDetailStandalone] workbench auto session failed:', msg)
       }
+    },
+    /** 主页登录后进入 share 详情：同步资料并按已登录态加载报名/组队能力 */
+    async ensureShareLoggedInBootstrap () {
+      if (!this.numericId || !this.isShareLink || !this.altLoggedIn) return
+      try {
+        if (getStoredAltToken()) {
+          const me = await fetchAltIdentityMe()
+          applyAltIdentityMeToStorage(me)
+          this.bumpToolbarIdentityTick()
+        }
+        const sys = this.$refs.registrationSys
+        if (sys && typeof sys.bootstrapStandaloneDetail === 'function') {
+          await sys.bootstrapStandaloneDetail()
+        }
+        this.onEnrollBlockChanged()
+      } catch (e) {
+        const msg = e && e.message ? e.message : ''
+        if (msg) console.warn('[CompetitionDetailStandalone] share login bootstrap failed:', msg)
+      }
     }
   },
   computed: {
@@ -460,7 +425,7 @@ export default {
       return this.numericId != null && this.isShareLink && !this.altLoggedIn
     },
     showStandaloneStudentToolbar () {
-      return this.numericId != null && this.isCompetitionStudentRole
+      return this.numericId != null && this.isCompetitionStudentRole && this.altLoggedIn
     },
     showStandaloneAdvisorToolbar () {
       return (
