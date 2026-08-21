@@ -281,7 +281,7 @@
           letter-spacing="3"
           font-family="Segoe UI, PingFang SC, sans-serif"
           opacity="0.55"
-        >Large Language Model · Transformer · Attention</text>
+        >Anhui Province AI Large Model Innovative Application Competition</text>
       </g>
 
       <!-- 角落齿轮（简化） -->
