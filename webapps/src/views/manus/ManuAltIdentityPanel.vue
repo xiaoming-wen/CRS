@@ -21,66 +21,57 @@
           </template>
         </a-alert>
 
-        <!-- 与 Login.vue 一致：仅「账号密码登录」一 Tab -->
-        <a-tabs
-          class="alt-login-tabs"
-          :class="{ 'alt-login-tabs--embedded': mode === 'embedded' }"
-          :tabBarStyle="{ textAlign: 'center', borderBottom: 'unset' }"
-        >
-          <a-tab-pane key="tab1" >
-            <a-form id="formAltLogin" class="user-layout-login" @submit.prevent="handleLoginSubmit">
-              <a-form-item>
-                <a-input
-                  v-model="loginForm.username"
-                  class="auth-field-input"
-                  size="large"
-                  type="text"
-                  autocomplete="username"
-                  placeholder="请输入用户名"
-                >
-                  <a-icon slot="prefix" type="user" class="auth-field-icon" />
-                </a-input>
-              </a-form-item>
-              <a-form-item>
-                <a-input-password
-                  v-model="loginForm.password"
-                  class="auth-field-input"
-                  size="large"
-                  autocomplete="off"
-                  placeholder="请输入密码"
-                >
-                  <a-icon slot="prefix" type="lock" class="auth-field-icon" />
-                </a-input-password>
-              </a-form-item>
-              <a-form-item class="auth-links-row">
-                <a-button
-                  type="link"
-                  html-type="button"
-                  class="forgot-password-link"
-                  @click.stop.prevent="onForgotPasswordClick"
-                >忘记密码</a-button>
-                <a-button
-                  type="link"
-                  html-type="button"
-                  class="register-link"
-                  @click.stop.prevent="onRegisterClick"
-                >注册</a-button>
-              </a-form-item>
-              <a-form-item class="login-submit-item">
-                <a-button
-                  size="large"
-                  type="primary"
-                  htmlType="submit"
-                  class="login-button"
-                  :loading="loginLoading"
-                  :disabled="loginLoading"
-                >
-                  登录
-                </a-button>
-              </a-form-item>
-            </a-form>
-          </a-tab-pane>
-        </a-tabs>
+        <a-form id="formAltLogin" class="user-layout-login" @submit.prevent="handleLoginSubmit">
+          <a-form-item>
+            <a-input
+              v-model="loginForm.username"
+              class="auth-field-input"
+              size="large"
+              type="text"
+              autocomplete="username"
+              placeholder="请输入用户名"
+            >
+              <a-icon slot="prefix" type="user" class="auth-field-icon" />
+            </a-input>
+          </a-form-item>
+          <a-form-item>
+            <a-input-password
+              v-model="loginForm.password"
+              class="auth-field-input"
+              size="large"
+              autocomplete="off"
+              placeholder="请输入密码"
+            >
+              <a-icon slot="prefix" type="lock" class="auth-field-icon" />
+            </a-input-password>
+          </a-form-item>
+          <a-form-item class="auth-links-row">
+            <a-button
+              type="link"
+              html-type="button"
+              class="forgot-password-link"
+              @click.stop.prevent="onForgotPasswordClick"
+            >忘记密码</a-button>
+            <a-button
+              type="link"
+              html-type="button"
+              class="register-link"
+              @click.stop.prevent="onRegisterClick"
+            >注册</a-button>
+          </a-form-item>
+          <a-form-item class="login-submit-item">
+            <a-button
+              size="large"
+              type="primary"
+              htmlType="submit"
+              class="login-button"
+              :loading="loginLoading"
+              :disabled="loginLoading"
+            >
+              登录
+            </a-button>
+          </a-form-item>
+        </a-form>
 
         <div v-if="altLoggedIn && mode !== 'embedded'" class="logout-row">
           <a-button type="link" @click="handleAltLogout">退出独立账号</a-button>
@@ -672,54 +663,6 @@ export default {
     &:focus {
       border-color: #1a73e8;
       box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15);
-    }
-  }
-}
-
-.alt-login-tabs {
-  ::v-deep .ant-tabs-bar {
-    margin-bottom: 18px;
-  }
-
-  ::v-deep .ant-tabs-nav .ant-tabs-tab {
-    font-size: 15px;
-    font-weight: 700;
-    color: #1a73e8;
-    padding: 8px 0;
-  }
-
-  ::v-deep .ant-tabs-ink-bar {
-    display: none !important;
-  }
-
-  &--embedded {
-    ::v-deep .ant-tabs-nav-wrap {
-      display: flex;
-      justify-content: center;
-    }
-
-    ::v-deep .ant-tabs-nav .ant-tabs-tab {
-      position: relative;
-      padding: 10px 28px;
-      margin: 0;
-
-      &::before,
-      &::after {
-        content: '';
-        position: absolute;
-        top: 50%;
-        width: 22px;
-        height: 1px;
-        background: rgba(26, 115, 232, 0.35);
-      }
-
-      &::before {
-        left: 0;
-      }
-
-      &::after {
-        right: 0;
-      }
     }
   }
 }
