@@ -14,8 +14,8 @@
               <a-icon type="deployment-unit" />
             </div>
             <p class="auth-card__eyebrow">2026年</p>
-            <h1 class="auth-card__title">安徽省AI大模型创新应用竞赛</h1>
-            <p class="auth-card__subtitle">报名系统</p>
+            <h1 class="auth-card__title">安徽省AI大模型创新应用竞赛报名系统</h1>
+            <p class="auth-card__subtitle">zhang'h</p>
           </header>
 
           <div class="auth-card__body">
@@ -121,7 +121,7 @@ import CompetitionSchoolAdminApplication from '@/views/manus/CompetitionSchoolAd
 import CompetitionSchoolAdminTeamReview from '@/views/manus/CompetitionSchoolAdminTeamReview.vue'
 import MyCompetitionEnrollments from '@/views/manus/MyCompetitionEnrollments.vue'
 import ManuAltIdentityPanel from '@/views/manus/ManuAltIdentityPanel.vue'
-import { sanitizeCompetitionReturnPath, getStudentAdvisorLandingFullPath, getStudentAdvisorLandingRouteLocation, getStudentAdvisorLandingCompetitionId, markCompetitionShareSessionAuthed, lockAuthViewport, unlockAuthViewport } from '@/utils/competitionAuthFlow'
+import { sanitizeCompetitionReturnPath, getStudentAdvisorLandingRouteLocation, getStudentAdvisorLandingCompetitionId, markCompetitionShareSessionAuthed, lockAuthViewport, unlockAuthViewport } from '@/utils/competitionAuthFlow'
 import {
   getStoredAltToken,
   clearAltIdentityStorage,
@@ -237,7 +237,7 @@ export default {
           unlockAuthViewport()
           await this.refreshAltIdentityProfile()
           if (!getStoredAltToken()) return
-          // 学生/指导老师：优先跳转默认竞赛详情，避免先闪一下列表页
+          // 仅学生/顾问消费 redirect 或默认落地；超管/专家/校管留在目录
           if (this.consumeRedirectAfterAltIfPresent()) return
           if (this.redirectStudentOrAdvisorToLanding()) return
           this.currentSection = this.resolveDefaultSection()
@@ -350,16 +350,26 @@ export default {
       this.altGateTick++
     },
     goToCompetitionRegister () {
-      this.$router.push({
-        name: 'ManuVideoCompetitionRegister',
-        query: { redirectAfterAlt: getStudentAdvisorLandingFullPath() }
-      }).catch(() => {})
+      // 学生/顾问落地由注册成功或登录后逻辑处理，勿给管理类角色预置详情 redirect
+      this.$router.push({ name: 'ManuVideoCompetitionRegister' }).catch(() => {})
     },
-    /** 主站重新登录后经 redirectAfterAlt 进入本页：独立账号就绪后跳回原竞赛界面 */
+    /**
+     * 经 redirectAfterAlt 回跳：仅学生/指导老师跟跳（含默认详情落地）。
+     * 超管 / 专家 / 校管与主页登录一致，清掉 redirect 后留在竞赛目录。
+     */
     consumeRedirectAfterAltIfPresent () {
       if (!getStoredAltToken()) return false
       const raw = this.$route.query.redirectAfterAlt
       if (raw == null || String(raw).trim() === '') return false
+
+      const role = getAltRoleNormalized()
+      if (role !== 'student' && role !== 'advisor') {
+        const q = { ...this.$route.query }
+        delete q.redirectAfterAlt
+        this.$router.replace({ path: this.$route.path, query: q }).catch(() => {})
+        return false
+      }
+
       const next = sanitizeCompetitionReturnPath(raw)
       if (!next) return false
       if (next.indexOf('/manu/competition-detail') === 0) {

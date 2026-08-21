@@ -12,7 +12,7 @@
               <a-icon type="deployment-unit" />
             </div>
             <p class="auth-card__eyebrow">2026年</p>
-            <h1 class="auth-card__title">安徽省AI大模型创新应用竞赛</h1>
+            <h1 class="auth-card__title">安徽省AI大模型创新应用竞赛报名系统</h1>
             <p class="auth-card__subtitle">账号注册</p>
           </header>
           <div class="auth-card__body">
@@ -58,19 +58,17 @@ export default {
   methods: {
     registerSuccessNavigate (payload) {
       const role = payload && payload.role != null ? String(payload.role) : ''
-      const raw = this.$route.query.redirectAfterAlt
-      let next = sanitizeCompetitionReturnPath(raw)
-      if (!next && (role === 'student' || role === 'advisor')) {
-        next = getStudentAdvisorLandingFullPath()
-      }
-      if (next) {
-        this.$router.push({
-          name: 'ManuVideoCompetition',
-          query: { redirectAfterAlt: next }
-        }).catch(() => {})
+      // 超管/专家/校管等同管理类：注册后只回登录页目录，不带详情 redirect
+      if (role !== 'student' && role !== 'advisor') {
+        this.$router.push({ name: 'ManuVideoCompetition' }).catch(() => {})
         return
       }
-      this.$router.push({ name: 'ManuVideoCompetition' }).catch(() => {})
+      const raw = this.$route.query.redirectAfterAlt
+      const next = sanitizeCompetitionReturnPath(raw) || getStudentAdvisorLandingFullPath()
+      this.$router.push({
+        name: 'ManuVideoCompetition',
+        query: { redirectAfterAlt: next }
+      }).catch(() => {})
     }
   }
 }

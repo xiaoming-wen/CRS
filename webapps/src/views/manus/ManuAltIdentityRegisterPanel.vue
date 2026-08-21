@@ -265,10 +265,7 @@ import {
   filterSchoolsByKeyword,
   isSchoolInProvince
 } from '@/data/chinaSchoolsByProvince'
-import {
-  sanitizeCompetitionReturnPath,
-  getStudentAdvisorLandingFullPath
-} from '@/utils/competitionAuthFlow'
+import { sanitizeCompetitionReturnPath } from '@/utils/competitionAuthFlow'
 
 export default {
   name: 'ManuAltIdentityRegisterPanel',
@@ -301,12 +298,16 @@ export default {
   },
   computed: {
     loginLinkLocation () {
+      // 仅透传已有回跳；不默认塞入学生落地详情，避免超管/专家/校管登录后被带去详情页
       const raw = this.$route && this.$route.query ? this.$route.query.redirectAfterAlt : ''
-      const next = sanitizeCompetitionReturnPath(raw) || getStudentAdvisorLandingFullPath()
-      return {
-        name: 'ManuVideoCompetition',
-        query: { redirectAfterAlt: next }
+      const next = sanitizeCompetitionReturnPath(raw)
+      if (next) {
+        return {
+          name: 'ManuVideoCompetition',
+          query: { redirectAfterAlt: next }
+        }
       }
+      return { name: 'ManuVideoCompetition' }
     },
     schoolNotFoundContent () {
       if (!this.selectedProvince) return '请先选择省份'
