@@ -97,6 +97,8 @@ http {
 
 然后 `nginx -t && nginx -s reload`。验证：`curl -I https://www.damoxingcr.cn/` 的 `Server` 应仅为 `nginx`，不含版本号。
 
+**安全响应头：** 写在 HTTPS `server` 内；注意：若某个 `location` 自己写了 `add_header`，父级头不会自动继承，需在该 `location` 再写一遍（见下方静态资源与 index 示例）。
+
 ```nginx
 server {
     listen 80;
@@ -113,6 +115,12 @@ server {
 
     root /var/www/competition-registration-system/webapps/dist;
     index index.html;
+
+    # —— 安全响应头 ——
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
 
     # —— gzip：显著减小 chunk-vendors.js 等体积 ——
     gzip on;
@@ -136,6 +144,9 @@ server {
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?|ttf|eot|map)$ {
         expires 30d;
         add_header Cache-Control "public, immutable" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
         access_log off;
         try_files $uri =404;
     }
@@ -144,6 +155,9 @@ server {
     location = /index.html {
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         add_header Pragma "no-cache" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
         expires -1;
     }
 
@@ -160,6 +174,10 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         client_max_body_size 100m;
+        # API 也带上安全头（proxy 场景用 always）
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     }
 
     # 竞赛二维码：禁止磁盘/代理长期缓存，否则换图后仍显示旧图
@@ -171,10 +189,13 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
         add_header Pragma "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
         expires -1;
     }
 }
 ```
+
+**上传架构说明（审计用）：** 竞赛作品/题目答案、校管照片、二维码、Logo 等均为浏览器 → Nginx `/api` → FastAPI → **本机磁盘目录**，**不是**对象存储（OSS）预签名直传。若需 OSS 直传，需另立项改造（预签名 URL + 前端直传 + 业务回写 object key）。
 
 重载 Nginx：
 
