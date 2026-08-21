@@ -15,7 +15,7 @@
             </div>
             <p class="auth-card__eyebrow">2026年</p>
             <h1 class="auth-card__title">安徽省AI大模型创新应用竞赛报名系统</h1>
-            <p class="auth-card__subtitle">zhang'h</p>
+            <p class="auth-card__subtitle">账号登录</p>
           </header>
 
           <div class="auth-card__body">

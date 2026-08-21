@@ -27,7 +27,7 @@
           :class="{ 'alt-login-tabs--embedded': mode === 'embedded' }"
           :tabBarStyle="{ textAlign: 'center', borderBottom: 'unset' }"
         >
-          <a-tab-pane key="tab1" tab="账号密码登录">
+          <a-tab-pane key="tab1" >
             <a-form id="formAltLogin" class="user-layout-login" @submit.prevent="handleLoginSubmit">
               <a-form-item>
                 <a-input

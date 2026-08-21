@@ -7,9 +7,7 @@ NProgress.configure({ showSpinner: false })
 
 router.beforeEach((to, from, next) => {
   NProgress.start()
-  if (to.meta && typeof to.meta.title !== 'undefined') {
-    setDocumentTitle(`${to.meta.title} - ${domTitle}`)
-  }
+  setDocumentTitle(domTitle)
   next()
 })
 
