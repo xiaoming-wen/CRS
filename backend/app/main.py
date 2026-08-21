@@ -2,6 +2,7 @@
 竞赛报名系统独立后端入口（自 llm_AIO 复制分离，API 路径与主站一致）。
 """
 import logging
+import os
 
 from dotenv import load_dotenv
 
@@ -15,6 +16,50 @@ from sqlalchemy import text
 from app.alt_auth.router import router as alt_identity_router
 from app.routers import competitions
 
+logger = logging.getLogger(__name__)
+
+# 生产默认白名单；可用环境变量 CORS_ALLOW_ORIGINS 覆盖（逗号分隔，禁止 *）
+_DEFAULT_CORS_ORIGINS = (
+    "https://www.damoxingcr.cn",
+    "https://damoxingcr.cn",
+)
+
+
+def _parse_cors_allow_origins() -> list:
+    raw = (os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
+    if not raw:
+        origins = list(_DEFAULT_CORS_ORIGINS)
+    else:
+        origins = []
+        for part in raw.split(","):
+            item = part.strip().rstrip("/")
+            if not item:
+                continue
+            if item == "*":
+                logger.warning(
+                    "CORS_ALLOW_ORIGINS 含 '*' 已忽略（credentials=true 时禁止反射任意 Origin）"
+                )
+                continue
+            origins.append(item)
+        if not origins:
+            origins = list(_DEFAULT_CORS_ORIGINS)
+    # 本地开发常见来源（仅当显式开启时追加，避免生产误开）
+    if (os.getenv("CORS_ALLOW_LOCALHOST") or "").strip().lower() in ("1", "true", "yes"):
+        for local in (
+            "http://localhost:8002",
+            "http://127.0.0.1:8002",
+            "http://localhost:8003",
+            "http://127.0.0.1:8003",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+        ):
+            if local not in origins:
+                origins.append(local)
+    return origins
+
+
+CORS_ALLOW_ORIGINS = _parse_cors_allow_origins()
+
 app = FastAPI(
     title="Competition Registration System API",
     description="竞赛报名、组队、作品提交与评分（独立部署）",
@@ -23,11 +68,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ALLOW_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+logger.info("CORS allow_origins=%s", CORS_ALLOW_ORIGINS)
 
 
 @app.on_event("startup")
