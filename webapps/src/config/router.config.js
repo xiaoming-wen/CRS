@@ -10,13 +10,13 @@ export const constantRouterMap = [
     path: '/manu/competition-list',
     name: 'ManuVideoCompetition',
     component: () => import('@/views/manus/CompetitionRegistrationFullPage.vue'),
-    meta: { title: '竞赛列表与报名', keepAlive: false, hideHeader: true }
+    meta: { title: '登录', keepAlive: false, hideHeader: true }
   },
   {
     path: '/manu/competition-register',
     name: 'ManuVideoCompetitionRegister',
     component: () => import('@/views/manus/CompetitionAltRegister.vue'),
-    meta: { title: '2026年安徽省AI大模型创新应用竞赛报名系统注册', keepAlive: false, hideHeader: true }
+    meta: { title: '注册', keepAlive: false, hideHeader: true }
   },
   {
     path: '/manu/competition-detail',
