@@ -9409,16 +9409,19 @@ export default {
         this.$message.warning('缺少竞赛或队伍信息')
         return
       }
-      try {
-        await this.$confirm({
+      // ant-design-vue 1.x 的 $confirm 不返回 Promise，必须用 onOk/onCancel 等待用户确认
+      const confirmed = await new Promise((resolve) => {
+        this.$confirm({
           title: '确认提交作品',
           content: '确认后将正式提交本队已选文件的题目答案。提交后无法再提交作品，是否继续？',
           okText: '确认提交',
-          cancelText: '取消'
+          cancelText: '取消',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false)
         })
-      } catch (_) {
-        return
-      }
+      })
+      if (!confirmed) return
+
       this.questionAnswersSubmitLoading = true
       try {
         await submitCompetitionQuestionAnswers(competitionId, teamId)
@@ -9428,7 +9431,6 @@ export default {
       } finally {
         this.questionAnswersSubmitLoading = false
       }
-      // 刷新状态放到 loading 结束之后，避免接口慢时按钮一直转圈
       try {
         await this.refreshQuestionAnswersBoard()
       } catch (_) {
