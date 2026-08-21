@@ -2970,7 +2970,7 @@ async def school_review_team(
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
-    """校管（本校）或超管审核队伍：通过或驳回。双方共享同一 Team.status。"""
+    """校管（本校）或超管审核队伍：通过或驳回。超管可将已通过改回待校审或驳回。双方共享同一 Team.status。"""
     role = _effective_alt_role(identity.role)
     is_super = role == "super_admin"
     is_school = role == "school_admin"
@@ -2993,19 +2993,31 @@ async def school_review_team(
         admin_school = _normalize_school_name(identity.school)
         if not _team_matches_school(team, admin_school):
             raise HTTPException(status_code=403, detail="Team does not belong to your school")
-    if team.status != TeamStatus.PENDING_SCHOOL_REVIEW:
-        raise HTTPException(status_code=400, detail="Team is not pending school review")
 
     action = body.action.value if hasattr(body.action, "value") else str(body.action)
     feedback = (body.feedback or "").strip() or None
     now = utc_now()
 
     if action == "approve":
+        if team.status != TeamStatus.PENDING_SCHOOL_REVIEW:
+            raise HTTPException(status_code=400, detail="Team is not pending school review")
         team.status = TeamStatus.ACTIVE
         team.reviewed_by_id = identity.id
         team.reviewed_at = now
         team.review_feedback = feedback
     elif action == "reject":
+        # 校管仅可驳回待审；超管还可将已通过改为驳回
+        if team.status == TeamStatus.PENDING_SCHOOL_REVIEW:
+            pass
+        elif is_super and team.status == TeamStatus.ACTIVE:
+            pass
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Team cannot be rejected in current status"
+                if is_super
+                else "Team is not pending school review",
+            )
         team.status = TeamStatus.REJECTED
         team.reviewed_by_id = identity.id
         team.reviewed_at = now
@@ -3021,8 +3033,20 @@ async def school_review_team(
         )
         for enr in enrollments:
             enr.status = CompetitionEnrollmentStatus.WITHDRAWN
+    elif action == "reset_pending":
+        if not is_super:
+            raise HTTPException(status_code=403, detail="Only super_admin can reset team to pending")
+        if team.status != TeamStatus.ACTIVE:
+            raise HTTPException(status_code=400, detail="Only approved teams can be reset to pending")
+        team.status = TeamStatus.PENDING_SCHOOL_REVIEW
+        team.reviewed_by_id = None
+        team.reviewed_at = None
+        team.review_feedback = feedback
     else:
-        raise HTTPException(status_code=400, detail="action must be approve or reject")
+        raise HTTPException(
+            status_code=400,
+            detail="action must be approve, reject, or reset_pending",
+        )
 
     db.commit()
     db.refresh(team)

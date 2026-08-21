@@ -1010,6 +1010,7 @@ class SchoolAdminTeamReviewListResponse(BaseModel):
 class TeamSchoolReviewAction(str, Enum):
     APPROVE = "approve"
     REJECT = "reject"
+    RESET_PENDING = "reset_pending"  # 超管：已通过 → 待校审
 
 
 class TeamSchoolReviewRequest(BaseModel):

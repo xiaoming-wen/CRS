@@ -106,6 +106,23 @@
                     驳回
                   </a-button>
                 </template>
+                <template v-if="!isSchoolMode && record.status === 'active'">
+                  <a-button
+                    size="small"
+                    :loading="reviewLoadingId === record.team_id && reviewAction === 'reset_pending'"
+                    @click="handleResetPending(record)"
+                  >
+                    改待校审
+                  </a-button>
+                  <a-button
+                    size="small"
+                    danger
+                    :loading="reviewLoadingId === record.team_id && reviewAction === 'reject'"
+                    @click="openRejectModal(record)"
+                  >
+                    改驳回
+                  </a-button>
+                </template>
                 <a-button
                   v-if="record.status !== 'rejected'"
                   size="small"
@@ -140,7 +157,12 @@
       @cancel="closeRejectModal"
     >
       <p v-if="rejectModalTeam">
-        确定驳回队伍「{{ rejectModalTeam.team_name || ('#' + rejectModalTeam.team_id) }}」吗？
+        <template v-if="rejectModalTeam.status === 'active'">
+          确定将已通过队伍「{{ rejectModalTeam.team_name || ('#' + rejectModalTeam.team_id) }}」改为驳回吗？相关报名将自动退赛。
+        </template>
+        <template v-else>
+          确定驳回队伍「{{ rejectModalTeam.team_name || ('#' + rejectModalTeam.team_id) }}」吗？
+        </template>
       </p>
       <a-form-item label="驳回原因" :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
         <a-textarea v-model="rejectFeedback" :rows="3" placeholder="选填" />
@@ -360,7 +382,7 @@ export default {
       if (this.isSchoolMode) {
         return '审核本校学生/指导老师创建的组队申请。通过后队伍状态为「已通过」，方可组队参赛；驳回后相关报名自动退赛。校管与超管共享同一审核状态。'
       }
-      return '查看各校组队申请并执行通过/驳回。与校管共享同一队伍状态：任一方审核后双方列表同步更新。'
+      return '查看各校组队申请并执行通过/驳回。对已通过队伍可「改待校审」或「改驳回」（驳回会同步退赛）。与校管共享同一队伍状态。'
     },
     teamCompetitions () {
       return (this.competitions || []).filter(c => c && c.allow_team !== false)
@@ -387,7 +409,7 @@ export default {
         { title: '组别', dataIndex: 'division', key: 'division', width: 80, scopedSlots: { customRender: 'division' } },
         { title: '赛道', dataIndex: 'work_track', key: 'work_track', width: 80, scopedSlots: { customRender: 'workTrack' } },
         { title: '状态', dataIndex: 'status', key: 'status', width: 90, scopedSlots: { customRender: 'teamStatus' } },
-        { title: '操作', key: 'teamActions', width: 360, fixed: 'right', scopedSlots: { customRender: 'teamActions' } }
+        { title: '操作', key: 'teamActions', width: 420, fixed: 'right', scopedSlots: { customRender: 'teamActions' } }
       ]
     }
   },
@@ -516,7 +538,12 @@ export default {
           action,
           feedback: feedback != null ? feedback : undefined
         })
-        this.$message.success(action === 'approve' ? '已通过审核' : '已驳回')
+        const msgMap = {
+          approve: '已通过审核',
+          reject: '已驳回',
+          reset_pending: '已改回待校审'
+        }
+        this.$message.success(msgMap[action] || '操作成功')
         await this.loadTeams()
       } catch (e) {
         this.$message.error('审核失败：' + this.getApiErrorMessage(e))
@@ -525,6 +552,21 @@ export default {
         this.reviewLoadingId = null
         this.reviewAction = null
       }
+    },
+    async handleResetPending (record) {
+      if (!record || record.team_id == null) return
+      const confirmed = await new Promise((resolve) => {
+        this.$confirm({
+          title: '改回待校审',
+          content: `确定将队伍「${record.team_name || ('#' + record.team_id)}」从已通过改回待校审吗？报名保留，需再次审核通过后方可提交作品。`,
+          okText: '确认',
+          cancelText: '取消',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false)
+        })
+      })
+      if (!confirmed) return
+      await this.handleReviewTeam(record, 'reset_pending')
     },
     openRejectModal (record) {
       this.rejectModalTeam = record

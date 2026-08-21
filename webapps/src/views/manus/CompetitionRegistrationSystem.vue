@@ -5489,10 +5489,77 @@ export default {
       return items
     },
 
-    /** 竞赛环境：解析为表格（支持 | 分隔或制表符） */
+    /**
+     * 竞赛环境：优先按「（一）作品赛 /（二）软件赛 /（三）硬件赛」分段解析表格。
+     * 每段内识别 操作系统 / 大模型|硬件平台 / 编程语言。
+     */
+    parseBriefingEnvironmentByTracks (text) {
+      const raw = String(text || '').trim()
+      if (!raw) return null
+      const headerRe = /(?:^|\n)\s*[（(]?\s*[一二三四五六七八九十\d]+\s*[）)]?\s*[、.．]?\s*(作品赛道?|软件赛道?|硬件赛道?)\s*[：:]?/g
+      const matches = []
+      let m
+      while ((m = headerRe.exec(raw)) !== null) {
+        matches.push({
+          index: m.index,
+          end: m.index + m[0].length,
+          trackRaw: String(m[1] || '').trim()
+        })
+      }
+      if (!matches.length) return null
+
+      const normalizeTrack = (name) => {
+        const s = String(name || '').replace(/赛道$/, '赛').trim()
+        if (/作品/.test(s)) return '作品赛'
+        if (/软件/.test(s)) return '软件赛'
+        if (/硬件/.test(s)) return '硬件赛'
+        return s || '—'
+      }
+
+      const pickField = (body, labels) => {
+        const lines = String(body || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i]
+          for (let j = 0; j < labels.length; j++) {
+            const lab = labels[j]
+            const re = new RegExp('^' + lab + '\\s*[:：]\\s*(.+)$')
+            const mm = line.match(re)
+            if (mm) return String(mm[1] || '').trim()
+          }
+        }
+        return ''
+      }
+
+      const rows = matches.map((h, idx) => {
+        const bodyStart = h.end
+        const bodyEnd = idx + 1 < matches.length ? matches[idx + 1].index : raw.length
+        const body = raw.slice(bodyStart, bodyEnd).trim()
+        const os = pickField(body, ['操作系统', '系统'])
+        const platform = pickField(body, ['硬件平台', '大模型/平台', '大模型', '平台'])
+        const lang = pickField(body, ['编程语言', '语言'])
+        return [
+          normalizeTrack(h.trackRaw),
+          os || '—',
+          platform || '—',
+          lang || '—'
+        ]
+      })
+
+      if (!rows.length) return null
+      return {
+        headers: ['赛道', '操作系统', '大模型/平台', '编程语言'],
+        rows
+      }
+    },
+
+    /** 竞赛环境：解析为表格（赛道分段优先；其次 | / 制表符表格） */
     parseBriefingEnvironmentTable (text) {
       const raw = String(text || '').trim()
       if (!raw) return null
+
+      const byTracks = this.parseBriefingEnvironmentByTracks(raw)
+      if (byTracks) return byTracks
+
       const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
       const splitRow = (line) => {
         if (line.includes('|')) {
@@ -5513,13 +5580,16 @@ export default {
         rows.push(cells)
       })
       if (rows.length < 2) {
-        // 回退：每行「赛道：操作系统 / 大模型 / 语言」
+        // 回退：仅当行首不是字段名时，才按「赛道：a / b / c」解析，避免把「操作系统/大模型」当成赛道
+        const fieldNames = /^(操作系统|系统|大模型\/平台|大模型|硬件平台|平台|编程语言|语言)$/
         const fallback = []
         lines.forEach((line) => {
           const m = line.match(/^(.+?)\s*[:：]\s*(.+)$/)
           if (!m) return
-          const rest = m[2].split(/[\/／、,，;；|]/).map(s => s.trim()).filter(Boolean)
-          if (rest.length >= 2) fallback.push([m[1].trim(), ...rest.slice(0, 3)])
+          const label = m[1].trim()
+          if (fieldNames.test(label)) return
+          const rest = m[2].split(/[\/／|]/).map(s => s.trim()).filter(Boolean)
+          if (rest.length >= 2) fallback.push([label, ...rest.slice(0, 3)])
         })
         if (fallback.length < 2) return null
         const maxCols = Math.max(...fallback.map(r => r.length))
