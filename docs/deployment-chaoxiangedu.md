@@ -82,24 +82,70 @@ curl http://127.0.0.1:8000/
 
 ### 3.4 Nginx 配置示例
 
-将 `root`、证书路径按实际环境修改后启用：
+将 `root`、证书路径、`server_name` 按实际环境修改后启用（生产也可能是 `www.damoxingcr.cn`）。
+
+**务必包含：** gzip（压缩 JS/CSS）、带 hash 的静态资源长期缓存、`index.html` 不长期缓存。
+
+**隐藏 Nginx 版本号（全局）：** 在 `/etc/nginx/nginx.conf` 的 `http { }` 内增加一行：
+
+```nginx
+http {
+    server_tokens off;
+    # ...
+}
+```
+
+然后 `nginx -t && nginx -s reload`。验证：`curl -I https://www.damoxingcr.cn/` 的 `Server` 应仅为 `nginx`，不含版本号。
 
 ```nginx
 server {
     listen 80;
-    server_name www.chaoxiangedu.com;
+    server_name www.chaoxiangedu.com;  # 或 www.damoxingcr.cn
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name www.chaoxiangedu.com;
+    server_name www.chaoxiangedu.com;  # 或 www.damoxingcr.cn
 
     ssl_certificate     /path/to/fullchain.pem;
     ssl_certificate_key /path/to/privkey.pem;
 
     root /var/www/competition-registration-system/webapps/dist;
     index index.html;
+
+    # —— gzip：显著减小 chunk-vendors.js 等体积 ——
+    gzip on;
+    gzip_vary on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_types
+        text/plain
+        text/css
+        text/javascript
+        application/javascript
+        application/x-javascript
+        application/json
+        application/xml
+        image/svg+xml
+        font/woff2
+        application/font-woff;
+
+    # 带 hash 的静态资源：长期缓存（发版文件名会变，可安全 immutable）
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?|ttf|eot|map)$ {
+        expires 30d;
+        add_header Cache-Control "public, immutable" always;
+        access_log off;
+        try_files $uri =404;
+    }
+
+    # SPA 入口：禁止长期缓存，避免发版后仍用旧 HTML
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        expires -1;
+    }
 
     # 前端（hash 模式 SPA）
     location / {
@@ -133,8 +179,22 @@ server {
 重载 Nginx：
 
 ```bash
-nginx -t && nginx -s reload
+sudo nginx -t && sudo nginx -s reload
 ```
+
+**验证（Windows CMD 示例，域名按实际改）：**
+
+```bat
+curl -I -H "Accept-Encoding: gzip" https://www.damoxingcr.cn/js/chunk-vendors.js
+```
+
+期望看到 `Content-Encoding: gzip`，以及静态资源上的 `Cache-Control: public, immutable`（路径以实际打包文件名为准，可在浏览器 Network 里复制完整 URL）。
+
+```bat
+curl -I https://www.damoxingcr.cn/index.html
+```
+
+期望 `Cache-Control` 含 `no-cache` / `no-store`。
 
 ### 3.5 后端公网地址（可选）
 
@@ -202,3 +262,6 @@ A：确认 `ssl_certificate` / `ssl_certificate_key` 路径正确，且域名与
 
 **Q：上传作品或二维码失败？**  
 A：检查 Nginx `client_max_body_size` 是否足够（建议 ≥ 100m），以及后端磁盘目录写权限。
+
+**Q：`chunk-vendors.js` 很大、高并发打开很慢？**  
+A：按上文 3.4 开启 gzip 与静态资源缓存后重载 Nginx；中长期再接 CDN，并考虑前端拆包。

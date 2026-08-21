@@ -42,6 +42,24 @@ def sms_config_ready() -> bool:
     )
 
 
+def is_sms_rate_limited_error(message: str) -> bool:
+    """识别阿里云号码/业务流控类错误。"""
+    m = (message or "").lower()
+    keys = (
+        "流控",
+        "permits",
+        "frequency",
+        "day_limit",
+        "business_limit",
+        "limitcontrol",
+        "throttl",
+        "exceed",
+        "次数",
+        "上限",
+    )
+    return any(k in m for k in keys)
+
+
 def send_verification_sms(phone: str, code: str) -> Tuple[bool, str]:
     """
     发送注册验证码短信。

@@ -47,3 +47,9 @@ SMS_CODE_TTL_SECONDS: int = int(os.getenv("SMS_CODE_TTL_SECONDS", "300") or 300)
 SMS_CODE_RESEND_INTERVAL_SECONDS: int = int(
     os.getenv("SMS_CODE_RESEND_INTERVAL_SECONDS", "60") or 60
 )
+
+# 登录限流（进程内内存；多进程各自独立）
+LOGIN_IP_MAX_ATTEMPTS: int = int(os.getenv("LOGIN_IP_MAX_ATTEMPTS", "20") or 20)
+LOGIN_IP_WINDOW_SECONDS: int = int(os.getenv("LOGIN_IP_WINDOW_SECONDS", "60") or 60)
+LOGIN_MAX_FAILS_BEFORE_LOCK: int = int(os.getenv("LOGIN_MAX_FAILS_BEFORE_LOCK", "5") or 5)
+LOGIN_LOCK_MINUTES: int = int(os.getenv("LOGIN_LOCK_MINUTES", "15") or 15)

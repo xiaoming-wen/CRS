@@ -10,7 +10,7 @@ import string
 from datetime import timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -18,6 +18,12 @@ from sqlalchemy.orm import Session
 from app.alt_auth import settings as alt_settings
 from app.alt_auth.context import get_current_alt_identity
 from app.alt_auth.database import get_alt_auth_db
+from app.alt_auth.login_rate_limit import (
+    check_login_allowed,
+    clear_login_failures,
+    client_ip_from_headers,
+    record_login_failure,
+)
 from app.alt_auth.models import AltAuthSmsCodeRecord, AltAuthUserRecord
 from app.alt_auth.password_codec import hash_password_plain, verify_password_plain
 from app.alt_auth.payloads import (
@@ -32,7 +38,7 @@ from app.alt_auth.payloads import (
     AltAuthSendSmsCodeResult,
 )
 from app.alt_auth.permission_view import list_effective_permissions_for_role
-from app.alt_auth.sms_service import send_verification_sms
+from app.alt_auth.sms_service import is_sms_rate_limited_error, send_verification_sms
 from app.alt_auth.time_util import utc_now_naive
 from app.alt_auth.token_codec import issue_access_token
 from app.database import get_db
@@ -121,7 +127,8 @@ def _consume_sms_code(db: Session, phone: str, purpose: str, code: str) -> None:
     summary="发送短信验证码（注册 / 忘记密码）",
     responses={
         400: {"description": "手机号无效、用途不匹配或发送过于频繁"},
-        500: {"description": "短信发送失败"},
+        429: {"description": "短信平台流控（号码天级/频控等）"},
+        502: {"description": "短信发送失败"},
     },
 )
 async def alt_identity_send_sms_code(
@@ -178,8 +185,13 @@ async def alt_identity_send_sms_code(
     code = _generate_sms_code(6)
     ok, msg = send_verification_sms(phone, code)
     if not ok:
+        if is_sms_rate_limited_error(msg):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="该手机号发送次数已达上限或触发流控，请稍后再试",
+            )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"短信发送失败：{msg}",
         )
 
@@ -352,15 +364,28 @@ async def alt_identity_register(
         400: {"description": "用户名或格式错误"},
         401: {"description": "凭据不正确"},
         403: {"description": "账号已停用"},
+        429: {"description": "登录过于频繁或账号临时锁定"},
         500: {"description": "服务器内部错误"},
     },
 )
 async def alt_identity_login(
     body: AltAuthLoginPayload,
+    request: Request,
     db: Session = Depends(get_alt_auth_db),
 ):
     try:
         uname = body.username
+        client_ip = client_ip_from_headers(
+            request.headers.get("x-forwarded-for"),
+            request.client.host if request.client else None,
+        )
+        limited = check_login_allowed(ip=client_ip, username=uname)
+        if limited:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=limited,
+            )
+
         row: Optional[AltAuthUserRecord] = (
             db.query(AltAuthUserRecord)
             .filter(AltAuthUserRecord.username == uname)
@@ -368,6 +393,7 @@ async def alt_identity_login(
         )
 
         if row is None:
+            record_login_failure(username=uname)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
@@ -381,6 +407,7 @@ async def alt_identity_login(
             )
 
         if not verify_password_plain(body.password, row.hashed_password):
+            record_login_failure(username=uname)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
@@ -394,6 +421,7 @@ async def alt_identity_login(
                 detail="Expert account pending verification; please wait for administrator approval",
             )
 
+        clear_login_failures(username=uname)
         login_name = (row.username or "").strip() or (row.account or "").strip()
         token_str, _ttl = issue_access_token(
             user_id=row.id, username=login_name, role=role_out
