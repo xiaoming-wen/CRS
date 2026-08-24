@@ -332,18 +332,14 @@
                     </div>
                     <div class="briefing-contact-card">
                       <div class="briefing-contact-card__label">联系人信息</div>
-                      <template v-if="studentBriefingContactParts.name || studentBriefingContactParts.phone || studentBriefingContactParts.email">
-                        <div v-if="studentBriefingContactParts.name" class="briefing-contact-card__row">
-                          <span class="briefing-contact-card__k">联系人</span>
-                          <span class="briefing-contact-card__v">{{ studentBriefingContactParts.name }}</span>
-                        </div>
-                        <div v-if="studentBriefingContactParts.phone" class="briefing-contact-card__row">
-                          <span class="briefing-contact-card__k">电话</span>
-                          <span class="briefing-contact-card__v">{{ studentBriefingContactParts.phone }}</span>
-                        </div>
-                        <div v-if="studentBriefingContactParts.email" class="briefing-contact-card__row">
-                          <span class="briefing-contact-card__k">邮箱</span>
-                          <span class="briefing-contact-card__v">{{ studentBriefingContactParts.email }}</span>
+                      <template v-if="studentBriefingContactRows.length">
+                        <div
+                          v-for="row in studentBriefingContactRows"
+                          :key="row.key"
+                          class="briefing-contact-card__row"
+                        >
+                          <span class="briefing-contact-card__k">{{ row.label }}</span>
+                          <span class="briefing-contact-card__v">{{ row.value }}</span>
                         </div>
                       </template>
                       <div v-else class="briefing-contact-card__empty">
@@ -2185,8 +2181,8 @@
         <a-form-item label="竞赛联系人" extra="选填；展示在竞赛详情二维码下方。">
           <a-input v-model="createCompetitionForm.contact_name" placeholder="如：张老师" />
         </a-form-item>
-        <a-form-item label="联系方式" extra="选填；电话/微信/邮箱等。">
-          <a-input v-model="createCompetitionForm.contact_phone" placeholder="如：138xxxx 或微信 xxx" />
+        <a-form-item label="联系方式" extra="选填；建议按标签填写，学生详情将自动分行，如：电话：138xxxx 邮箱：a@b.com QQ群：123456">
+          <a-input v-model="createCompetitionForm.contact_phone" placeholder="如：电话：138xxxx 邮箱：a@b.com QQ群：123456" />
         </a-form-item>
         <a-form-item label="竞赛地点">
           <a-input v-model="createCompetitionForm.location" placeholder="如：合肥大学某某楼 / 线上" />
@@ -2391,8 +2387,8 @@
         <a-form-item label="竞赛联系人">
           <a-input v-model="editCompetitionForm.contact_name" placeholder="修改后保存；与当前一致则不提交" />
         </a-form-item>
-        <a-form-item label="联系方式">
-          <a-input v-model="editCompetitionForm.contact_phone" placeholder="修改后保存；与当前一致则不提交" />
+        <a-form-item label="联系方式" extra="建议：电话：… 邮箱：… QQ群：…；学生详情按标签自动分行">
+          <a-input v-model="editCompetitionForm.contact_phone" placeholder="如：电话：138xxxx 邮箱：a@b.com QQ群：123456" />
         </a-form-item>
         <a-form-item label="竞赛地点">
           <a-input v-model="editCompetitionForm.location" placeholder="修改后保存；与当前一致则不提交" />
@@ -2813,6 +2809,7 @@ import {
   revokeCompetitionPromotion
 } from '@/api/competition'
 import { validateImageContainsQrCode } from '@/utils/qrImageValidate'
+import { parseCompetitionContactRows } from '@/utils/parseCompetitionContact'
 import {
   EIGHT_DIGIT_ID_MIN,
   EIGHT_DIGIT_ID_MAX,
@@ -3988,39 +3985,24 @@ export default {
       if (!parts.length) return '参赛方式以主办方公告为准。'
       return `${parts.join('；')}。具体资格条件见赛事要求。`
     },
+    studentBriefingContactRows () {
+      return parseCompetitionContactRows(this.activeCompetition || {})
+    },
+    /** @deprecated 兼容旧逻辑；优先使用 studentBriefingContactRows */
     studentBriefingContactParts () {
-      const c = this.activeCompetition || {}
-      let name = c.contact_name != null ? String(c.contact_name).trim() : ''
-      let phoneRaw = c.contact_phone != null ? String(c.contact_phone).trim() : ''
-      let email = ''
-      let phone = ''
-
-      const emailMatch = phoneRaw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
-      if (emailMatch) {
-        email = emailMatch[0]
-        phoneRaw = phoneRaw.replace(emailMatch[0], ' ').trim()
+      const rows = this.studentBriefingContactRows
+      const find = (keys) => {
+        const hit = rows.find(r => keys.includes(r.key) || keys.some(k => String(r.key).startsWith(`${k}__`)))
+        return hit ? hit.value : ''
       }
-      phoneRaw = phoneRaw
-        .replace(/^(电话|手机|联系方式|微信)[:：\s]*/i, '')
-        .replace(/\s*(邮箱|Email|E-mail)[:：\s]*.*$/i, '')
-        .trim()
-      phone = phoneRaw
-
-      if (!name && !phone && !email) {
-        const legacy = c.contact_tel || c.phone || c.hotline || c.contact
-        if (legacy != null && String(legacy).trim() !== '') {
-          const line = String(legacy).trim()
-          const em = line.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
-          if (em) email = em[0]
-          phone = line.replace(em ? em[0] : '', '').trim() || phone
-        }
+      return {
+        name: find(['name']),
+        phone: find(['phone']),
+        email: find(['email'])
       }
-      return { name, phone, email }
     },
     studentBriefingContactLine () {
-      const p = this.studentBriefingContactParts
-      const bits = [p.name, p.phone, p.email].filter(Boolean)
-      return bits.join(' · ')
+      return this.studentBriefingContactRows.map(r => `${r.label}：${r.value}`).join(' ')
     },
     studentBriefingBlocks () {
       const c = this.activeCompetition || {}
