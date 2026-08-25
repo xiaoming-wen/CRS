@@ -8,6 +8,7 @@ export const CHINA_SCHOOLS_BY_PROVINCE = [
     schools: [
       '中国科学技术大学',
       '合肥工业大学',
+      '合肥大学',
       '安徽大学',
       '安徽师范大学',
       '安徽农业大学',
@@ -34,7 +35,6 @@ export const CHINA_SCHOOLS_BY_PROVINCE = [
       '铜陵学院',
       '亳州学院',
       '安徽科技学院',
-      '合肥学院',
       '蚌埠学院',
       '安徽三联学院',
       '安徽文达信息工程学院',
