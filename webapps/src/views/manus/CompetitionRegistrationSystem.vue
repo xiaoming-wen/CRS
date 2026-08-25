@@ -628,8 +628,8 @@
               v-else
               type="info"
               show-icon
-              message="初赛作品提交"
-              description="请由队长上传作品压缩包（.zip）。决赛晋级后将改为分题上传。"
+              message="作品赛道 · 压缩包提交"
+              description="作品赛道请由队长上传作品压缩包（.zip）。软件 / 硬件赛道请使用分题答案上传。"
               style="margin-bottom: 12px"
             />
             <a-form layout="vertical" style="max-width: 640px">
@@ -669,7 +669,7 @@
             size="small"
             class="sub-card"
             :bordered="true"
-            title="题目答案上传（共5题）"
+            :title="'题目答案上传（共' + submissionQuestionCount + '题）'"
             style="margin-top: 16px"
           >
             <a-alert
@@ -712,7 +712,7 @@
                 class="question-answer-slot"
               >
                 <div class="question-answer-slot__title">
-                  链接{{ slot.question_no }} · 第{{ slot.question_no }}题
+                  {{ slot.question_name || ('第' + slot.question_no + '题') }}
                   <a-tag v-if="slot.uploaded || slot.submitted" color="green" style="margin-left: 8px">提交</a-tag>
                   <a-tag v-else color="orange" style="margin-left: 8px">未提交</a-tag>
                 </div>
@@ -787,7 +787,7 @@
                 :key="'status-q-' + slot.question_no"
                 class="question-answer-status-row"
               >
-                <span>链接{{ slot.question_no }} · 第{{ slot.question_no }}题</span>
+                <span>{{ slot.question_name || ('第' + slot.question_no + '题') }}</span>
                 <a-tag :color="(slot.uploaded || slot.submitted) ? 'green' : 'orange'" style="margin-left: 8px">
                   {{ (slot.uploaded || slot.submitted) ? '提交' : '未提交' }}
                 </a-tag>
@@ -1043,10 +1043,9 @@
                   <span>
                     {{ formatTeamMemberDisplayName(m) }}
                     <span v-if="m.user_id != null" class="muted" style="margin-left: 4px">(ID {{ m.user_id }})</span>
-                    <a-tag v-if="m.is_captain" color="blue" style="margin-left: 8px">队长</a-tag>
                   </span>
                   <a-button
-                    v-if="canOperateAdvisorSelectedTeam && !m.is_captain && !competitionTeamRemoveMemberBlocked"
+                    v-if="canOperateAdvisorSelectedTeam && !competitionTeamRemoveMemberBlocked"
                     size="small"
                     type="link"
                     danger
@@ -1104,30 +1103,34 @@
             :title="adminSubmissionsPanelTitle"
             style="margin-top: 16px"
           >
-            <div style="display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 8px">
+            <div style="display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 12px">
               <a-button :loading="adminSubmissionsLoading" :disabled="!activeCompetitionId" @click="refreshAdminSubmissions">
                 {{ adminSubmissionsRefreshLabel }}
               </a-button>
-              <a-button
-                v-if="canManageCompetitions && usesQuestionAnswerSubmission"
-                :loading="questionAnswersExportLoading === 'by_team'"
-                @click="exportQuestionAnswersZip('by_team')"
-                :disabled="!activeCompetitionId || questionAnswersExportLoading === 'by_question'"
-              >
-                导出答案（按队伍）
-              </a-button>
-              <a-button
-                v-if="canManageCompetitions && usesQuestionAnswerSubmission"
-                :loading="questionAnswersExportLoading === 'by_question'"
-                @click="exportQuestionAnswersZip('by_question')"
-                :disabled="!activeCompetitionId || questionAnswersExportLoading === 'by_team'"
-              >
-                导出答案（按题目）
-              </a-button>
             </div>
 
-            <!-- 初赛 / 单阶段：压缩包作品列表 -->
-            <template v-if="usesZipPackageSubmission">
+            <a-empty
+              v-if="isCompetitionExpert && !adminSubmissionsLoading && !adminHasAnyTrackSubmissions"
+              description="暂无已指派队伍的作品提交"
+              style="margin: 24px 0"
+            />
+
+            <!-- 作品赛道：压缩包作品列表 -->
+            <div v-if="showAdminWorksTrackBlock" class="admin-track-block">
+              <div class="admin-track-bar">
+                <span class="admin-track-bar__title">作品赛道</span>
+                <div class="admin-track-bar__actions">
+                  <a-button
+                    v-if="canExportAnswers"
+                    size="small"
+                    :loading="questionAnswersExportLoading === 'works:by_team'"
+                    :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                    @click="exportQuestionAnswersZip('by_team', 'works')"
+                  >
+                    导出答案（队伍）
+                  </a-button>
+                </div>
+              </div>
               <p
                 v-if="adminSubmissionsHiddenByWithdrawCount > 0"
                 class="muted"
@@ -1135,11 +1138,11 @@
               >
                 仅展示当前有效报名周期内的提交。
               </p>
-              <a-empty v-if="adminSubmissions.length === 0" :description="adminSubmissionsEmptyDescription" />
+              <a-empty v-if="adminWorksSubmissions.length === 0" description="暂无作品赛道压缩包提交" />
               <div v-else class="submissions-list">
                 <a-card
-                  v-for="s in adminSubmissions"
-                  :key="s.id"
+                  v-for="s in adminWorksSubmissions"
+                  :key="'works-sub-' + s.id"
                   size="small"
                   class="submission-item"
                   :bordered="false"
@@ -1151,15 +1154,13 @@
                     </a-tag>
                   </div>
                   <div class="submission-meta muted" style="margin-top: 6px">
-                    <span>提交ID：{{ s.id }}</span>
                     <a-tag
                       v-if="submissionDivisionLabel(s)"
                       color="blue"
-                      style="margin-left: 8px"
                     >
                       {{ submissionDivisionLabel(s) }}
                     </a-tag>
-                    <span style="margin-left: 12px">队伍ID：{{ s.team_id != null ? s.team_id : '-' }}</span>
+                    <span :style="submissionDivisionLabel(s) ? 'margin-left: 12px' : ''">队伍ID：{{ s.team_id != null ? s.team_id : '-' }}</span>
                     <span style="margin-left: 12px">学生ID：{{ s.student_id != null ? s.student_id : '-' }}</span>
                     <span style="margin-left: 12px">提交人ID：{{ s.submitter_id != null ? s.submitter_id : '-' }}</span>
                     <span style="margin-left: 12px">提交时间：{{ formatDateTime(s.submitted_at) }}</span>
@@ -1196,7 +1197,7 @@
                   </div>
                 </a-card>
               </div>
-              <div v-if="adminSubmissionsTotal > 0" style="display: flex; justify-content: flex-end; margin-top: 12px">
+              <div v-if="adminWorksSubmissions.length > 0 && adminSubmissionsTotal > 0" style="display: flex; justify-content: flex-end; margin-top: 12px">
                 <a-pagination
                   :current="adminSubmissionsPage"
                   :page-size="adminSubmissionsPageSize"
@@ -1210,19 +1211,50 @@
                   @showSizeChange="handleAdminSubmissionsPageChange"
                 />
               </div>
-            </template>
+            </div>
 
-            <!-- 分题答案列表（初赛 / 单阶段 / 决赛） -->
-            <template v-else>
-              <a-empty v-if="!adminQuestionAnswerRows.length" :description="adminSubmissionsEmptyDescription" />
+            <!-- 软件 / 硬件赛道：分题答案列表 -->
+            <template v-if="usesQuestionAnswerSubmission">
+              <div
+                v-for="trackKey in adminQuestionAnswerTrackKeys"
+                :key="'admin-qa-track-' + trackKey"
+                class="admin-track-block"
+              >
+              <div class="admin-track-bar">
+                <span class="admin-track-bar__title">{{ trackKey === 'software' ? '软件赛道' : '硬件赛道' }}</span>
+                <div class="admin-track-bar__actions">
+                  <a-button
+                    v-if="canExportAnswers"
+                    size="small"
+                    :loading="questionAnswersExportLoading === (trackKey + ':by_team')"
+                    :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                    @click="exportQuestionAnswersZip('by_team', trackKey)"
+                  >
+                    导出答案（队伍）
+                  </a-button>
+                  <a-button
+                    v-if="canExportAnswers"
+                    size="small"
+                    :loading="questionAnswersExportLoading === (trackKey + ':by_question')"
+                    :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                    @click="exportQuestionAnswersZip('by_question', trackKey)"
+                  >
+                    导出答案（题目）
+                  </a-button>
+                </div>
+              </div>
+              <a-empty
+                v-if="!adminQuestionAnswerRowsForTrack(trackKey).length"
+                :description="'暂无' + (trackKey === 'software' ? '软件' : '硬件') + '赛道题目答案'"
+              />
               <a-table
                 v-else
                 size="small"
                 bordered
                 :pagination="{ pageSize: 10, showSizeChanger: true }"
                 :columns="adminQuestionAnswerTableColumnsEffective"
-                :data-source="adminQuestionAnswerRows"
-                row-key="team_id"
+                :data-source="adminQuestionAnswerRowsForTrack(trackKey)"
+                :row-key="(r) => trackKey + '-' + r.team_id"
               >
                 <template slot="q1" slot-scope="text, record">
                   <a-tag :color="record.q1_uploaded ? 'green' : 'orange'">{{ record.q1_uploaded ? '已提交' : '未提交' }}</a-tag>
@@ -1309,6 +1341,7 @@
                   </a-button>
                 </template>
               </a-table>
+              </div>
             </template>
           </a-card>
 
@@ -1327,31 +1360,22 @@
               <a-form-item v-else label="作品提交ID" required>
                 <a-input-number v-model="gradeForm.submission_id" :min="1" placeholder="请输入作品提交ID" style="width: 240px" />
               </a-form-item>
-              <template v-if="gradeForm.team_id">
+              <template v-if="gradeFormUsesQuestionScores">
                 <a-row :gutter="12" type="flex" class="grade-question-scores-row">
-                  <a-col :xs="12" :sm="8" :md="4">
-                    <a-form-item label="第1题" required>
-                      <a-input v-model="gradeForm.score_q1" placeholder="0～100" style="width: 100%" />
-                    </a-form-item>
-                  </a-col>
-                  <a-col :xs="12" :sm="8" :md="4">
-                    <a-form-item label="第2题" required>
-                      <a-input v-model="gradeForm.score_q2" placeholder="0～100" style="width: 100%" />
-                    </a-form-item>
-                  </a-col>
-                  <a-col :xs="12" :sm="8" :md="4">
-                    <a-form-item label="第3题" required>
-                      <a-input v-model="gradeForm.score_q3" placeholder="0～100" style="width: 100%" />
-                    </a-form-item>
-                  </a-col>
-                  <a-col :xs="12" :sm="8" :md="4">
-                    <a-form-item label="第4题" required>
-                      <a-input v-model="gradeForm.score_q4" placeholder="0～100" style="width: 100%" />
-                    </a-form-item>
-                  </a-col>
-                  <a-col :xs="12" :sm="8" :md="4">
-                    <a-form-item label="第5题" required>
-                      <a-input v-model="gradeForm.score_q5" placeholder="0～100" style="width: 100%" />
+                  <a-col
+                    v-for="q in gradeFormQuestionItems"
+                    :key="'grade-q-' + q.no"
+                    :xs="12"
+                    :sm="8"
+                    :md="4"
+                  >
+                    <a-form-item :label="'第' + q.no + '题' + (q.name && q.name !== ('第' + q.no + '题') ? ('（' + q.name + '）') : '')" required>
+                      <a-input
+                        :value="gradeForm['score_q' + q.no]"
+                        :placeholder="gradeQuestionPlaceholder(q)"
+                        style="width: 100%"
+                        @input="onGradeQuestionScoreInput(q.no, $event)"
+                      />
                     </a-form-item>
                   </a-col>
                   <a-col :xs="12" :sm="8" :md="4">
@@ -1372,7 +1396,7 @@
                   type="primary"
                   :loading="gradeLoading"
                   @click="handleReviewGrade"
-                  :disabled="gradeForm.team_id ? false : !gradeForm.submission_id"
+                  :disabled="gradeFormUsesQuestionScores ? false : !gradeForm.submission_id"
                 >
                   {{ gradeFormIsEdit ? '保存修改' : '提交评分' }}
                 </a-button>
@@ -1392,43 +1416,75 @@
             style="margin-top: 16px"
           >
             <div class="muted" style="margin-bottom: 12px; font-size: 13px">
-              勾选初赛中已校审通过的队伍，确认后自动带入决赛（复制队伍与报名），选手无需再报名或建队。
+              按赛道勾选初赛中已校审通过的队伍，确认后自动带入决赛（复制队伍与报名），选手无需再报名或建队。
               <template v-if="activeCompetition && activeCompetition.paired_competition_id">
                 关联决赛 ID：{{ activeCompetition.paired_competition_id }}
               </template>
             </div>
             <div class="row" style="margin-bottom: 12px; flex-wrap: wrap; gap: 8px">
-              <a-button type="primary" :loading="promotionCandidatesLoading" @click="openPromoteModal">
-                选择队伍晋级
-              </a-button>
-              <a-upload
-                :show-upload-list="false"
-                :before-upload="beforeImportPromotionsExcel"
-                accept=".xlsx,.xlsm"
-              >
-                <a-button :loading="promotionImportLoading">
-                  导入 Excel 晋级
-                </a-button>
-              </a-upload>
               <a-button :loading="promotionListLoading" @click="refreshPromotionList">
                 刷新晋级名单
               </a-button>
             </div>
-            <div class="muted" style="margin-bottom: 12px; font-size: 12px">
-              Excel 须含列「队伍ID」；可选「队伍名」。每行一支初赛队伍。
-            </div>
-            <a-table
-              size="small"
-              row-key="id"
-              :loading="promotionListLoading"
-              :pagination="false"
-              :data-source="promotionList"
-              :columns="promotionListColumns"
+            <div
+              v-for="track in examPaperTrackOptions"
+              :key="'promo-track-' + track.value"
+              class="admin-track-block"
             >
-              <template slot="promoActions" slot-scope="text, record">
-                <a @click.prevent="handleRevokePromotion(record)">撤销</a>
-              </template>
-            </a-table>
+              <div class="admin-track-bar">
+                <span class="admin-track-bar__title">{{ track.label }}</span>
+                <div class="admin-track-bar__actions">
+                  <a-button
+                    type="primary"
+                    size="small"
+                    :loading="promotionCandidatesLoading && promotionModalWorkTrack === track.value"
+                    @click="openPromoteModal(track.value)"
+                  >
+                    选择队伍晋级
+                  </a-button>
+                  <a-upload
+                    :show-upload-list="false"
+                    :before-upload="(file) => beforeImportPromotionsExcel(file, track.value)"
+                    accept=".xlsx,.xlsm"
+                  >
+                    <a-button size="small" :loading="promotionImportLoading === track.value">
+                      导入 Excel 晋级
+                    </a-button>
+                  </a-upload>
+                </div>
+              </div>
+              <div class="muted" style="margin-bottom: 8px; font-size: 12px">
+                仅显示 {{ track.label }} 已晋级用户。Excel 须含列「队伍ID」；可选「队伍名」。仅导入本赛道初赛队伍。
+              </div>
+              <a-table
+                size="small"
+                row-key="id"
+                :loading="promotionListLoading"
+                :pagination="false"
+                :data-source="promotionsForTrack(track.value)"
+                :columns="promotionListColumns"
+              >
+                <template slot="promoActions" slot-scope="text, record">
+                  <a @click.prevent="handleRevokePromotion(record)">撤销</a>
+                </template>
+              </a-table>
+            </div>
+            <div v-if="untrackedPromotions.length" class="admin-track-block">
+              <div class="admin-track-bar">
+                <span class="admin-track-bar__title">未分赛道</span>
+              </div>
+              <a-table
+                size="small"
+                row-key="id"
+                :pagination="false"
+                :data-source="untrackedPromotions"
+                :columns="promotionListColumns"
+              >
+                <template slot="promoActions" slot-scope="text, record">
+                  <a @click.prevent="handleRevokePromotion(record)">撤销</a>
+                </template>
+              </a-table>
+            </div>
           </a-card>
 
           <a-card
@@ -1459,7 +1515,7 @@
               </a-button>
             </div>
             <p v-if="canManageCompetitions" class="muted" style="margin: 8px 0 0; font-size: 12px">
-              参赛表格含学校名称、竞赛名称、组别项目（如本科软件组）、队伍编码、队伍名称/指导老师、队员及一～五题分数与总分。
+              导出为压缩包：内含作品 / 软件 / 硬件赛道各一份 Excel。表头含学校、竞赛、组别项目、队伍、队员；「队员」之后的分题列取自该赛道发布试卷时的题名配置，最后为总分。
             </p>
           </a-card>
 
@@ -1677,21 +1733,20 @@
             >
               <a-spin :spinning="myTeamMembersLoading">
                 <a-empty
-                  v-if="!myTeamMembersLoading && myTeamMembers.length === 0"
+                  v-if="!myTeamMembersLoading && myTeamMembersNonCaptain.length === 0"
                   description="暂无队员"
                 />
                 <div
-                  v-for="m in myTeamMembers"
+                  v-for="m in myTeamMembersNonCaptain"
                   :key="'my-tm-' + m.id + '-' + m.user_id"
                   class="team-member-row"
                 >
                   <span class="team-member-name">
                     {{ formatTeamMemberDisplayName(m) }}
                     <span v-if="m.user_id != null" class="muted" style="margin-left: 4px">(ID {{ m.user_id }})</span>
-                    <a-tag v-if="m.is_captain" color="blue" style="margin-left: 8px">队长</a-tag>
                   </span>
                   <a-button
-                    v-if="!m.is_captain && !competitionTeamRemoveMemberBlocked"
+                    v-if="!competitionTeamRemoveMemberBlocked"
                     size="small"
                     type="link"
                     danger
@@ -1858,7 +1913,7 @@
           />
         </a-form-item>
         <p class="muted" style="margin: 0; font-size: 13px">
-          您将作为队长创建队伍；创建后状态为「待校审」，须校管理员审核通过后方可上传题目答案。
+          您将作为队长创建队伍；创建后状态为「待校审」，须校管理员审核通过后方可提交作品。作品赛道上传压缩包，软件 / 硬件赛道按题上传答案。
         </p>
       </a-form>
     </a-modal>
@@ -1866,16 +1921,16 @@
     <!-- 管理员：初赛晋级决赛 -->
     <a-modal
       v-model="showPromoteModal"
-      title="晋级决赛"
+      :title="promotionModalTitle"
       ok-text="确认晋级"
       cancel-text="取消"
       :confirm-loading="promotionSubmitLoading"
-      :width="720"
+      :width="820"
       @ok="submitPromotions"
       @cancel="showPromoteModal = false"
     >
       <p class="muted" style="margin: 0 0 12px; font-size: 13px">
-        仅校审通过（active）的队伍可晋级；已晋级队伍不可重复勾选。
+        仅显示当前赛道、且校审通过（active）的队伍可晋级；已晋级队伍不可重复勾选。
       </p>
       <a-table
         size="small"
@@ -1898,7 +1953,7 @@
       @cancel="showStandaloneMyWorksModal = false"
     >
       <div class="standalone-modal-scroll">
-        <template v-if="usesZipPackageSubmission">
+        <template v-if="activeEnrollmentWorkTrack === 'works'">
           <h4 class="standalone-modal-section-title">提交作品（压缩包）</h4>
           <a-alert
             v-if="competitionSubmissionBlocked"
@@ -1920,8 +1975,8 @@
             v-else
             type="info"
             show-icon
-            message="初赛 / 单阶段"
-            description="请由队长上传作品压缩包（.zip）。决赛阶段将改为按题提交。"
+            message="作品赛道"
+            description="请由队长上传作品压缩包（.zip）。软件 / 硬件赛道请关闭本窗后使用分题提交。"
             style="margin-bottom: 12px"
           />
           <a-form layout="vertical" style="max-width: 640px">
@@ -1969,8 +2024,8 @@
           </a-form>
         </template>
 
-        <template v-else>
-          <h4 class="standalone-modal-section-title">按题提交作品（共5题）</h4>
+        <template v-else-if="activeEnrollmentWorkTrack === 'software' || activeEnrollmentWorkTrack === 'hardware'">
+          <h4 class="standalone-modal-section-title">按题提交作品（共{{ submissionQuestionCount }}题）</h4>
           <div class="row" style="margin-bottom: 12px; flex-wrap: wrap; gap: 8px">
             <a-button
               :loading="questionAnswersLoading"
@@ -1991,7 +2046,7 @@
               class="question-answer-slot"
             >
               <div class="question-answer-slot__title">
-                链接{{ slot.question_no }} · 第{{ slot.question_no }}题
+                {{ slot.question_name || ('第' + slot.question_no + '题') }}
                 <a-tag v-if="slot.uploaded || slot.submitted" color="green" style="margin-left: 8px">提交</a-tag>
                 <a-tag v-else color="orange" style="margin-left: 8px">未提交</a-tag>
               </div>
@@ -2050,6 +2105,11 @@
             {{ questionAnswersSubmitHintText }}
           </p>
         </template>
+
+        <a-empty
+          v-else
+          description="请先完成组队报名并选择赛道（作品 / 软件 / 硬件），再提交作品"
+        />
 
         <div class="standalone-modal-footer-actions">
           <a-button @click="showStandaloneMyWorksModal = false">关闭</a-button>
@@ -2658,14 +2718,14 @@
       <p v-if="!competitionUrlModalLines.length" class="muted">暂无可用链接</p>
     </a-modal>
 
-    <!-- 超级管理员：按组别发布试卷 -->
+    <!-- 超级管理员：按组别+赛道发布试卷，并配置分题提交 -->
     <a-modal
       :visible="showExamPaperPublishModal"
       title="发布试卷"
       :confirmLoading="examPaperUploading"
-      okText="上传发布"
+      okText="保存发布"
       cancelText="取消"
-      width="560px"
+      width="720px"
       @ok="submitExamPaperPublish"
       @cancel="closeExamPaperPublishModal"
     >
@@ -2676,51 +2736,88 @@
         type="info"
         show-icon
         style="margin-bottom: 12px"
-        message="竞赛须已发布。上传即覆盖该组别已有试卷；学生与关联指导老师登录分享链接后可下载。"
+        message="竞赛须已发布。请按赛道（作品/软件/硬件）分别上传试卷；学生与指导老师将按报名赛道下载对应试卷。"
       />
-      <template v-if="examPaperModalIsDual">
-        <a-form-item label="本科组试卷" :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
-          <div v-if="examPaperMetaUndergraduate && examPaperMetaUndergraduate.published" class="muted" style="margin-bottom: 6px">
-            已发布：{{ examPaperMetaUndergraduate.filename || '已有文件' }}
-          </div>
-          <a-upload
-            :file-list="examPaperUndergraduateFileList"
-            :before-upload="beforeExamPaperUndergraduateUpload"
-            :remove="removeExamPaperUndergraduate"
-            :multiple="false"
+
+      <template v-for="divKey in examPaperModalDivisionKeys">
+        <div :key="'exam-div-' + divKey" style="margin-bottom: 16px">
+          <h4 style="margin: 0 0 8px; font-size: 14px">
+            {{ examPaperDivisionLabel(divKey) }}试卷
+          </h4>
+          <a-form-item
+            v-for="track in examPaperTrackOptions"
+            :key="'exam-' + divKey + '-' + track.value"
+            :label="track.label"
+            :label-col="{ span: 5 }"
+            :wrapper-col="{ span: 19 }"
           >
-            <a-button><a-icon type="upload" /> 选择文件</a-button>
-          </a-upload>
-        </a-form-item>
-        <a-form-item label="高职组试卷" :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
-          <div v-if="examPaperMetaVocational && examPaperMetaVocational.published" class="muted" style="margin-bottom: 6px">
-            已发布：{{ examPaperMetaVocational.filename || '已有文件' }}
-          </div>
-          <a-upload
-            :file-list="examPaperVocationalFileList"
-            :before-upload="beforeExamPaperVocationalUpload"
-            :remove="removeExamPaperVocational"
-            :multiple="false"
-          >
-            <a-button><a-icon type="upload" /> 选择文件</a-button>
-          </a-upload>
-        </a-form-item>
+            <div v-if="examPaperTrackPublishedMeta(divKey, track.value)" class="muted" style="margin-bottom: 6px">
+              已发布：{{ examPaperTrackPublishedMeta(divKey, track.value).filename || '已有文件' }}
+            </div>
+            <a-upload
+              :file-list="examPaperTrackFileList(divKey, track.value)"
+              :before-upload="(file) => beforeExamPaperTrackUpload(divKey, track.value, file)"
+              :remove="() => removeExamPaperTrack(divKey, track.value)"
+              :multiple="false"
+            >
+              <a-button size="small"><a-icon type="upload" /> 选择文件（pdf/doc/docx/zip）</a-button>
+            </a-upload>
+          </a-form-item>
+        </div>
       </template>
-      <template v-else>
-        <a-form-item label="试卷文件" :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
-          <div v-if="examPaperMetaDefault && examPaperMetaDefault.published" class="muted" style="margin-bottom: 6px">
-            已发布：{{ examPaperMetaDefault.filename || '已有文件' }}
-          </div>
-          <a-upload
-            :file-list="examPaperDefaultFileList"
-            :before-upload="beforeExamPaperDefaultUpload"
-            :remove="removeExamPaperDefault"
-            :multiple="false"
+
+      <a-divider>分题配置（作品 / 软件 / 硬件分别设置）</a-divider>
+      <a-alert
+        type="info"
+        show-icon
+        style="margin-bottom: 12px"
+        message="作品赛道的分题配置仅用于专家评分，学生仍上传压缩包。软件 / 硬件赛道同时用于分题提交与评分。"
+      />
+      <div
+        v-for="trackKey in ['works', 'software', 'hardware']"
+        :key="'qcfg-track-' + trackKey"
+        style="margin-bottom: 20px; padding: 12px; border: 1px solid #e8e8e8; border-radius: 6px"
+      >
+        <h4 style="margin: 0 0 10px; font-size: 14px">
+          {{ trackKey === 'works' ? '作品赛道' : (trackKey === 'software' ? '软件赛道' : '硬件赛道') }}
+        </h4>
+        <a-form-item :label="trackKey === 'works' ? '评分题数' : '提交题数'" :label-col="{ span: 5 }" :wrapper-col="{ span: 19 }">
+          <a-select
+            :value="examPaperQuestionConfigByTrack[trackKey] && examPaperQuestionConfigByTrack[trackKey].question_count"
+            style="width: 120px"
+            @change="(n) => onExamPaperQuestionCountChange(trackKey, n)"
           >
-            <a-button><a-icon type="upload" /> 选择文件（pdf/doc/docx/zip）</a-button>
-          </a-upload>
+            <a-select-option v-for="n in 5" :key="trackKey + '-qc-' + n" :value="n">{{ n }} 题</a-select-option>
+          </a-select>
         </a-form-item>
-      </template>
+        <div
+          v-for="q in (examPaperQuestionConfigByTrack[trackKey] && examPaperQuestionConfigByTrack[trackKey].questions) || []"
+          :key="trackKey + '-q-' + q.no"
+          style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center"
+        >
+          <span style="width: 48px">第{{ q.no }}题</span>
+          <a-input v-model="q.name" placeholder="题目名称" style="width: 160px" />
+          <span>最低分</span>
+          <a-input-number v-model="q.min_score" :min="0" :max="1000" style="width: 90px" />
+          <span>最高分</span>
+          <a-input-number v-model="q.max_score" :min="0" :max="1000" style="width: 90px" />
+        </div>
+        <a-form-item label="总分区间" :label-col="{ span: 5 }" :wrapper-col="{ span: 19 }">
+          <a-input-number
+            v-model="examPaperQuestionConfigByTrack[trackKey].total_min_score"
+            :min="0"
+            :max="5000"
+            style="width: 100px"
+          />
+          <span style="margin: 0 8px">～</span>
+          <a-input-number
+            v-model="examPaperQuestionConfigByTrack[trackKey].total_max_score"
+            :min="0"
+            :max="5000"
+            style="width: 100px"
+          />
+        </a-form-item>
+      </div>
     </a-modal>
 
     <!-- 双组别竞赛：选择本科组 / 高职组后进入对应详情（§8.7 division 由详情页隐式带入报名） -->
@@ -2793,6 +2890,7 @@ import {
   getCompetitionSubmissionReviewGrade,
   putTeamQuestionGrade,
   patchTeamQuestionGrade,
+  getTeamQuestionGrade,
   getCompetitionScoresSummary,
   getCompetitionRankings,
   getMyCompetitionScores,
@@ -2803,6 +2901,8 @@ import {
   uploadCompetitionExamPaper,
   getCompetitionExamPapers,
   downloadCompetitionExamPaper,
+  getSubmissionQuestionConfig,
+  putSubmissionQuestionConfig,
   getPromotionCandidates,
   getCompetitionPromotions,
   createCompetitionPromotions,
@@ -3039,16 +3139,58 @@ export default {
       examPaperModalIsDual: false,
       examPaperUploading: false,
       examPaperMeta: null,
-      examPaperDefaultFile: null,
-      examPaperUndergraduateFile: null,
-      examPaperVocationalFile: null,
-      examPaperDefaultFileList: [],
-      examPaperUndergraduateFileList: [],
-      examPaperVocationalFileList: [],
+      /** { [division]: { works|software|hardware: File|null } } */
+      examPaperTrackFiles: {},
+      examPaperTrackFileLists: {},
+      examPaperQuestionConfigByTrack: {
+        works: {
+          question_count: 5,
+          questions: [
+            { no: 1, name: '第1题', min_score: 0, max_score: 100 },
+            { no: 2, name: '第2题', min_score: 0, max_score: 100 },
+            { no: 3, name: '第3题', min_score: 0, max_score: 100 },
+            { no: 4, name: '第4题', min_score: 0, max_score: 100 },
+            { no: 5, name: '第5题', min_score: 0, max_score: 100 }
+          ],
+          total_min_score: 0,
+          total_max_score: 500
+        },
+        software: {
+          question_count: 5,
+          questions: [
+            { no: 1, name: '第1题', min_score: 0, max_score: 100 },
+            { no: 2, name: '第2题', min_score: 0, max_score: 100 },
+            { no: 3, name: '第3题', min_score: 0, max_score: 100 },
+            { no: 4, name: '第4题', min_score: 0, max_score: 100 },
+            { no: 5, name: '第5题', min_score: 0, max_score: 100 }
+          ],
+          total_min_score: 0,
+          total_max_score: 500
+        },
+        hardware: {
+          question_count: 5,
+          questions: [
+            { no: 1, name: '第1题', min_score: 0, max_score: 100 },
+            { no: 2, name: '第2题', min_score: 0, max_score: 100 },
+            { no: 3, name: '第3题', min_score: 0, max_score: 100 },
+            { no: 4, name: '第4题', min_score: 0, max_score: 100 },
+            { no: 5, name: '第5题', min_score: 0, max_score: 100 }
+          ],
+          total_min_score: 0,
+          total_max_score: 500
+        }
+      },
+      examPaperTrackOptions: [
+        { value: 'works', label: '作品赛道' },
+        { value: 'software', label: '软件赛道' },
+        { value: 'hardware', label: '硬件赛道' }
+      ],
 
       /** 详情页试卷下载（学生/指导老师） */
       examPapersForDetail: null,
       examPaperDownloadLoading: false,
+      /** 当前竞赛分题配置（学生提交用） */
+      activeSubmissionQuestionConfig: null,
 
       // 教师/管理员
       adminCreateLoading: false,
@@ -3093,12 +3235,13 @@ export default {
       // 初赛晋级决赛
       promotionCandidatesLoading: false,
       promotionSubmitLoading: false,
-      promotionImportLoading: false,
+      promotionImportLoading: null,
       promotionListLoading: false,
       promotionCandidates: [],
       promotionSelectedTeamIds: [],
       promotionList: [],
       showPromoteModal: false,
+      promotionModalWorkTrack: null,
 
       // 管理员：编辑/删除/锁定竞赛
       adminEditLoading: false,
@@ -3194,6 +3337,8 @@ export default {
       gradeForm: {
         submission_id: null,
         team_id: null,
+        work_track: '',
+        questionGradeExists: false,
         score: '',
         score_q1: '',
         score_q2: '',
@@ -3210,6 +3355,10 @@ export default {
       adminSubmissionsLoading: false,
       adminSubmissions: [],
       adminQuestionAnswerRows: [],
+      /** team_id -> works|software|hardware */
+      adminTeamWorkTrackById: {},
+      /** student_id -> works|software|hardware（个人报名） */
+      adminIndividualWorkTrackById: {},
       adminQuestionAnswerTableColumns: [
         { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 100 },
         { title: '队名', dataIndex: 'team_name', key: 'team_name', ellipsis: true, width: 140 },
@@ -3244,6 +3393,7 @@ export default {
         { title: '队伍名称', dataIndex: 'team_name', key: 'team_name', ellipsis: true, width: 140 },
         { title: '学校', dataIndex: 'school', key: 'school', ellipsis: true, width: 140 },
         { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', ellipsis: true, width: 100 },
+        { title: '队长', dataIndex: 'captain_name', key: 'captain_name', ellipsis: true, width: 100 },
         { title: '队员', dataIndex: 'members', key: 'members', ellipsis: true, width: 180 },
         { title: '第1题', dataIndex: 'score_q1', key: 'score_q1', width: 72 },
         { title: '第2题', dataIndex: 'score_q2', key: 'score_q2', width: 72 },
@@ -3404,6 +3554,9 @@ export default {
       if (!this.canManageCompetitions || !this.selectedCompetitionRecord) return false
       return this.isCompetitionShareableStatus(this.selectedCompetitionRecord.status)
     },
+    examPaperModalDivisionKeys () {
+      return this.examPaperModalIsDual ? ['undergraduate', 'vocational'] : ['default']
+    },
     examPaperMetaDefault () {
       return (this.examPaperMeta && this.examPaperMeta.default) || null
     },
@@ -3413,11 +3566,52 @@ export default {
     examPaperMetaVocational () {
       return (this.examPaperMeta && this.examPaperMeta.vocational) || null
     },
+    submissionQuestionConfigEffective () {
+      const track = this.activeEnrollmentWorkTrack
+      const byTrack = this.activeSubmissionQuestionConfig
+      if (byTrack && (track === 'software' || track === 'hardware') && byTrack[track]) {
+        return byTrack[track]
+      }
+      const fromComp = this.activeCompetition && this.activeCompetition.submission_question_config
+      if (fromComp) {
+        if ((track === 'software' || track === 'hardware') && fromComp[track]) {
+          return fromComp[track]
+        }
+        // 兼容旧扁平结构
+        if (fromComp.question_count) return fromComp
+      }
+      return {
+        question_count: 5,
+        questions: [1, 2, 3, 4, 5].map(n => ({ no: n, name: `第${n}题`, min_score: 0, max_score: 100 })),
+        total_min_score: 0,
+        total_max_score: 500
+      }
+    },
+    submissionQuestionCount () {
+      const n = Number(this.submissionQuestionConfigEffective.question_count)
+      return Number.isFinite(n) && n >= 1 && n <= 5 ? n : 5
+    },
     examPaperDownloadDivision () {
       if (this.isCompetitionDualDivision(this.activeCompetition)) {
         return this.normalizeViewDivision(this.activeViewDivision) || null
       }
       return 'default'
+    },
+    examPaperDownloadWorkTrack () {
+      if (this.isStudent) {
+        return this.activeEnrollmentWorkTrack || ''
+      }
+      if (this.isAdvisorOrTeacher) {
+        const div = this.examPaperDownloadDivision
+        const list = this.advisorTeamsForCurrentView || this.advisorTeams || []
+        const hit = list.find((t) => {
+          if (!div || div === 'default') return true
+          return this.normalizeViewDivision(t.division) === div
+        }) || list[0]
+        const track = hit && hit.work_track != null ? String(hit.work_track).trim().toLowerCase() : ''
+        return (track === 'works' || track === 'software' || track === 'hardware') ? track : ''
+      }
+      return ''
     },
     canShowExamPaperDownload () {
       if (!this.standaloneDetailMode || !this.isUsingAltIdentity) return false
@@ -3426,14 +3620,21 @@ export default {
       }
       const div = this.examPaperDownloadDivision
       if (!div) return false
+      const track = this.examPaperDownloadWorkTrack
+      if (!track && (this.isStudent || this.isAdvisorOrTeacher)) return false
       const meta = this.examPapersForDetail
       if (!meta) return false
-      const slot = div === 'undergraduate'
-        ? meta.undergraduate
-        : (div === 'vocational' ? meta.vocational : meta.default)
-      if (!(slot && slot.published)) return false
+      const byTrack = meta.by_track || {}
+      const trackSlot = byTrack[div] && byTrack[div][track]
+      if (trackSlot && trackSlot.published) {
+        // ok
+      } else {
+        const slot = div === 'undergraduate'
+          ? meta.undergraduate
+          : (div === 'vocational' ? meta.vocational : meta.default)
+        if (!(slot && slot.published)) return false
+      }
 
-      // 学生：须本竞赛已有效报名后才显示下载；双组别还须与当前详情页组别一致
       if (this.isStudent) {
         if (!this.hasAnyEnrollment) return false
         if (this.isCompetitionDualDivision(this.activeCompetition)) {
@@ -3443,7 +3644,6 @@ export default {
         return true
       }
 
-      // 指导老师/教师：本赛道有关联队伍时才显示
       if (this.isAdvisorOrTeacher) {
         if (this.isCompetitionDualDivision(this.activeCompetition)) {
           const teamDiv = this.normalizeViewDivision(this.activeCompetitionAdvisorTeamDivision)
@@ -3588,6 +3788,28 @@ export default {
         return col
       })
     },
+    adminQuestionAnswerTrackKeys () {
+      const all = ['software', 'hardware']
+      if (!this.isCompetitionExpert) return all
+      return all.filter(k => (this.adminQuestionAnswerRowsForTrack(k) || []).length > 0)
+    },
+    showAdminWorksTrackBlock () {
+      if (!this.usesZipPackageSubmission) return false
+      if (this.isCompetitionExpert) return (this.adminWorksSubmissions || []).length > 0
+      return true
+    },
+    adminHasAnyTrackSubmissions () {
+      if ((this.adminWorksSubmissions || []).length > 0) return true
+      return ['software', 'hardware'].some(k => (this.adminQuestionAnswerRowsForTrack(k) || []).length > 0)
+    },
+    canExportAnswers () {
+      if (this.canManageCompetitions) return true
+      return this.isExpertAssignedToActiveCompetition
+    },
+    adminWorksSubmissions () {
+      // 压缩包提交仅作品赛道可产生，列表即作品赛道内容
+      return this.adminSubmissions || []
+    },
     activeCompetitionStageLabel () {
       const s = this.activeCompetitionStage
       if (s === 'preliminary') return '初赛'
@@ -3600,19 +3822,61 @@ export default {
     isActiveCompetitionFinal () {
       return this.activeCompetitionStage === 'final'
     },
-    /** 初赛 / 单阶段 / 决赛：均按题提交答案 */
-    usesQuestionAnswerSubmission () {
-      return !!this.activeCompetition
+    /** 当前学生报名/队伍的赛道：works | software | hardware */
+    activeEnrollmentWorkTrack () {
+      const normalize = (raw) => {
+        const s = raw != null ? String(raw).trim().toLowerCase() : ''
+        return (s === 'works' || s === 'software' || s === 'hardware') ? s : ''
+      }
+      const preferTeam = this.enrollMode === 'team' || this.submissionMode === 'team' || this.myEnrolledTeam
+      const teamRow = this.activeCompetitionEnrollmentRows && this.activeCompetitionEnrollmentRows.team
+      const individualRow = this.activeCompetitionEnrollmentRows && this.activeCompetitionEnrollmentRows.individual
+      if (preferTeam && teamRow) {
+        const t = normalize(teamRow.work_track)
+        if (t) return t
+      }
+      if (individualRow) {
+        const t = normalize(individualRow.work_track)
+        if (t) return t
+      }
+      if (teamRow) {
+        const t = normalize(teamRow.work_track)
+        if (t) return t
+      }
+      return ''
     },
+    /** 作品赛道：压缩包提交；软件/硬件：分题答案（现有表单） */
     usesZipPackageSubmission () {
-      return false
+      if (!this.activeCompetition) return false
+      // 非学生（超管/专家评阅）：作品赛压缩包列表仍可查看
+      if (!this.isStudent) return true
+      return this.activeEnrollmentWorkTrack === 'works'
+    },
+    /** 软件 / 硬件赛道用分题答案；管理端始终可查看分题列表 */
+    usesQuestionAnswerSubmission () {
+      if (!this.activeCompetition) return false
+      if (!this.isStudent) return true
+      const t = this.activeEnrollmentWorkTrack
+      return t === 'software' || t === 'hardware'
+    },
+    /** 学生侧：仅按本人赛道展示对应提交面板 */
+    showZipSubmissionPanel () {
+      if (!this.isStudent) return false
+      return this.activeEnrollmentWorkTrack === 'works' && this.showSubmissionPanelInEnrollView
+    },
+    showQuestionAnswerSubmissionPanel () {
+      if (!this.isStudent) return false
+      const t = this.activeEnrollmentWorkTrack
+      return (t === 'software' || t === 'hardware') && this.showSubmissionPanelInEnrollView
     },
     promotionListColumns () {
       return [
-        { title: '晋级ID', dataIndex: 'id', key: 'id', width: 80 },
+        { title: '晋级ID', dataIndex: 'id', key: 'id', width: 110 },
+        { title: '初赛队伍ID', dataIndex: 'source_team_id', key: 'source_team_id', width: 110 },
         { title: '初赛队伍', dataIndex: 'source_team_name', key: 'source_team_name', ellipsis: true },
-        { title: '决赛队伍ID', dataIndex: 'final_team_id', key: 'final_team_id', width: 100 },
-        { title: '决赛队名', dataIndex: 'final_team_name', key: 'final_team_name', ellipsis: true },
+        { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', ellipsis: true, width: 110 },
+        { title: '队长', dataIndex: 'captain_label', key: 'captain_label', ellipsis: true, width: 120 },
+        { title: '队员', dataIndex: 'members', key: 'members', ellipsis: true },
         { title: '操作', key: 'actions', width: 72, scopedSlots: { customRender: 'promoActions' } }
       ]
     },
@@ -3620,15 +3884,45 @@ export default {
       return [
         { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 90 },
         { title: '队名', dataIndex: 'name', key: 'name', ellipsis: true },
-        { title: '状态', dataIndex: 'status', key: 'status', width: 140 },
-        { title: '已晋级', dataIndex: 'already_promoted_label', key: 'already_promoted_label', width: 80 }
+        { title: '组别', dataIndex: 'division_label', key: 'division_label', width: 72 },
+        { title: '队长ID', dataIndex: 'captain_id', key: 'captain_id', width: 100 },
+        { title: '队员ID', dataIndex: 'member_ids_label', key: 'member_ids_label', ellipsis: true },
+        { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
+        { title: '已晋级', dataIndex: 'already_promoted_label', key: 'already_promoted_label', width: 72 }
       ]
     },
     promotionCandidateRows () {
       return (this.promotionCandidates || []).map(t => ({
         ...t,
+        division_label: this.promotionDivisionLabel(t.division),
+        member_ids_label: Array.isArray(t.member_ids) && t.member_ids.length
+          ? t.member_ids.join('、')
+          : '-',
         already_promoted_label: t.already_promoted ? '是' : '否'
       }))
+    },
+    promotionListRows () {
+      return (this.promotionList || []).map(row => {
+        const captainLabel = row.captain_name
+          ? (row.captain_id != null ? `${row.captain_name}（${row.captain_id}）` : row.captain_name)
+          : (row.captain_id != null ? String(row.captain_id) : '-')
+        return {
+          ...row,
+          advisor_name: row.advisor_name || '-',
+          captain_label: captainLabel,
+          members: row.members || '-'
+        }
+      })
+    },
+    promotionModalTitle () {
+      const label = this.workTrackSectionLabel(this.promotionModalWorkTrack)
+      return this.promotionModalWorkTrack ? `晋级决赛 · ${label}` : '晋级决赛'
+    },
+    untrackedPromotions () {
+      return this.promotionListRows.filter(row => {
+        const t = String(row.work_track || '').trim().toLowerCase()
+        return t !== 'works' && t !== 'software' && t !== 'hardware'
+      })
     },
     promotionCandidateRowSelection () {
       return {
@@ -3836,13 +4130,8 @@ export default {
       }
       return true
     },
-    showZipSubmissionPanel () {
-      return this.usesZipPackageSubmission && this.showSubmissionPanelInEnrollView
-    },
-    showQuestionAnswerSubmissionPanel () {
-      return this.usesQuestionAnswerSubmission && this.showSubmissionPanelInEnrollView
-    },
     canSubmitZipPackage () {
+      if (this.isStudent && this.activeEnrollmentWorkTrack !== 'works') return false
       if (!this.usesZipPackageSubmission) return false
       if (!this.isStudent) return false
       if (this.competitionSubmissionBlocked || this.teamSchoolReviewSubmissionBlocked) return false
@@ -3857,7 +4146,9 @@ export default {
       return row && row.team_id != null ? row.team_id : null
     },
     canUploadQuestionAnswers () {
+      const trackOk = !this.isStudent || this.activeEnrollmentWorkTrack === 'software' || this.activeEnrollmentWorkTrack === 'hardware'
       return !!(
+        trackOk &&
         this.usesQuestionAnswerSubmission &&
         this.isStudent &&
         this.questionAnswerTeamId &&
@@ -3867,19 +4158,22 @@ export default {
       )
     },
     displayQuestionAnswerSlots () {
+      const cfg = this.submissionQuestionConfigEffective
+      const count = this.submissionQuestionCount
+      const nameByNo = {}
+      ;(cfg.questions || []).forEach((q) => {
+        if (q && q.no != null) nameByNo[Number(q.no)] = q.name || `第${q.no}题`
+      })
       const slots = Array.isArray(this.questionAnswerSlots) ? this.questionAnswerSlots : []
-      if (slots.length === 5) {
-        return slots.map((s) => ({
-          ...s,
-          submitted: !!(s && (s.submitted || (s.answer && s.answer.status === 'submitted')))
-        }))
-      }
-      return [1, 2, 3, 4, 5].map((n) => {
+      return Array.from({ length: count }, (_, i) => {
+        const n = i + 1
         const found = slots.find((s) => s && Number(s.question_no) === n)
-        if (!found) return { question_no: n, uploaded: false, submitted: false, answer: null }
+        const base = found || { question_no: n, uploaded: false, submitted: false, answer: null }
         return {
-          ...found,
-          submitted: !!(found.submitted || (found.answer && found.answer.status === 'submitted'))
+          ...base,
+          question_no: n,
+          question_name: nameByNo[n] || `第${n}题`,
+          submitted: !!(base.submitted || (base.answer && base.answer.status === 'submitted'))
         }
       })
     },
@@ -3928,28 +4222,16 @@ export default {
       return this.mySubmissionsForCurrentEnrollment.length > 0
     },
     adminSubmissionsPanelTitle () {
-      if (this.usesQuestionAnswerSubmission) {
-        if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
-          return `题目答案列表（${this.activeDivisionLabel}）`
-        }
-        return '题目答案列表'
-      }
       if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
-        return `作品列表（${this.activeDivisionLabel}）`
+        return `作品提交（${this.activeDivisionLabel} · 按赛道）`
       }
-      return '作品列表（压缩包）'
+      return '作品提交（按赛道）'
     },
     adminSubmissionsRefreshLabel () {
-      if (this.usesQuestionAnswerSubmission) {
-        if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
-          return `刷新${this.activeDivisionLabel}答案`
-        }
-        return '刷新题目答案'
-      }
       if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
-        return `刷新${this.activeDivisionLabel}作品`
+        return `刷新${this.activeDivisionLabel}提交`
       }
-      return '刷新作品列表'
+      return '刷新作品提交'
     },
     adminSubmissionsEmptyDescription () {
       if (this.usesQuestionAnswerSubmission) {
@@ -4269,7 +4551,10 @@ export default {
     advisorSelectedTeamMembers () {
       const t = this.advisorSelectedTeam
       if (!t || !Array.isArray(t.members)) return []
-      return t.members
+      return t.members.filter(m => m && !m.is_captain)
+    },
+    myTeamMembersNonCaptain () {
+      return (this.myTeamMembers || []).filter(m => m && !m.is_captain)
     },
     advisorSelectedTeamCaptainLabel () {
       const t = this.advisorSelectedTeam
@@ -4394,6 +4679,7 @@ export default {
         { title: '队伍名称', dataIndex: 'team_name', key: 'team_name', ellipsis: true, width: 140 },
         { title: '学校', dataIndex: 'school', key: 'school', ellipsis: true, width: 140 },
         { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', ellipsis: true, width: 100 },
+        { title: '队长', dataIndex: 'captain_name', key: 'captain_name', ellipsis: true, width: 100 },
         { title: '队员', dataIndex: 'members', key: 'members', ellipsis: true, width: 180 },
         { title: '第1题', dataIndex: 'score_q1', key: 'score_q1', width: 88, scopedSlots: { customRender: 'score_q1' } },
         { title: '第2题', dataIndex: 'score_q2', key: 'score_q2', width: 88, scopedSlots: { customRender: 'score_q2' } },
@@ -4416,6 +4702,7 @@ export default {
         team_name: item.team_name || (item.team_id != null ? `队伍${item.team_id}` : '-'),
         school: item.school || '-',
         advisor_name: item.advisor_name || '-',
+        captain_name: item.captain_name || (item.captain_id != null ? String(item.captain_id) : '-'),
         members: item.members || '-',
         score_q1: this.formatQuestionScoreCell(item.score_q1),
         score_q2: this.formatQuestionScoreCell(item.score_q2),
@@ -4427,10 +4714,27 @@ export default {
       }))
     },
     gradeFormAutoTotal () {
-      const nums = [1, 2, 3, 4, 5].map(n => parseFloat(this.gradeForm['score_q' + n]))
-      if (nums.some(v => Number.isNaN(v))) return '—'
+      const items = this.gradeFormQuestionItems || []
+      const nums = items.map(q => parseFloat(this.gradeForm['score_q' + q.no]))
+      if (!nums.length || nums.some(v => Number.isNaN(v))) return '—'
       const sum = nums.reduce((a, b) => a + b, 0)
       return String(Math.round(sum * 100) / 100)
+    },
+    gradeFormUsesQuestionScores () {
+      return !!this.gradeForm.team_id || this.gradeForm.work_track === 'works'
+    },
+    gradeFormQuestionItems () {
+      const cfg = this.getQuestionConfigForTrack(this.gradeForm.work_track)
+      const qs = (cfg && Array.isArray(cfg.questions)) ? cfg.questions : []
+      const n = Number(cfg && cfg.question_count)
+      const count = Number.isFinite(n) && n >= 1 && n <= 5 ? n : (qs.length || 5)
+      if (qs.length) return qs.slice(0, count)
+      return Array.from({ length: count }, (_, i) => ({
+        no: i + 1,
+        name: `第${i + 1}题`,
+        min_score: 0,
+        max_score: 100
+      }))
     },
     myTeamGradesTableData () {
       const payload = this.myScores
@@ -5067,18 +5371,21 @@ export default {
       this.examPaperModalCompetitionId = comp.id
       this.examPaperModalCompetitionName = comp.name || `竞赛 #${comp.id}`
       this.examPaperModalIsDual = this.isCompetitionDualDivision(comp)
-      this.examPaperDefaultFile = null
-      this.examPaperUndergraduateFile = null
-      this.examPaperVocationalFile = null
-      this.examPaperDefaultFileList = []
-      this.examPaperUndergraduateFileList = []
-      this.examPaperVocationalFileList = []
+      this.examPaperTrackFiles = {}
+      this.examPaperTrackFileLists = {}
       this.examPaperMeta = null
+      this.resetExamPaperQuestionConfig()
       this.showExamPaperPublishModal = true
       try {
         this.examPaperMeta = await getCompetitionExamPapers(comp.id)
       } catch (e) {
         this.examPaperMeta = null
+      }
+      try {
+        const cfg = await getSubmissionQuestionConfig(comp.id)
+        this.applyExamPaperQuestionConfig(cfg)
+      } catch (e) {
+        /* 使用默认配置 */
       }
     },
 
@@ -5088,12 +5395,26 @@ export default {
       this.examPaperModalCompetitionName = ''
       this.examPaperModalIsDual = false
       this.examPaperMeta = null
-      this.examPaperDefaultFile = null
-      this.examPaperUndergraduateFile = null
-      this.examPaperVocationalFile = null
-      this.examPaperDefaultFileList = []
-      this.examPaperUndergraduateFileList = []
-      this.examPaperVocationalFileList = []
+      this.examPaperTrackFiles = {}
+      this.examPaperTrackFileLists = {}
+    },
+
+    examPaperDivisionLabel (divKey) {
+      if (divKey === 'undergraduate') return '本科组'
+      if (divKey === 'vocational') return '高职组'
+      return '共用'
+    },
+
+    examPaperTrackPublishedMeta (divKey, track) {
+      const byTrack = this.examPaperMeta && this.examPaperMeta.by_track
+      const slot = byTrack && byTrack[divKey] && byTrack[divKey][track]
+      if (slot && slot.published) return slot
+      return null
+    },
+
+    examPaperTrackFileList (divKey, track) {
+      const key = `${divKey}__${track}`
+      return (this.examPaperTrackFileLists && this.examPaperTrackFileLists[key]) || []
     },
 
     _examPaperUploadFileItem (file) {
@@ -5105,71 +5426,177 @@ export default {
       }
     },
 
-    beforeExamPaperDefaultUpload (file) {
-      this.examPaperDefaultFile = file
-      this.examPaperDefaultFileList = [this._examPaperUploadFileItem(file)]
+    beforeExamPaperTrackUpload (divKey, track, file) {
+      const key = `${divKey}__${track}`
+      this.$set(this.examPaperTrackFiles, key, file)
+      this.$set(this.examPaperTrackFileLists, key, [this._examPaperUploadFileItem(file)])
       return false
     },
-    removeExamPaperDefault () {
-      this.examPaperDefaultFile = null
-      this.examPaperDefaultFileList = []
+
+    removeExamPaperTrack (divKey, track) {
+      const key = `${divKey}__${track}`
+      this.$set(this.examPaperTrackFiles, key, null)
+      this.$set(this.examPaperTrackFileLists, key, [])
     },
-    beforeExamPaperUndergraduateUpload (file) {
-      this.examPaperUndergraduateFile = file
-      this.examPaperUndergraduateFileList = [this._examPaperUploadFileItem(file)]
-      return false
+
+    resetExamPaperQuestionConfig () {
+      const make = () => ({
+        question_count: 5,
+        questions: [1, 2, 3, 4, 5].map(n => ({
+          no: n,
+          name: `第${n}题`,
+          min_score: 0,
+          max_score: 100
+        })),
+        total_min_score: 0,
+        total_max_score: 500
+      })
+      this.examPaperQuestionConfigByTrack = {
+        works: make(),
+        software: make(),
+        hardware: make()
+      }
     },
-    removeExamPaperUndergraduate () {
-      this.examPaperUndergraduateFile = null
-      this.examPaperUndergraduateFileList = []
+
+    _normalizeOneTrackQuestionConfig (cfg) {
+      if (!cfg || typeof cfg !== 'object') {
+        return {
+          question_count: 5,
+          questions: [1, 2, 3, 4, 5].map(n => ({ no: n, name: `第${n}题`, min_score: 0, max_score: 100 })),
+          total_min_score: 0,
+          total_max_score: 500
+        }
+      }
+      const count = Math.max(1, Math.min(5, Number(cfg.question_count) || 5))
+      const byNo = {}
+      ;(cfg.questions || []).forEach((q) => {
+        if (q && q.no != null) byNo[Number(q.no)] = q
+      })
+      return {
+        question_count: count,
+        questions: Array.from({ length: count }, (_, i) => {
+          const n = i + 1
+          const src = byNo[n] || {}
+          return {
+            no: n,
+            name: src.name || `第${n}题`,
+            min_score: src.min_score != null ? Number(src.min_score) : 0,
+            max_score: src.max_score != null ? Number(src.max_score) : 100
+          }
+        }),
+        total_min_score: cfg.total_min_score != null ? Number(cfg.total_min_score) : 0,
+        total_max_score: cfg.total_max_score != null ? Number(cfg.total_max_score) : count * 100
+      }
     },
-    beforeExamPaperVocationalUpload (file) {
-      this.examPaperVocationalFile = file
-      this.examPaperVocationalFileList = [this._examPaperUploadFileItem(file)]
-      return false
+
+    applyExamPaperQuestionConfig (cfg) {
+      if (!cfg || typeof cfg !== 'object') return
+      if (cfg.works || cfg.software || cfg.hardware || (!cfg.question_count && !cfg.questions)) {
+        this.examPaperQuestionConfigByTrack = {
+          works: this._normalizeOneTrackQuestionConfig(cfg.works),
+          software: this._normalizeOneTrackQuestionConfig(cfg.software),
+          hardware: this._normalizeOneTrackQuestionConfig(cfg.hardware)
+        }
+        return
+      }
+      const shared = this._normalizeOneTrackQuestionConfig(cfg)
+      this.examPaperQuestionConfigByTrack = {
+        works: this._normalizeOneTrackQuestionConfig(null),
+        software: JSON.parse(JSON.stringify(shared)),
+        hardware: JSON.parse(JSON.stringify(shared))
+      }
     },
-    removeExamPaperVocational () {
-      this.examPaperVocationalFile = null
-      this.examPaperVocationalFileList = []
+
+    onExamPaperQuestionCountChange (trackKey, n) {
+      const count = Math.max(1, Math.min(5, Number(n) || 5))
+      if (!this.examPaperQuestionConfigByTrack[trackKey]) {
+        this.$set(this.examPaperQuestionConfigByTrack, trackKey, this._normalizeOneTrackQuestionConfig(null))
+      }
+      const trackCfg = this.examPaperQuestionConfigByTrack[trackKey]
+      if (!trackCfg) return
+      const prev = trackCfg.questions || []
+      const byNo = {}
+      prev.forEach((q) => { if (q && q.no != null) byNo[Number(q.no)] = q })
+      trackCfg.question_count = count
+      trackCfg.questions = Array.from({ length: count }, (_, i) => {
+        const no = i + 1
+        const src = byNo[no] || {}
+        return {
+          no,
+          name: src.name || `第${no}题`,
+          min_score: src.min_score != null ? Number(src.min_score) : 0,
+          max_score: src.max_score != null ? Number(src.max_score) : 100
+        }
+      })
+      const sumMax = trackCfg.questions.reduce((s, q) => s + (Number(q.max_score) || 0), 0)
+      trackCfg.total_max_score = sumMax
     },
 
     async submitExamPaperPublish () {
       const id = this.examPaperModalCompetitionId
       if (id == null) return
       const uploads = []
-      if (this.examPaperModalIsDual) {
-        if (this.examPaperUndergraduateFile) {
-          uploads.push({ division: 'undergraduate', file: this.examPaperUndergraduateFile })
+      Object.keys(this.examPaperTrackFiles || {}).forEach((key) => {
+        const file = this.examPaperTrackFiles[key]
+        if (!file) return
+        const parts = key.split('__')
+        if (parts.length !== 2) return
+        uploads.push({ division: parts[0], work_track: parts[1], file })
+      })
+      const byTrack = this.examPaperQuestionConfigByTrack
+      const pack = (trackKey) => {
+        const cfg = byTrack[trackKey] || {}
+        return {
+          question_count: cfg.question_count,
+          questions: (cfg.questions || []).map(q => ({
+            no: q.no,
+            name: q.name || `第${q.no}题`,
+            min_score: Number(q.min_score) || 0,
+            max_score: Number(q.max_score) || 100
+          })),
+          total_min_score: Number(cfg.total_min_score) || 0,
+          total_max_score: Number(cfg.total_max_score) || 500
         }
-        if (this.examPaperVocationalFile) {
-          uploads.push({ division: 'vocational', file: this.examPaperVocationalFile })
-        }
-      } else if (this.examPaperDefaultFile) {
-        uploads.push({ division: 'default', file: this.examPaperDefaultFile })
-      }
-      if (!uploads.length) {
-        this.$message.warning('请先选择要上传的试卷文件')
-        return
       }
       this.examPaperUploading = true
       try {
-        let lastMeta = null
+        let lastMeta = this.examPaperMeta
         for (const item of uploads) {
           const fd = new FormData()
           fd.append('division', item.division)
+          fd.append('work_track', item.work_track)
           fd.append('file', item.file)
           lastMeta = await uploadCompetitionExamPaper(id, fd)
         }
+        await putSubmissionQuestionConfig(id, {
+          works: pack('works'),
+          software: pack('software'),
+          hardware: pack('hardware')
+        })
         this.examPaperMeta = lastMeta
-        this.$message.success('试卷发布成功')
+        this.$message.success(uploads.length ? '试卷与题目配置已保存' : '题目配置已保存')
         this.closeExamPaperPublishModal()
         if (this.activeCompetitionId != null && String(this.activeCompetitionId) === String(id)) {
           void this.refreshExamPapersForDetail()
+          void this.refreshActiveSubmissionQuestionConfig()
         }
       } catch (e) {
         this.$message.error('发布试卷失败：' + (e && e.message ? e.message : '未知错误'))
       } finally {
         this.examPaperUploading = false
+      }
+    },
+
+    async refreshActiveSubmissionQuestionConfig () {
+      const id = this.activeCompetitionId
+      if (id == null || id === '') {
+        this.activeSubmissionQuestionConfig = null
+        return
+      }
+      try {
+        this.activeSubmissionQuestionConfig = await getSubmissionQuestionConfig(id)
+      } catch (e) {
+        this.activeSubmissionQuestionConfig = null
       }
     },
 
@@ -5191,23 +5618,33 @@ export default {
         this.examPapersForDetail = null
       }
       this.$emit('exam-papers-changed')
+      void this.refreshActiveSubmissionQuestionConfig()
     },
 
     async downloadActiveExamPaper () {
       const id = this.activeCompetitionId
       const div = this.examPaperDownloadDivision
+      const track = this.examPaperDownloadWorkTrack
       if (id == null || !div) {
         this.$message.warning('无法确定试卷组别')
         return
       }
+      if (!track) {
+        this.$message.warning('无法确定报名赛道，请先完成报名/建队')
+        return
+      }
       this.examPaperDownloadLoading = true
       try {
-        const blob = await downloadCompetitionExamPaper(id, { division: div })
+        const blob = await downloadCompetitionExamPaper(id, { division: div, work_track: track })
         const meta = this.examPapersForDetail
-        const slot = div === 'undergraduate'
-          ? (meta && meta.undergraduate)
-          : (div === 'vocational' ? (meta && meta.vocational) : (meta && meta.default))
-        const filename = (slot && slot.filename) || `exam_paper_${id}_${div}.bin`
+        const byTrack = meta && meta.by_track
+        const trackSlot = byTrack && byTrack[div] && byTrack[div][track]
+        const slot = trackSlot || (
+          div === 'undergraduate'
+            ? (meta && meta.undergraduate)
+            : (div === 'vocational' ? (meta && meta.vocational) : (meta && meta.default))
+        )
+        const filename = (slot && slot.filename) || `exam_paper_${id}_${div}_${track}.bin`
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
@@ -5377,7 +5814,7 @@ export default {
         return
       }
       const tasks = [this.refreshMySubmissions()]
-      if (this.usesQuestionAnswerSubmission) {
+      if (this.activeEnrollmentWorkTrack === 'software' || this.activeEnrollmentWorkTrack === 'hardware') {
         tasks.push(this.refreshQuestionAnswersBoard())
       }
       void Promise.all(tasks).finally(() => {
@@ -7258,8 +7695,8 @@ export default {
 
     async handleSubmitSubmission () {
       if (!this.activeCompetitionId) return
-      if (!this.usesZipPackageSubmission) {
-        this.$message.warning('请使用分题答案上传，不再支持压缩包提交')
+      if (!this.usesZipPackageSubmission || this.activeEnrollmentWorkTrack !== 'works') {
+        this.$message.warning('仅作品赛道可上传压缩包；软件 / 硬件赛道请使用分题答案上传')
         return
       }
       if (!this.assertEnrollDivisionContext()) return
@@ -8066,13 +8503,16 @@ export default {
       }
     },
 
-    async openPromoteModal () {
+    async openPromoteModal (track) {
       if (!this.activeCompetitionId || !this.isActiveCompetitionPreliminary) return
+      this.promotionModalWorkTrack = track || null
       this.promotionSelectedTeamIds = []
       this.showPromoteModal = true
       this.promotionCandidatesLoading = true
       try {
-        const res = await getPromotionCandidates(this.activeCompetitionId)
+        const res = await getPromotionCandidates(this.activeCompetitionId, {
+          work_track: this.promotionModalWorkTrack || undefined
+        })
         this.promotionCandidates = (res && res.teams) || []
       } catch (e) {
         this.promotionCandidates = []
@@ -8095,8 +8535,11 @@ export default {
       }
       this.promotionSubmitLoading = true
       try {
-        await createCompetitionPromotions(this.activeCompetitionId, { team_ids: ids })
-        this.$message.success(`已晋级 ${ids.length} 支队伍`)
+        await createCompetitionPromotions(this.activeCompetitionId, {
+          team_ids: ids,
+          work_track: this.promotionModalWorkTrack || undefined
+        })
+        this.$message.success(`已晋级 ${ids.length} 支${this.workTrackSectionLabel(this.promotionModalWorkTrack)}队伍`)
         this.showPromoteModal = false
         await this.refreshPromotionList()
       } catch (e) {
@@ -8105,6 +8548,21 @@ export default {
       } finally {
         this.promotionSubmitLoading = false
       }
+    },
+
+    promotionsForTrack (track) {
+      const key = String(track || '').trim().toLowerCase()
+      return (this.promotionListRows || []).filter(row => {
+        return String(row.work_track || '').trim().toLowerCase() === key
+      })
+    },
+
+    promotionDivisionLabel (division) {
+      const d = String(division || '').trim().toLowerCase()
+      if (d === 'undergraduate') return '本科'
+      if (d === 'vocational') return '高职'
+      if (d === 'default' || !d) return '-'
+      return d
     },
 
     async refreshPromotionList () {
@@ -8679,23 +9137,68 @@ export default {
       }
     },
 
-    parseTeamQuestionScoreInput (raw, label) {
+    getQuestionConfigForTrack (trackKey) {
+      const track = String(trackKey || '').trim().toLowerCase()
+      const byTrack = this.activeSubmissionQuestionConfig
+      if (byTrack && track && byTrack[track]) return byTrack[track]
+      const fromComp = this.activeCompetition && this.activeCompetition.submission_question_config
+      if (fromComp && track && fromComp[track]) return fromComp[track]
+      return {
+        question_count: 5,
+        questions: [1, 2, 3, 4, 5].map(n => ({ no: n, name: `第${n}题`, min_score: 0, max_score: 100 })),
+        total_min_score: 0,
+        total_max_score: 500
+      }
+    },
+
+    parseTeamQuestionScoreInput (raw, label, minScore, maxScore) {
       const n = parseFloat(raw)
       if (Number.isNaN(n)) {
         this.$message.error(`${label}必须是数字，例如：20`)
         return null
       }
-      if (n < 0 || n > 100) {
-        this.$message.error(`${label}须在 0～100 之间`)
+      const mn = minScore != null && Number.isFinite(Number(minScore)) ? Number(minScore) : 0
+      const mx = maxScore != null && Number.isFinite(Number(maxScore)) ? Number(maxScore) : 100
+      if (n < mn || n > mx) {
+        this.$message.error(`${label}须在 ${mn}～${mx} 之间`)
         return null
       }
       return n
+    },
+
+    collectGradeFormQuestionScores () {
+      const items = this.gradeFormQuestionItems || []
+      const scores = { score_q1: 0, score_q2: 0, score_q3: 0, score_q4: 0, score_q5: 0 }
+      for (let i = 0; i < items.length; i++) {
+        const q = items[i]
+        const label = (q && q.name) || `第${q.no}题`
+        const parsed = this.parseTeamQuestionScoreInput(
+          this.gradeForm['score_q' + q.no],
+          label,
+          q.min_score,
+          q.max_score
+        )
+        if (parsed == null) return null
+        scores['score_q' + q.no] = parsed
+      }
+      const cfg = this.getQuestionConfigForTrack(this.gradeForm.work_track)
+      const total = items.reduce((s, q) => s + Number(scores['score_q' + q.no] || 0), 0)
+      const tmin = cfg && cfg.total_min_score != null ? Number(cfg.total_min_score) : 0
+      const tmax = cfg && cfg.total_max_score != null ? Number(cfg.total_max_score) : 500
+      if (Number.isFinite(tmin) && Number.isFinite(tmax) && (total < tmin || total > tmax)) {
+        this.$message.error(`总分须在 ${tmin}～${tmax} 之间（当前 ${Math.round(total * 100) / 100}）`)
+        return null
+      }
+      return scores
     },
 
     fillTeamQuestionGradeForm (record, isEdit = false) {
       if (!this.canReviewSubmissions || !record) return
       this.gradeForm.submission_id = null
       this.gradeForm.team_id = record.team_id
+      const track = record.work_track != null ? String(record.work_track).trim().toLowerCase() : ''
+      this.gradeForm.work_track = (track === 'hardware' || track === 'software') ? track : 'software'
+      this.gradeForm.questionGradeExists = !!isEdit
       this.gradeFormIsEdit = !!isEdit
       this.gradeForm.score = ''
       if (isEdit) {
@@ -8716,8 +9219,29 @@ export default {
       if (!this.canReviewSubmissions) return
       const sub = this.adminSubmissions.find(s => Number(s.id) === Number(submissionId))
       this.gradeForm.submission_id = submissionId
-      this.gradeForm.team_id = null
+      this.gradeForm.team_id = sub && sub.team_id != null ? sub.team_id : null
+      this.gradeForm.work_track = 'works'
+      this.gradeForm.questionGradeExists = false
       this.gradeFormIsEdit = !!isEdit
+      Object.assign(this.gradeForm, this.emptyTeamQuestionGradeFields())
+      void this.refreshActiveSubmissionQuestionConfig()
+
+      if (this.gradeForm.team_id && this.activeCompetitionId) {
+        try {
+          const g = await getTeamQuestionGrade(this.activeCompetitionId, this.gradeForm.team_id)
+          if (g) {
+            this.gradeForm.questionGradeExists = true
+            this.gradeForm.score_q1 = g.score_q1 != null ? String(g.score_q1) : ''
+            this.gradeForm.score_q2 = g.score_q2 != null ? String(g.score_q2) : ''
+            this.gradeForm.score_q3 = g.score_q3 != null ? String(g.score_q3) : ''
+            this.gradeForm.score_q4 = g.score_q4 != null ? String(g.score_q4) : ''
+            this.gradeForm.score_q5 = g.score_q5 != null ? String(g.score_q5) : ''
+            this.gradeForm.feedback = g.feedback ? String(g.feedback) : ''
+          }
+        } catch (_) {
+          this.gradeForm.questionGradeExists = false
+        }
+      }
 
       let detail = sub
       if (this.gradeFormIsEdit && sub && this.resolveSubmissionScoreRaw(sub) == null) {
@@ -8742,13 +9266,17 @@ export default {
         }
       }
 
-      if (this.gradeFormIsEdit && detail) {
-        const scoreRaw = this.resolveSubmissionScoreRaw(detail)
-        this.gradeForm.score = scoreRaw != null ? String(scoreRaw) : ''
-        this.gradeForm.feedback = this.resolveSubmissionFeedback(detail)
-      } else {
-        this.gradeForm.score = ''
-        this.gradeForm.feedback = ''
+      if (!this.gradeForm.questionGradeExists) {
+        if (this.gradeFormIsEdit && detail) {
+          const scoreRaw = this.resolveSubmissionScoreRaw(detail)
+          this.gradeForm.score = scoreRaw != null ? String(scoreRaw) : ''
+          if (!this.gradeForm.feedback) {
+            this.gradeForm.feedback = this.resolveSubmissionFeedback(detail)
+          }
+        } else {
+          this.gradeForm.score = ''
+          if (!this.gradeForm.feedback) this.gradeForm.feedback = ''
+        }
       }
 
       this.showGradeAudit = true
@@ -8759,6 +9287,8 @@ export default {
       this.gradeFormIsEdit = false
       this.gradeForm.submission_id = null
       this.gradeForm.team_id = null
+      this.gradeForm.work_track = ''
+      this.gradeForm.questionGradeExists = false
       this.gradeForm.score = ''
       Object.assign(this.gradeForm, this.emptyTeamQuestionGradeFields())
       this.gradeForm.feedback = ''
@@ -8768,6 +9298,10 @@ export default {
       if (!this.canReviewSubmissions) return
       if (this.gradeForm.team_id) {
         await this.handleTeamQuestionGrade()
+        return
+      }
+      if (this.gradeForm.work_track === 'works') {
+        await this.handleWorksIndividualQuestionGrade()
         return
       }
       if (!this.gradeForm.submission_id) return
@@ -8838,13 +9372,9 @@ export default {
       const teamId = this.gradeForm.team_id
       const competitionId = this.activeCompetitionId
       if (!teamId || !competitionId) return
-      const scores = {}
-      for (let n = 1; n <= 5; n++) {
-        const parsed = this.parseTeamQuestionScoreInput(this.gradeForm['score_q' + n], `第${n}题`)
-        if (parsed == null) return
-        scores['score_q' + n] = parsed
-      }
-      const isEdit = this.gradeFormIsEdit
+      const scores = this.collectGradeFormQuestionScores()
+      if (!scores) return
+      const isEdit = !!this.gradeForm.questionGradeExists
       if (isEdit) {
         try {
           await this.$confirm({
@@ -8891,13 +9421,80 @@ export default {
       }
     },
 
+    async handleWorksIndividualQuestionGrade () {
+      if (!this.gradeForm.submission_id) return
+      const scores = this.collectGradeFormQuestionScores()
+      if (!scores) return
+      const items = this.gradeFormQuestionItems || []
+      const total = items.reduce((s, q) => s + Number(scores['score_q' + q.no] || 0), 0)
+      const scoreValue = Math.round(total * 100) / 100
+      const isEdit = this.gradeFormIsEdit
+      if (isEdit) {
+        try {
+          await this.$confirm({
+            title: '修改评分',
+            content: '确定保存对该作品分题评分的修改吗？总分将自动合计。',
+            okText: '确定',
+            cancelText: '取消'
+          })
+        } catch {
+          return
+        }
+      }
+      this.gradeLoading = true
+      const gradedSubmissionId = this.gradeForm.submission_id
+      try {
+        const payload = {
+          score: scoreValue,
+          feedback: this.gradeForm.feedback || ''
+        }
+        let reviewRes
+        if (isEdit) {
+          reviewRes = await patchCompetitionSubmissionReviewGrade(gradedSubmissionId, payload)
+          this.$message.success('评分已更新，总分已自动合计')
+        } else {
+          reviewRes = await reviewCompetitionSubmissionGrade(gradedSubmissionId, payload)
+          this.$message.success('评分提交成功，总分已自动合计')
+        }
+        const mergedReview = this.normalizeReviewGradeResponse(reviewRes) || {
+          score: scoreValue,
+          feedback: payload.feedback || '',
+          reviewed_at: null
+        }
+        saveSubmissionReviewGradeCache(gradedSubmissionId, mergedReview)
+        this.cancelGradeAudit()
+        await this.refreshAdminSubmissions()
+        this.applyReviewGradeToAdminSubmission(gradedSubmissionId, mergedReview)
+      } catch (e) {
+        const status = e && e.response && e.response.status
+        const msg = (e && e.message) ? e.message : '未知错误'
+        if (status === 400) {
+          const notReviewed = /not reviewed|尚未评分|未评分/i.test(msg)
+          if (notReviewed && isEdit) {
+            this.$message.warning('该作品尚未评分，请先点击「评分」完成首次评分')
+          }
+          return
+        }
+        const friendlyMsg = !isEdit && /already|已评|重复|duplicate/i.test(msg)
+          ? '该作品已评分，请刷新列表后点击「修改评分」'
+          : msg
+        this.$message.error((isEdit ? '修改评分失败：' : '评分失败：') + friendlyMsg)
+      } finally {
+        this.gradeLoading = false
+      }
+    },
+
     async refreshAdminSubmissions () {
       if (!this.canViewCompetitionSubmissions) return
       if (!this.activeCompetitionId) return
       if (!this.assertCompetitionDivisionQueryContext()) return
       this.adminSubmissionsLoading = true
       try {
-        if (this.usesQuestionAnswerSubmission) {
+        void this.refreshActiveSubmissionQuestionConfig()
+        const loadQa = this.usesQuestionAnswerSubmission
+        const loadZip = this.usesZipPackageSubmission
+        // 管理端两者皆 true：同时拉取；学生端仅一种
+        if (loadQa) {
           const res = await getCompetitionQuestionAnswersOverview(this.activeCompetitionId)
           const items = res && Array.isArray(res.items) ? res.items : []
           let rows = items.map((item) => {
@@ -8906,10 +9503,12 @@ export default {
             slots.forEach((s) => {
               if (s && s.question_no != null) byQ[Number(s.question_no)] = s
             })
+            const trackRaw = item.work_track != null ? String(item.work_track).trim().toLowerCase() : ''
             const row = {
               team_id: item.team_id,
               team_name: item.team_name || `队伍${item.team_id}`,
               captain_id: item.captain_id,
+              work_track: trackRaw === 'hardware' ? 'hardware' : (trackRaw === 'software' ? 'software' : trackRaw || ''),
               uploaded_count: item.uploaded_count != null ? item.uploaded_count : 0,
               question_count: item.question_count != null ? item.question_count : 5,
               graded: !!item.graded,
@@ -8935,47 +9534,79 @@ export default {
             rows = rows.filter(r => allowed.has(Number(r.team_id)))
           }
           this.adminQuestionAnswerRows = rows
-          this.adminSubmissions = []
-          this.adminSubmissionsTotal = this.adminQuestionAnswerRows.length
-          this.adminSubmissionsHiddenByWithdrawCount = 0
-          return
+        } else {
+          this.adminQuestionAnswerRows = []
         }
 
-        const cid = this.activeCompetitionId
-        const divOpts = this.buildCompetitionDivisionQueryOptions()
-        const submissionOpts = this.buildAdminSubmissionsQueryOptions()
-        const expertView = this.expertAnonymizedView
-        const [subRes, indRes, teamRes] = await Promise.all([
-          getCompetitionSubmissions(cid, submissionOpts),
-          expertView ? Promise.resolve([]) : getCompetitionParticipantsIndividual(cid, divOpts).catch(() => []),
-          expertView ? Promise.resolve([]) : getCompetitionParticipantsTeams(cid, divOpts).catch(() => [])
-        ])
-        let raw = this.normalizeSubmissionsListResponse(subRes).map(item =>
-          this.normalizeAdminSubmissionRow(item)
-        )
-        if (this.isCompetitionExpert && this.isExpertAssignedToActiveCompetition) {
-          const allowed = new Set(getAltAssignedTeamIdsForCompetition(cid))
-          raw = raw.filter(s => s && s.team_id != null && allowed.has(Number(s.team_id)))
-        }
-        let visible = raw
-        if (!expertView) {
-          const enrollIndex = buildEnrollmentVisibilityIndex(
-            normalizeCompetitionApiList(indRes),
-            normalizeCompetitionApiList(teamRes)
+        if (loadZip) {
+          const cid = this.activeCompetitionId
+          const divOpts = this.buildCompetitionDivisionQueryOptions()
+          const submissionOpts = this.buildAdminSubmissionsQueryOptions()
+          const expertView = this.expertAnonymizedView
+          const [subRes, indRes, teamRes] = await Promise.all([
+            getCompetitionSubmissions(cid, submissionOpts),
+            expertView ? Promise.resolve([]) : getCompetitionParticipantsIndividual(cid, divOpts).catch(() => []),
+            expertView ? Promise.resolve([]) : getCompetitionParticipantsTeams(cid, divOpts).catch(() => [])
+          ])
+          const teamTrackMap = {}
+          normalizeCompetitionApiList(teamRes).forEach((t) => {
+            if (!t || t.id == null) return
+            const track = t.work_track != null ? String(t.work_track).trim().toLowerCase() : ''
+            if (track === 'works' || track === 'software' || track === 'hardware') {
+              teamTrackMap[Number(t.id)] = track
+            }
+          })
+          const indTrackMap = {}
+          normalizeCompetitionApiList(indRes).forEach((row) => {
+            if (!row) return
+            const sid = row.student_id != null ? row.student_id : row.user_id
+            if (sid == null) return
+            const track = row.work_track != null ? String(row.work_track).trim().toLowerCase() : ''
+            if (track === 'works' || track === 'software' || track === 'hardware') {
+              indTrackMap[Number(sid)] = track
+            }
+          })
+          this.adminTeamWorkTrackById = teamTrackMap
+          this.adminIndividualWorkTrackById = indTrackMap
+
+          let raw = this.normalizeSubmissionsListResponse(subRes).map(item =>
+            this.normalizeAdminSubmissionRow(item)
           )
-          visible = filterAdminSubmissionsByActiveEnrollments(raw, enrollIndex)
-          this.adminSubmissionsHiddenByWithdrawCount = Math.max(0, raw.length - visible.length)
+          if (this.isCompetitionExpert && this.isExpertAssignedToActiveCompetition) {
+            const allowed = new Set(getAltAssignedTeamIdsForCompetition(cid))
+            raw = raw.filter(s => s && s.team_id != null && allowed.has(Number(s.team_id)))
+          }
+          let visible = raw
+          if (!expertView) {
+            const enrollIndex = buildEnrollmentVisibilityIndex(
+              normalizeCompetitionApiList(indRes),
+              normalizeCompetitionApiList(teamRes)
+            )
+            visible = filterAdminSubmissionsByActiveEnrollments(raw, enrollIndex)
+            this.adminSubmissionsHiddenByWithdrawCount = Math.max(0, raw.length - visible.length)
+          } else {
+            this.adminSubmissionsHiddenByWithdrawCount = 0
+          }
+          this.adminSubmissions = visible
+          const total = Number(subRes && subRes.total)
+          this.adminSubmissionsTotal = Number.isFinite(total) && total >= 0 ? total : visible.length
+          await this.enrichAdminSubmissionsScores()
         } else {
+          this.adminSubmissions = []
+          this.adminTeamWorkTrackById = {}
+          this.adminIndividualWorkTrackById = {}
+          this.adminSubmissionsTotal = this.adminQuestionAnswerRows.length
           this.adminSubmissionsHiddenByWithdrawCount = 0
         }
-        this.adminSubmissions = visible
-        this.adminQuestionAnswerRows = []
-        const total = Number(subRes && subRes.total)
-        this.adminSubmissionsTotal = Number.isFinite(total) && total >= 0 ? total : visible.length
-        await this.enrichAdminSubmissionsScores()
+        if (loadQa && !loadZip) {
+          this.adminSubmissionsTotal = this.adminQuestionAnswerRows.length
+          this.adminSubmissionsHiddenByWithdrawCount = 0
+        }
       } catch (e) {
         this.adminQuestionAnswerRows = []
         this.adminSubmissions = []
+        this.adminTeamWorkTrackById = {}
+        this.adminIndividualWorkTrackById = {}
         this.adminSubmissionsTotal = 0
         this.adminSubmissionsHiddenByWithdrawCount = 0
         const label = this.usesQuestionAnswerSubmission ? '题目答案列表' : '作品列表'
@@ -9018,6 +9649,7 @@ export default {
           team_name: item.team_name || `队伍${item.team_id}`,
           school: item.school || '-',
           advisor_name: item.advisor_name || '-',
+          captain_name: item.captain_name || (item.captain_id != null ? String(item.captain_id) : '-'),
           members: item.members || '-',
           score_q1: item.score_q1,
           score_q2: item.score_q2,
@@ -9249,10 +9881,11 @@ export default {
         this.participantsTeams = list.map(item => {
           const members = Array.isArray(item.members) ? item.members : []
           const captain = members.find(m => m && m.is_captain) || null
-          const membersNames = members
+          const nonCaptains = members.filter(m => m && !m.is_captain)
+          const membersNames = nonCaptains
             .map(m => (m && (m.full_name || m.username)) ? (m.full_name || m.username) : null)
             .filter(Boolean)
-          const memberIds = members
+          const memberIds = nonCaptains
             .map(m => (m && m.user_id != null) ? String(m.user_id) : null)
             .filter(Boolean)
 
@@ -9289,23 +9922,37 @@ export default {
       this.participantsTeamsExportLoading = true
       try {
         const divOpts = this.buildCompetitionDivisionQueryOptions()
-        const blob = await exportCompetitionTeamsExcel(this.activeCompetitionId, {
+        const rawBlob = await exportCompetitionTeamsExcel(this.activeCompetitionId, {
           ...divOpts,
           scope: 'current'
         })
-        if (!blob || (typeof blob.size === 'number' && blob.size <= 0)) {
+        if (!rawBlob || (typeof rawBlob.size === 'number' && rawBlob.size <= 0)) {
           throw new Error('导出结果为空')
         }
-        const filename = `competition_${this.activeCompetitionId}_roster.xlsx`
+        if (rawBlob.type && String(rawBlob.type).indexOf('application/json') >= 0) {
+          const text = await rawBlob.text()
+          let msg = '导出失败'
+          try {
+            const j = JSON.parse(text)
+            msg = (j && (j.detail || j.message)) || msg
+          } catch (_) {
+            msg = text || msg
+          }
+          throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
+        }
+        // 强制按 zip 保存，避免浏览器缓存仍落成 .xlsx
+        const blob = new Blob([rawBlob], { type: 'application/zip' })
+        const filename = `competition_${this.activeCompetitionId}_roster.zip`
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
         a.download = filename
+        a.setAttribute('download', filename)
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
         window.URL.revokeObjectURL(url)
-        this.$message.success('已导出参赛表格')
+        this.$message.success('已导出参赛表格压缩包（作品/软件/硬件赛道各一份 Excel）')
       } catch (e) {
         this.$message.error('导出参赛表格失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {
@@ -9313,29 +9960,37 @@ export default {
       }
     },
 
-    beforeImportPromotionsExcel (file) {
-      void this.handleImportPromotionsExcel(file)
+    beforeImportPromotionsExcel (file, workTrack) {
+      void this.handleImportPromotionsExcel(file, workTrack)
       return false
     },
 
-    async handleImportPromotionsExcel (file) {
+    async handleImportPromotionsExcel (file, workTrack) {
       if (!this.canManageCompetitions || !this.activeCompetitionId) return
       if (!this.isActiveCompetitionPreliminary) {
         this.$message.warning('请在初赛竞赛下导入决赛名单')
         return
       }
-      this.promotionImportLoading = true
+      const track = String(workTrack || '').trim().toLowerCase()
+      this.promotionImportLoading = track || true
       try {
-        const res = await importCompetitionPromotionsExcel(this.activeCompetitionId, file)
+        const res = await importCompetitionPromotionsExcel(
+          this.activeCompetitionId,
+          file,
+          track || undefined
+        )
         const imported = res && res.imported != null ? res.imported : 0
         const skipped = res && res.skipped != null ? res.skipped : 0
         const failed = res && res.failed != null ? res.failed : 0
-        this.$message.success(`导入完成：成功 ${imported}，跳过 ${skipped}，失败 ${failed}`)
+        const trackLabel = track ? this.workTrackSectionLabel(track) : ''
+        this.$message.success(
+          `${trackLabel ? trackLabel + '：' : ''}导入完成：成功 ${imported}，跳过 ${skipped}，失败 ${failed}`
+        )
         await this.refreshPromotionList()
       } catch (e) {
         this.$message.error('导入晋级名单失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {
-        this.promotionImportLoading = false
+        this.promotionImportLoading = null
       }
     },
 
@@ -9490,13 +10145,43 @@ export default {
       }
     },
 
-    async exportQuestionAnswersZip (mode) {
-      if (!this.canManageCompetitions) return
+    adminQuestionAnswerRowsForTrack (trackKey) {
+      const track = String(trackKey || '').trim().toLowerCase()
+      return (this.adminQuestionAnswerRows || []).filter((r) => {
+        const t = r && r.work_track != null ? String(r.work_track).trim().toLowerCase() : ''
+        if (t === 'software' || t === 'hardware') return t === track
+        // 兼容旧接口未返回 work_track：按队伍赛道映射
+        if (r && r.team_id != null) {
+          return (this.adminTeamWorkTrackById || {})[Number(r.team_id)] === track
+        }
+        return false
+      })
+    },
+
+    workTrackSectionLabel (trackKey) {
+      const t = String(trackKey || '').trim().toLowerCase()
+      if (t === 'works') return '作品赛道'
+      if (t === 'software') return '软件赛道'
+      if (t === 'hardware') return '硬件赛道'
+      return '赛道'
+    },
+
+    async exportQuestionAnswersZip (mode, workTrack) {
+      if (!this.canExportAnswers) return
       if (!this.activeCompetitionId) {
         this.$message.warning('请先选择竞赛')
         return
       }
-      if (!this.usesQuestionAnswerSubmission) {
+      const track = String(workTrack || '').trim().toLowerCase()
+      if (!['works', 'software', 'hardware'].includes(track)) {
+        this.$message.warning('请指定赛道')
+        return
+      }
+      if (track === 'works' && mode !== 'by_team') {
+        this.$message.warning('作品赛道仅支持按队伍导出')
+        return
+      }
+      if ((track === 'software' || track === 'hardware') && !this.usesQuestionAnswerSubmission) {
         this.$message.warning('请使用分题答案上传')
         return
       }
@@ -9504,9 +10189,10 @@ export default {
         this.$message.warning('竞赛尚未结束，结束后才可导出答案（状态为「已结束」或已过结束时间）')
         return
       }
-      this.questionAnswersExportLoading = mode
+      const loadingKey = `${track}:${mode}`
+      this.questionAnswersExportLoading = loadingKey
       try {
-        const blob = await exportCompetitionQuestionAnswers(this.activeCompetitionId, mode)
+        const blob = await exportCompetitionQuestionAnswers(this.activeCompetitionId, mode, track)
         if (!blob || (typeof blob.size === 'number' && blob.size <= 0)) {
           throw new Error('导出结果为空')
         }
@@ -9522,7 +10208,7 @@ export default {
           }
           throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
         }
-        const filename = `competition_${this.activeCompetitionId}_answers_${mode}.zip`
+        const filename = `${this.workTrackSectionLabel(track)}.zip`
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
@@ -9531,7 +10217,11 @@ export default {
         a.click()
         document.body.removeChild(a)
         window.URL.revokeObjectURL(url)
-        this.$message.success(mode === 'by_team' ? '按队伍导出成功' : '按题目导出成功')
+        this.$message.success(
+          mode === 'by_team'
+            ? `${this.workTrackSectionLabel(track)}按队伍导出成功`
+            : `${this.workTrackSectionLabel(track)}按题目导出成功`
+        )
       } catch (e) {
         this.$message.error('导出答案失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {
@@ -10644,6 +11334,37 @@ export default {
   font-size: 15px;
   font-weight: 600;
   color: rgba(0, 0, 0, 0.85);
+}
+
+.admin-track-block {
+  margin-bottom: 16px;
+}
+
+.admin-track-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background: #ffffff;
+  border: 1px solid #f0f0f0;
+  border-radius: 4px;
+}
+
+.admin-track-bar__title {
+  color: rgba(0, 0, 0, 0.85);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.admin-track-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .team-join-request-row {

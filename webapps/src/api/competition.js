@@ -91,19 +91,27 @@ export function getCompetitions () {
   })
 }
 
-/** 初赛：可晋级决赛的队伍候选 */
-export function getPromotionCandidates (competitionId) {
+/** 初赛：可晋级决赛的队伍候选。options.work_track: works | software | hardware */
+export function getPromotionCandidates (competitionId, options = {}) {
+  const params = {}
+  const track = options && options.work_track
+  if (track) params.work_track = track
   return axios({
     url: `/v1/competitions/${encodeURIComponent(competitionId)}/promotions/candidates`,
-    method: 'get'
+    method: 'get',
+    params
   })
 }
 
-/** 初赛或决赛：晋级名单 */
-export function getCompetitionPromotions (competitionId) {
+/** 初赛或决赛：晋级名单。options.work_track: works | software | hardware */
+export function getCompetitionPromotions (competitionId, options = {}) {
+  const params = {}
+  const track = options && options.work_track
+  if (track) params.work_track = track
   return axios({
     url: `/v1/competitions/${encodeURIComponent(competitionId)}/promotions`,
-    method: 'get'
+    method: 'get',
+    params
   })
 }
 
@@ -200,7 +208,7 @@ export function getCompetitionParticipantsTeams (competitionId, options = {}) {
   })
 }
 
-// 8.11.1 导出对照表 Excel（学校/竞赛/组别项目/队伍/队员/五题分/总分）
+// 8.11.1 导出参赛对照表（按赛道拆成多份 Excel，打成 zip）
 // options.scope: current | paired | both
 export function exportCompetitionTeamsExcel (competitionId, options = {}) {
   const params = {
@@ -218,10 +226,11 @@ export function exportCompetitionTeamsExcel (competitionId, options = {}) {
   })
 }
 
-/** 管理员：Excel 导入决赛晋级名单（列：队伍ID，可选队伍名） */
-export function importCompetitionPromotionsExcel (competitionId, file) {
+/** 管理员：Excel 导入决赛晋级名单（列：队伍ID，可选队伍名）。workTrack 限定赛道。 */
+export function importCompetitionPromotionsExcel (competitionId, file, workTrack) {
   const fd = new FormData()
   fd.append('file', file)
+  if (workTrack) fd.append('work_track', workTrack)
   return axios({
     url: `/v1/competitions/${encodeURIComponent(competitionId)}/promotions/import`,
     method: 'post',
@@ -287,14 +296,18 @@ export function submitCompetitionQuestionAnswers (competitionId, teamId) {
 }
 
 /**
- * 赛后导出答案 zip（一键）：
- * mode=by_team → 外层含「队伍ID.zip」；by_question → 外层含「第N题.zip」
+ * 赛后导出答案 zip（按赛道）：
+ * work_track=works|software|hardware
+ * mode=by_team → 外层含「队伍ID.zip」；by_question → 外层含「第N题.zip」（作品赛道仅支持 by_team）
+ * 下载文件名以后端 Content-Disposition 为准（赛道名称.zip）
  */
-export function exportCompetitionQuestionAnswers (competitionId, mode) {
+export function exportCompetitionQuestionAnswers (competitionId, mode, workTrack) {
+  const params = { mode }
+  if (workTrack) params.work_track = workTrack
   return axios({
     url: `/v1/competitions/${competitionId}/question-answers/export`,
     method: 'get',
-    params: { mode },
+    params,
     responseType: 'blob',
     timeout: 600000
   })
@@ -608,7 +621,7 @@ export function downloadCompetitionSubmissionFile (submissionId) {
   })
 }
 
-/** 超级管理员：按组别上传/覆盖竞赛试卷（竞赛须已 published/closed） */
+/** 超级管理员：按组别+赛道上传/覆盖竞赛试卷（竞赛须已 published/closed） */
 export function uploadCompetitionExamPaper (competitionId, formData) {
   return axios({
     url: `/v1/competitions/${competitionId}/exam-papers`,
@@ -618,7 +631,7 @@ export function uploadCompetitionExamPaper (competitionId, formData) {
   })
 }
 
-/** 查询竞赛各组别试卷是否已发布 */
+/** 查询竞赛各组别/赛道试卷是否已发布 */
 export function getCompetitionExamPapers (competitionId) {
   return axios({
     url: `/v1/competitions/${competitionId}/exam-papers`,
@@ -626,11 +639,31 @@ export function getCompetitionExamPapers (competitionId) {
   })
 }
 
-/** 下载已发布试卷（已报名学生 / 关联指导老师；dual 须传 division） */
+/** 分题提交配置（题数/题名/分值区间） */
+export function getSubmissionQuestionConfig (competitionId) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/submission-question-config`,
+    method: 'get'
+  })
+}
+
+export function putSubmissionQuestionConfig (competitionId, payload) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/submission-question-config`,
+    method: 'put',
+    data: payload,
+    headers: { 'Content-Type': 'application/json' }
+  })
+}
+
+/** 下载已发布试卷（已报名学生 / 关联指导老师；须传 division；建议传 work_track） */
 export function downloadCompetitionExamPaper (competitionId, options = {}) {
   const params = {}
   if (options.division != null && options.division !== '') {
     params.division = options.division
+  }
+  if (options.work_track != null && options.work_track !== '') {
+    params.work_track = options.work_track
   }
   return axios({
     url: `/v1/competitions/${competitionId}/exam-papers/download`,
@@ -778,11 +811,17 @@ export function assignCompetitionExpert (competitionId, expertUserId, payload = 
   })
 }
 
-// 8.0.7 管理员：取消指派
-export function revokeCompetitionExpert (competitionId, expertUserId) {
+// 8.0.7 管理员：取消指派（可传 teamId 仅撤销单支队伍）
+export function revokeCompetitionExpert (competitionId, expertUserId, options = {}) {
+  const params = {}
+  const teamId = options && options.teamId
+  if (teamId != null && teamId !== '') {
+    params.team_id = teamId
+  }
   return axios({
     url: `/v1/competitions/${encodeURIComponent(competitionId)}/experts/${encodeURIComponent(expertUserId)}`,
-    method: 'delete'
+    method: 'delete',
+    params
   })
 }
 

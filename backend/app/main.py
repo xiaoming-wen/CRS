@@ -131,6 +131,8 @@ async def startup_event():
         "ALTER TABLE competitions ADD COLUMN exam_paper_filename_undergraduate VARCHAR(255)",
         "ALTER TABLE competitions ADD COLUMN exam_paper_path_vocational VARCHAR(512)",
         "ALTER TABLE competitions ADD COLUMN exam_paper_filename_vocational VARCHAR(255)",
+        "ALTER TABLE competitions ADD COLUMN exam_papers_by_track TEXT",
+        "ALTER TABLE competitions ADD COLUMN submission_question_config TEXT",
     ):
         try:
             with user_engine.connect() as conn:

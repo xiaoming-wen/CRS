@@ -3,7 +3,7 @@
     <a-card :bordered="false" class="section-card">
       <a-alert type="info" show-icon message="校管理员资料审核" style="margin-bottom: 16px">
         <template slot="description">
-          校管理员注册后可登录，但须提交资料（含照片）并经超级管理员审核通过后，方可执行本校组队校审。
+          校管理员注册后可登录，但须提交资料（含照片）并经超级管理员审核通过后，方可执行本校组队校审。对已通过账号，超管可改回「待审核」或「已驳回」，改后将暂时失去组队校审权限。
         </template>
       </a-alert>
 
@@ -74,6 +74,24 @@
               驳回
             </a-button>
           </template>
+          <template v-else-if="record.application_status === 'approved'">
+            <a-button
+              size="small"
+              :loading="reviewLoadingId === record.user_id && reviewAction === 'reset_pending'"
+              @click="confirmResetPending(record)"
+            >
+              改为待审核
+            </a-button>
+            <a-button
+              size="small"
+              danger
+              style="margin-left: 8px"
+              :loading="reviewLoadingId === record.user_id && reviewAction === 'reject'"
+              @click="openRejectModal(record)"
+            >
+              改为已驳回
+            </a-button>
+          </template>
           <span v-else-if="!record.photo_url" class="muted">—</span>
         </template>
       </a-table>
@@ -105,7 +123,10 @@
       @cancel="closeRejectModal"
     >
       <p v-if="rejectModalRecord">
-        确定驳回用户 #{{ rejectModalRecord.user_id }}（{{ rejectModalRecord.username }}）的校管申请吗？
+        确定将用户 #{{ rejectModalRecord.user_id }}（{{ rejectModalRecord.username }}）
+        <template v-if="rejectModalRecord.application_status === 'approved'">从「已通过」改为「已驳回」</template>
+        <template v-else>的校管申请驳回</template>
+        吗？驳回后将无法进行本校组队校审。
       </p>
       <a-form-item label="审核备注" :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
         <a-textarea v-model="rejectFeedback" :rows="3" placeholder="选填" />
@@ -159,7 +180,7 @@ export default {
         { title: '申请备注', dataIndex: 'application_remark', key: 'application_remark', width: 140, ellipsis: true },
         { title: '提交时间', dataIndex: 'application_submitted_at', key: 'application_submitted_at', width: 150, scopedSlots: { customRender: 'submittedAt' } },
         { title: '状态', dataIndex: 'application_status', key: 'application_status', width: 90, scopedSlots: { customRender: 'appStatus' } },
-        { title: '操作', key: 'actions', width: 200, fixed: 'right', scopedSlots: { customRender: 'actions' } }
+        { title: '操作', key: 'actions', width: 280, fixed: 'right', scopedSlots: { customRender: 'actions' } }
       ]
     },
     tableData () {
@@ -294,14 +315,33 @@ export default {
           action,
           feedback: feedback != null ? feedback : undefined
         })
-        this.$message.success(action === 'approve' ? '已通过审核' : '已驳回')
+        const msgMap = {
+          approve: '已通过审核',
+          reject: '已驳回',
+          reset_pending: '已改为待审核'
+        }
+        this.$message.success(msgMap[action] || '操作成功')
         await this.loadApplications()
       } catch (e) {
         this.$message.error('审核失败：' + this.getApiErrorMessage(e))
+        return Promise.reject(e)
       } finally {
         this.reviewLoadingId = null
         this.reviewAction = null
       }
+    },
+    confirmResetPending (record) {
+      if (!record || record.user_id == null) return
+      const self = this
+      this.$confirm({
+        title: '改为待审核',
+        content: `确定将用户 #${record.user_id}（${record.username}）从「已通过」改回「待审核」？改后将无法进行本校组队校审，需重新审核通过。`,
+        okText: '确认',
+        cancelText: '取消',
+        async onOk () {
+          await self.handleReview(record, 'reset_pending')
+        }
+      })
     },
     openRejectModal (record) {
       this.rejectModalRecord = record

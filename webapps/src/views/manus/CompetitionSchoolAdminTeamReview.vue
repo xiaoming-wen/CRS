@@ -78,9 +78,9 @@
               {{ formatDateTime(text) }}
             </template>
             <template slot="members" slot-scope="text, record">
-              <span v-if="!record.members || !record.members.length" class="muted">—</span>
+              <span v-if="!nonCaptainMembers(record).length" class="muted">—</span>
               <span v-else>
-                {{ record.members.map(m => formatMemberLabel(m)).join('、') }}
+                {{ nonCaptainMembers(record).map(m => formatMemberLabel(m)).join('、') }}
               </span>
             </template>
             <template slot="teamStatus" slot-scope="text">
@@ -448,8 +448,11 @@ export default {
     },
     formatMemberLabel (m) {
       if (!m) return '—'
-      const name = m.full_name || m.username || `#${m.user_id}`
-      return m.is_captain ? `${name}（队长）` : name
+      return m.full_name || m.username || `#${m.user_id}`
+    },
+    nonCaptainMembers (record) {
+      const members = (record && Array.isArray(record.members)) ? record.members : []
+      return members.filter(m => m && !m.is_captain)
     },
     teamStatusText (status) {
       return (TEAM_STATUS_MAP[status] || { text: status || '—' }).text

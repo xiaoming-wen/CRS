@@ -11,7 +11,7 @@
           <ol class="expert-assignment-desc-list">
             <li>用户可在注册页选择 <strong>专家</strong> 自助注册，此时，<strong>无法登录</strong>。</li>
             <li>通过加载全部专家；待审核者点击 <strong>确定专家身份</strong>。</li>
-            <li>已核验专家点击 <strong>指派</strong> → 选择竞赛并<strong>至少勾选一支队伍</strong> → 取消指派将撤销该竞赛下全部队伍。</li>
+            <li>已核验专家点击 <strong>指派</strong> → 选择竞赛并<strong>至少勾选一支队伍</strong> → 可对某一支队伍点击 <strong>取消指派</strong>，在弹窗确认后仅撤销该队伍。</li>
           </ol>
         </template>
       </a-alert>
@@ -82,21 +82,31 @@
                 :key="`${record.expert_user_id}-${a.competition_id}`"
                 class="assignment-item"
               >
-                <div class="assignment-item__text">
+                <div class="assignment-item__comp">
                   <a-tag color="blue">{{ formatCompetitionLabel(a) }}</a-tag>
-                  <span class="muted assignment-teams">
-                    {{ formatAssignmentTeams(a) }}
-                  </span>
                 </div>
-                <a-button
-                  type="link"
-                  size="small"
-                  danger
-                  :loading="revokeLoadingKey === `${a.competition_id}-${record.expert_user_id}`"
-                  @click="handleRevokeAssignment(record, a)"
+                <div v-if="!(a.teams && a.teams.length)" class="muted assignment-teams">
+                  未指定队伍（不可评阅）
+                </div>
+                <div
+                  v-for="t in (a.teams || [])"
+                  :key="`${record.expert_user_id}-${a.competition_id}-${t.team_id}`"
+                  class="assignment-team-row"
                 >
-                  取消指派
-                </a-button>
+                  <span class="assignment-team-name">
+                    {{ t.team_name || ('队伍#' + t.team_id) }}
+                    <span class="muted">（ID {{ t.team_id }}）</span>
+                  </span>
+                  <a-button
+                    type="link"
+                    size="small"
+                    danger
+                    :loading="revokeLoadingKey === revokeKeyOf(record.expert_user_id, a.competition_id, t.team_id)"
+                    @click="openRevokeModal(record, a, t)"
+                  >
+                    取消指派
+                  </a-button>
+                </div>
               </div>
             </div>
           </template>
@@ -174,6 +184,28 @@
         </p>
       </div>
     </a-modal>
+
+    <a-modal
+      :visible="revokeModalVisible"
+      title="取消指派"
+      :confirm-loading="revokeModalLoading"
+      ok-text="确认取消"
+      ok-type="danger"
+      cancel-text="返回"
+      destroy-on-close
+      @ok="submitRevokeModal"
+      @cancel="closeRevokeModal"
+    >
+      <p v-if="revokeModalPayload">
+        确定取消专家
+        <strong>#{{ revokeModalPayload.expertId }}</strong>
+        （{{ revokeModalPayload.expertName }}）
+        对竞赛「{{ revokeModalPayload.competitionLabel }}」中队伍
+        <strong>{{ revokeModalPayload.teamLabel }}</strong>
+        的指派吗？
+      </p>
+      <p class="muted" style="margin: 8px 0 0">仅取消该队伍，不影响同竞赛下其他已指派队伍。</p>
+    </a-modal>
   </div>
 </template>
 
@@ -200,6 +232,9 @@ export default {
       verifiedExpertItems: [],
       verifyLoadingId: null,
       revokeLoadingKey: null,
+      revokeModalVisible: false,
+      revokeModalLoading: false,
+      revokeModalPayload: null,
       assignModalVisible: false,
       assignModalLoading: false,
       assignModalExpert: null,
@@ -277,6 +312,51 @@ export default {
           return `${name}`
         })
         .join('、')
+    },
+    revokeKeyOf (expertId, competitionId, teamId) {
+      return `${competitionId}-${expertId}-${teamId}`
+    },
+    openRevokeModal (expertRecord, assignment, team) {
+      if (!expertRecord || !assignment || !team) return
+      const expertId = Number(expertRecord.expert_user_id)
+      const competitionId = Number(assignment.competition_id)
+      const teamId = Number(team.team_id)
+      if (!Number.isFinite(expertId) || !Number.isFinite(competitionId) || !Number.isFinite(teamId)) {
+        return
+      }
+      this.revokeModalPayload = {
+        expertId,
+        expertName: expertRecord.username || expertRecord.full_name || '—',
+        competitionId,
+        competitionLabel: this.formatCompetitionLabel(assignment),
+        teamId,
+        teamLabel: `${team.team_name || ('队伍#' + teamId)}（ID ${teamId}）`
+      }
+      this.revokeModalVisible = true
+    },
+    closeRevokeModal () {
+      this.revokeModalVisible = false
+      this.revokeModalLoading = false
+      this.revokeModalPayload = null
+    },
+    async submitRevokeModal () {
+      const payload = this.revokeModalPayload
+      if (!payload) return Promise.reject(new Error('cancelled'))
+      const { expertId, competitionId, teamId } = payload
+      this.revokeModalLoading = true
+      this.revokeLoadingKey = this.revokeKeyOf(expertId, competitionId, teamId)
+      try {
+        await revokeCompetitionExpert(competitionId, expertId, { teamId })
+        this.$message.success('已取消该队伍指派')
+        this.closeRevokeModal()
+        await this.loadExpertRegistry()
+      } catch (e) {
+        this.$message.error('取消失败：' + this.getApiErrorMessage(e))
+        return Promise.reject(e)
+      } finally {
+        this.revokeModalLoading = false
+        this.revokeLoadingKey = null
+      }
     },
     getApiErrorMessage (error, fallback = '操作失败') {
       const respData = error && error.response ? error.response.data : null
@@ -504,33 +584,6 @@ export default {
       } finally {
         this.assignModalLoading = false
       }
-    },
-    async handleRevokeAssignment (expertRecord, assignment) {
-      if (!expertRecord || !assignment) return
-      const expertId = Number(expertRecord.expert_user_id)
-      const competitionId = Number(assignment.competition_id)
-      const label = this.formatCompetitionLabel(assignment)
-      try {
-        await this.$confirm({
-          title: '取消指派',
-          content: `确定将专家 #${expertId} 从「${label}」及其全部指派队伍撤销吗？`,
-          okText: '确定',
-          cancelText: '取消',
-          okType: 'danger'
-        })
-      } catch {
-        return
-      }
-      this.revokeLoadingKey = `${competitionId}-${expertId}`
-      try {
-        await revokeCompetitionExpert(competitionId, expertId)
-        this.$message.success('已取消指派')
-        await this.loadExpertRegistry()
-      } catch (e) {
-        this.$message.error('取消失败：' + this.getApiErrorMessage(e))
-      } finally {
-        this.revokeLoadingKey = null
-      }
     }
   }
 }
@@ -567,27 +620,38 @@ export default {
 .assignment-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .assignment-item {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.assignment-item__comp {
+  margin-bottom: 2px;
+}
+
+.assignment-team-row {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 4px;
+  padding-left: 4px;
 }
 
-.assignment-item__text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
+.assignment-team-name {
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .assignment-teams {
   font-size: 12px;
   line-height: 1.4;
+  padding-left: 4px;
 }
 
 .assign-modal-body {

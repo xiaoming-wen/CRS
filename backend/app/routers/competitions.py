@@ -4,7 +4,7 @@ import zipfile
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from openpyxl import Workbook, load_workbook
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from sqlalchemy import func, and_, or_
@@ -50,6 +50,8 @@ from app.schemas import (
     CompetitionResponse,
     CompetitionExamPapers,
     CompetitionExamPaperSlot,
+    CompetitionSubmissionQuestionConfig,
+    CompetitionSubmissionQuestionConfigByTrack,
     CompetitionEnrollmentCreate,
     CompetitionEnrollmentResponse,
     CompetitionPromotionCreate,
@@ -940,17 +942,94 @@ def _assert_final_stage_roster_frozen(competition: Competition) -> None:
 
 
 def _assert_competition_uses_question_answers(competition: Competition) -> None:
-    """初赛、单阶段与决赛均使用分题答案提交。"""
+    """竞赛存在即可使用分题答案；具体赛道由 _assert_team_uses_question_answers 约束。"""
     if competition is None:
         raise HTTPException(status_code=404, detail="Competition not found")
 
 
-def _assert_competition_uses_zip_submission(competition: Competition) -> None:
-    """压缩包作品提交已停用，统一使用分题答案。"""
+def _normalize_optional_work_track(raw) -> Optional[str]:
+    if raw is None:
+        return None
+    v = getattr(raw, "value", raw)
+    s = str(v).strip().lower() if v is not None else ""
+    if s in ("works", "software", "hardware"):
+        return s
+    return None
+
+
+def _peek_team_work_track(db: Session, competition_id: int, team: Optional[Team]) -> Optional[str]:
+    """队伍赛道：优先 team.work_track，否则取该队任一有效报名上的 work_track。未设置时返回 None。"""
+    if team is None:
+        return None
+    track = _normalize_optional_work_track(getattr(team, "work_track", None))
+    if track:
+        return track
+    row = (
+        db.query(CompetitionEnrollment)
+        .filter(
+            CompetitionEnrollment.competition_id == competition_id,
+            CompetitionEnrollment.team_id == team.id,
+            CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
+        )
+        .order_by(CompetitionEnrollment.id.asc())
+        .first()
+    )
+    return _normalize_optional_work_track(getattr(row, "work_track", None) if row else None)
+
+
+def _resolve_team_work_track(db: Session, competition_id: int, team: Team) -> str:
+    """队伍赛道：优先 team.work_track，否则取该队任一有效报名上的 work_track。"""
+    track = _peek_team_work_track(db, competition_id, team)
+    if track:
+        return track
     raise HTTPException(
         status_code=400,
-        detail="请使用分题答案上传，不再支持压缩包作品提交",
+        detail="队伍未设置赛道，请先选择作品 / 软件 / 硬件赛道后再提交",
     )
+
+
+def _resolve_individual_work_track(
+    db: Session, competition_id: int, student_id: int
+) -> str:
+    row = _get_enrollment_by_scope(
+        db, competition_id, student_id, CompetitionEnrollmentScope.INDIVIDUAL
+    )
+    if not row or row.status != CompetitionEnrollmentStatus.ENROLLED:
+        raise HTTPException(status_code=400, detail="未找到有效的个人报名")
+    track = _normalize_optional_work_track(getattr(row, "work_track", None))
+    if track:
+        return track
+    raise HTTPException(
+        status_code=400,
+        detail="个人报名未设置赛道，请先选择作品 / 软件 / 硬件赛道后再提交",
+    )
+
+
+def _assert_work_track_allows_zip(work_track: str) -> None:
+    if work_track != "works":
+        raise HTTPException(
+            status_code=400,
+            detail="仅作品赛道可上传压缩包；软件 / 硬件赛道请使用分题答案上传",
+        )
+
+
+def _assert_work_track_allows_question_answers(work_track: str) -> None:
+    if work_track == "works":
+        raise HTTPException(
+            status_code=400,
+            detail="作品赛道请上传压缩包作品；软件 / 硬件赛道才可使用分题答案上传",
+        )
+    if work_track not in ("software", "hardware"):
+        raise HTTPException(
+            status_code=400,
+            detail="当前赛道不支持分题答案上传",
+        )
+
+
+def _assert_competition_uses_zip_submission(competition: Competition) -> None:
+    """保留旧调用点：竞赛级不再一律禁止，改由赛道校验。"""
+    if competition is None:
+        raise HTTPException(status_code=404, detail="Competition not found")
 
 
 def _paired_final_competition(db: Session, prelim: Competition) -> Competition:
@@ -1039,7 +1118,9 @@ def _promote_prelim_team_to_final(
         raise HTTPException(status_code=400, detail=f"队伍 {source_team.id} 无成员")
 
     division = str(getattr(source_team, "division", None) or "default")
-    work_track = getattr(source_team, "work_track", None)
+    work_track = _peek_team_work_track(db, prelim.id, source_team) or getattr(
+        source_team, "work_track", None
+    )
     final_team = Team(
         id=allocate_eight_digit_id(db, Team),
         competition_id=final.id,
@@ -1077,6 +1158,7 @@ def _promote_prelim_team_to_final(
         )
 
     promo = CompetitionPromotion(
+        id=allocate_eight_digit_id(db, CompetitionPromotion),
         from_competition_id=prelim.id,
         to_competition_id=final.id,
         source_team_id=source_team.id,
@@ -1231,39 +1313,76 @@ def _resolve_exam_paper_fs_path(stored: str) -> str:
 
 
 def _exam_paper_slot(
-    competition_id: int, path: Optional[str], filename: Optional[str], division: str
+    competition_id: int,
+    path: Optional[str],
+    filename: Optional[str],
+    division: str,
+    work_track: Optional[str] = None,
 ) -> CompetitionExamPaperSlot:
     published = bool(path and str(path).strip())
     download_url = None
     if published:
-        download_url = (
-            f"/api/v1/competitions/{competition_id}/exam-papers/download?division={division}"
-        )
+        q = f"division={division}"
+        if work_track:
+            q += f"&work_track={work_track}"
+        download_url = f"/api/v1/competitions/{competition_id}/exam-papers/download?{q}"
     return CompetitionExamPaperSlot(
         published=published,
         filename=filename if published else None,
         download_url=download_url,
+        work_track=work_track,
+        division=division,
     )
 
 
 def _build_exam_papers_meta(competition: Competition) -> CompetitionExamPapers:
+    from app.competition_exam_config import WORK_TRACKS, get_exam_papers_by_track_map
+
     mode = str(getattr(competition, "division_mode", None) or "single").lower()
     cid = competition.id
+    divisions = ["undergraduate", "vocational"] if mode == "dual" else ["default"]
+    by_track = {}
+    track_map = get_exam_papers_by_track_map(competition)
+
+    for div in divisions:
+        by_track[div] = {}
+        for track in WORK_TRACKS:
+            path = None
+            name = None
+            if div in track_map and track in track_map[div]:
+                path = track_map[div][track].get("path")
+                name = track_map[div][track].get("filename")
+            if not path:
+                legacy_path, legacy_name = _exam_paper_path_and_filename(competition, div)
+                if legacy_path:
+                    path, name = legacy_path, legacy_name
+            by_track[div][track] = _exam_paper_slot(cid, path, name, div, track)
+
+    def _legacy_slot(div: str) -> CompetitionExamPaperSlot:
+        for t in ("software", "hardware", "works"):
+            slot = by_track.get(div, {}).get(t)
+            if slot and slot.published:
+                return slot
+        path, name = _exam_paper_path_and_filename(competition, div)
+        return _exam_paper_slot(cid, path, name, div)
+
     if mode == "dual":
-        ug_path, ug_name = _exam_paper_path_and_filename(competition, "undergraduate")
-        voc_path, voc_name = _exam_paper_path_and_filename(competition, "vocational")
         return CompetitionExamPapers(
-            undergraduate=_exam_paper_slot(cid, ug_path, ug_name, "undergraduate"),
-            vocational=_exam_paper_slot(cid, voc_path, voc_name, "vocational"),
+            undergraduate=_legacy_slot("undergraduate"),
+            vocational=_legacy_slot("vocational"),
+            by_track=by_track,
         )
-    path, name = _exam_paper_path_and_filename(competition, "default")
     return CompetitionExamPapers(
-        default=_exam_paper_slot(cid, path, name, "default"),
+        default=_legacy_slot("default"),
+        by_track=by_track,
     )
 
 
 async def _save_exam_paper_upload(
-    upload: StarletteUploadFile, competition_id: int, division: str
+    upload: StarletteUploadFile,
+    competition_id: int,
+    division: str,
+    work_track: Optional[str] = None,
 ) -> Tuple[str, str]:
     if not upload.filename or not str(upload.filename).strip():
         raise HTTPException(status_code=400, detail="exam paper requires a filename")
@@ -1281,7 +1400,8 @@ async def _save_exam_paper_upload(
             detail=f"exam paper too large (max {MAX_EXAM_PAPER_BYTES // (1024 * 1024)} MiB)",
         )
     safe_div = division.replace("/", "_")
-    fname = f"comp_{competition_id}_{safe_div}_{uuid.uuid4().hex}{ext}"
+    track_part = f"_{work_track}" if work_track else ""
+    fname = f"comp_{competition_id}_{safe_div}{track_part}_{uuid.uuid4().hex}{ext}"
     rel = _normalize_stored_qr_path(os.path.join(COMPETITION_EXAM_PAPER_DIR, fname))
     abs_path = _resolve_exam_paper_fs_path(rel)
     with open(abs_path, "wb") as f:
@@ -1299,11 +1419,16 @@ def _exam_paper_requires_division_match(competition: Competition) -> bool:
 
 
 def _can_download_exam_paper(
-    db: Session, competition: Competition, identity: AltAuthUserRecord, division: str
+    db: Session,
+    competition: Competition,
+    identity: AltAuthUserRecord,
+    division: str,
+    work_track: Optional[str] = None,
 ) -> bool:
     role = _effective_alt_role(identity.role)
     cid = competition.id
     match_division = _exam_paper_requires_division_match(competition)
+    track = (work_track or "").strip().lower() or None
     if role == "student":
         q = db.query(CompetitionEnrollment).filter(
             CompetitionEnrollment.competition_id == cid,
@@ -1312,6 +1437,8 @@ def _can_download_exam_paper(
         )
         if match_division:
             q = q.filter(CompetitionEnrollment.division == division)
+        if track:
+            q = q.filter(CompetitionEnrollment.work_track == track)
         return q.first() is not None
     if role in {"advisor", "teacher"}:
         q = db.query(Team).filter(
@@ -1320,8 +1447,51 @@ def _can_download_exam_paper(
         )
         if match_division:
             q = q.filter(Team.division == division)
+        if track:
+            q = q.filter(Team.work_track == track)
         return q.first() is not None
     return False
+
+
+def _resolve_identity_work_track_for_paper(
+    db: Session,
+    competition: Competition,
+    identity: AltAuthUserRecord,
+    division: str,
+    requested: Optional[str],
+) -> str:
+    raw = (requested or "").strip().lower() if requested is not None else ""
+    if raw in ("works", "software", "hardware"):
+        return raw
+    role = _effective_alt_role(identity.role)
+    match_division = _exam_paper_requires_division_match(competition)
+    if role == "student":
+        q = db.query(CompetitionEnrollment).filter(
+            CompetitionEnrollment.competition_id == competition.id,
+            CompetitionEnrollment.student_id == identity.id,
+            CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
+        )
+        if match_division:
+            q = q.filter(CompetitionEnrollment.division == division)
+        row = q.order_by(CompetitionEnrollment.id.desc()).first()
+        track = str(getattr(row, "work_track", None) or "").strip().lower() if row else ""
+        if track in ("works", "software", "hardware"):
+            return track
+    if role in {"advisor", "teacher"}:
+        q = db.query(Team).filter(
+            Team.competition_id == competition.id,
+            Team.created_by_advisor_id == identity.id,
+        )
+        if match_division:
+            q = q.filter(Team.division == division)
+        team = q.order_by(Team.id.desc()).first()
+        track = str(getattr(team, "work_track", None) or "").strip().lower() if team else ""
+        if track in ("works", "software", "hardware"):
+            return track
+    raise HTTPException(
+        status_code=400,
+        detail="请指定赛道 work_track（works/software/hardware），或先完成对应赛道报名/建队",
+    )
 
 
 def _is_enrollment_closed(competition: Competition) -> bool:
@@ -1367,11 +1537,23 @@ def _ensure_competition_ended_for_export(competition: Competition) -> None:
         )
 
 
-def _validate_question_no(question_no: int) -> int:
-    if question_no < 1 or question_no > COMPETITION_QUESTION_COUNT:
+def _validate_question_no(
+    question_no: int,
+    competition: Optional[Competition] = None,
+    work_track: Optional[str] = None,
+) -> int:
+    from app.competition_exam_config import get_competition_question_count
+
+    max_n = (
+        get_competition_question_count(competition, work_track)
+        if competition is not None
+        else COMPETITION_QUESTION_COUNT
+    )
+    max_n = max(1, min(COMPETITION_QUESTION_COUNT, int(max_n)))
+    if question_no < 1 or question_no > max_n:
         raise HTTPException(
             status_code=400,
-            detail=f"question_no must be between 1 and {COMPETITION_QUESTION_COUNT}",
+            detail=f"question_no must be between 1 and {max_n}",
         )
     return question_no
 
@@ -1382,7 +1564,17 @@ def _safe_export_filename(name: str, fallback: str = "answer") -> str:
     return base or fallback
 
 
-def _question_folder_name(question_no: int) -> str:
+def _question_folder_name(
+    question_no: int,
+    competition: Optional[Competition] = None,
+    work_track: Optional[str] = None,
+) -> str:
+    from app.competition_exam_config import question_name_map
+
+    if competition is not None:
+        names = question_name_map(competition, work_track)
+        if question_no in names:
+            return names[question_no]
     return f"第{question_no}题"
 
 
@@ -1493,6 +1685,21 @@ def _assert_team_answers_not_locked(db: Session, competition_id: int, team_id: i
 def _build_question_answers_board(
     db: Session, competition_id: int, team_id: int
 ) -> CompetitionQuestionAnswersBoard:
+    from app.competition_exam_config import get_competition_question_count
+
+    competition = db.query(Competition).filter(Competition.id == competition_id).first()
+    team = db.query(Team).filter(Team.id == team_id, Team.competition_id == competition_id).first()
+    track = None
+    if team is not None:
+        try:
+            track = _resolve_team_work_track(db, competition_id, team)
+        except HTTPException:
+            track = str(getattr(team, "work_track", None) or "").strip().lower() or None
+    q_count = (
+        get_competition_question_count(competition, track)
+        if competition
+        else COMPETITION_QUESTION_COUNT
+    )
     rows = (
         db.query(CompetitionQuestionAnswer)
         .filter(
@@ -1505,7 +1712,7 @@ def _build_question_answers_board(
     slots: List[CompetitionQuestionAnswerSlot] = []
     submitted_count = 0
     draft_count = 0
-    for q in range(1, COMPETITION_QUESTION_COUNT + 1):
+    for q in range(1, q_count + 1):
         row = by_q.get(q)
         slot = _slot_from_row(db, q, row)
         slots.append(slot)
@@ -1516,7 +1723,7 @@ def _build_question_answers_board(
     return CompetitionQuestionAnswersBoard(
         competition_id=competition_id,
         team_id=team_id,
-        question_count=COMPETITION_QUESTION_COUNT,
+        question_count=q_count,
         submitted_count=submitted_count,
         draft_count=draft_count,
         slots=slots,
@@ -1539,17 +1746,49 @@ def _write_answer_file_into_zip(
     zf.write(file_record.file_path, folder + fname)
 
 
+def _filter_teams_by_work_track(
+    db: Session,
+    competition_id: int,
+    teams: List[Team],
+    work_track: Optional[str],
+) -> List[Team]:
+    track = (work_track or "").strip().lower() or None
+    if not track:
+        return list(teams)
+    out: List[Team] = []
+    for team in teams:
+        try:
+            t = _resolve_team_work_track(db, competition_id, team)
+        except HTTPException:
+            t = str(getattr(team, "work_track", None) or "").strip().lower() or ""
+        if t == track:
+            out.append(team)
+    return out
+
+
 def _build_answers_export_zip(
     db: Session,
     competition: Competition,
     mode: str,
+    work_track: Optional[str] = None,
+    allowed_team_ids: Optional[set] = None,
 ) -> BytesIO:
+    from app.competition_exam_config import get_competition_question_count
+
     teams = (
         db.query(Team)
         .filter(Team.competition_id == competition.id, Team.status == TeamStatus.ACTIVE)
         .order_by(Team.id.asc())
         .all()
     )
+    track = (work_track or "").strip().lower() or None
+    if track in ("software", "hardware"):
+        teams = _filter_teams_by_work_track(db, competition.id, teams, track)
+    if allowed_team_ids is not None:
+        teams = [t for t in teams if int(t.id) in allowed_team_ids]
+    q_count = get_competition_question_count(competition, track)
+    q_count = max(1, min(COMPETITION_QUESTION_COUNT, int(q_count)))
+
     answers = (
         db.query(CompetitionQuestionAnswer)
         .filter(
@@ -1558,6 +1797,9 @@ def _build_answers_export_zip(
         )
         .all()
     )
+    team_ids = {t.id for t in teams}
+    if track in ("software", "hardware"):
+        answers = [a for a in answers if a.team_id in team_ids]
     file_ids = {a.file_id for a in answers}
     files_by_id = {
         f.id: f for f in db.query(FileModel).filter(FileModel.id.in_(file_ids)).all()
@@ -1572,8 +1814,8 @@ def _build_answers_export_zip(
             for team in teams:
                 inner_buf = BytesIO()
                 with zipfile.ZipFile(inner_buf, "w", compression=zipfile.ZIP_DEFLATED) as inner_zf:
-                    for q in range(1, COMPETITION_QUESTION_COUNT + 1):
-                        folder = _question_folder_name(q)
+                    for q in range(1, q_count + 1):
+                        folder = _question_folder_name(q, competition, track)
                         ans = answers_map.get((team.id, q))
                         if ans:
                             _write_answer_file_into_zip(
@@ -1584,7 +1826,7 @@ def _build_answers_export_zip(
                 inner_buf.seek(0)
                 outer_zf.writestr(f"{team.id}.zip", inner_buf.read())
         elif mode == "by_question":
-            for q in range(1, COMPETITION_QUESTION_COUNT + 1):
+            for q in range(1, q_count + 1):
                 inner_buf = BytesIO()
                 with zipfile.ZipFile(inner_buf, "w", compression=zipfile.ZIP_DEFLATED) as inner_zf:
                     for team in teams:
@@ -1597,9 +1839,90 @@ def _build_answers_export_zip(
                         else:
                             inner_zf.writestr(folder + "/", "")
                 inner_buf.seek(0)
-                outer_zf.writestr(f"{_question_folder_name(q)}.zip", inner_buf.read())
+                q_name = _safe_export_filename(
+                    _question_folder_name(q, competition, track), fallback=f"第{q}题"
+                )
+                outer_zf.writestr(f"{q_name}.zip", inner_buf.read())
         else:
             raise HTTPException(status_code=400, detail="mode must be by_team or by_question")
+
+    outer.seek(0)
+    return outer
+
+
+def _build_works_submissions_export_zip(
+    db: Session,
+    competition: Competition,
+    allowed_team_ids: Optional[set] = None,
+) -> BytesIO:
+    """作品赛道：按队伍导出压缩包作品，外层 zip 内含「队伍ID.zip」。"""
+    teams = (
+        db.query(Team)
+        .filter(Team.competition_id == competition.id, Team.status == TeamStatus.ACTIVE)
+        .order_by(Team.id.asc())
+        .all()
+    )
+    works_teams = _filter_teams_by_work_track(db, competition.id, teams, "works")
+    works_team_ids = {t.id for t in works_teams}
+    if allowed_team_ids is not None:
+        works_team_ids = {tid for tid in works_team_ids if int(tid) in allowed_team_ids}
+
+    submissions = (
+        db.query(Submission)
+        .filter(Submission.competition_id == competition.id)
+        .order_by(Submission.submitted_at.desc())
+        .all()
+    )
+    # 每队取最新一条带文件的提交；个人作品赛（无 team_id）按 student_id 归组
+    latest_by_key: dict[str, Submission] = {}
+    for sub in submissions:
+        if sub.team_id is not None:
+            if int(sub.team_id) not in works_team_ids:
+                continue
+            key = f"team:{int(sub.team_id)}"
+        else:
+            if allowed_team_ids is not None:
+                continue
+            # 个人提交：须对应作品赛道有效报名
+            enroll = (
+                db.query(CompetitionEnrollment)
+                .filter(
+                    CompetitionEnrollment.competition_id == competition.id,
+                    CompetitionEnrollment.student_id == sub.student_id,
+                    CompetitionEnrollment.enrollment_scope == CompetitionEnrollmentScope.INDIVIDUAL,
+                    CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
+                )
+                .first()
+            )
+            track = _normalize_optional_work_track(getattr(enroll, "work_track", None) if enroll else None)
+            if track != "works":
+                continue
+            key = f"student:{int(sub.student_id)}"
+        if key in latest_by_key:
+            continue
+        if not sub.file_id:
+            continue
+        latest_by_key[key] = sub
+
+    file_ids = {s.file_id for s in latest_by_key.values() if s.file_id}
+    files_by_id = {
+        f.id: f for f in db.query(FileModel).filter(FileModel.id.in_(file_ids)).all()
+    } if file_ids else {}
+
+    outer = BytesIO()
+    with zipfile.ZipFile(outer, "w", compression=zipfile.ZIP_DEFLATED) as outer_zf:
+        for key, sub in sorted(latest_by_key.items(), key=lambda kv: kv[0]):
+            inner_buf = BytesIO()
+            with zipfile.ZipFile(inner_buf, "w", compression=zipfile.ZIP_DEFLATED) as inner_zf:
+                _write_answer_file_into_zip(
+                    inner_zf, "作品", files_by_id.get(sub.file_id)
+                )
+            inner_buf.seek(0)
+            if sub.team_id is not None:
+                arc = f"{int(sub.team_id)}.zip"
+            else:
+                arc = f"student_{int(sub.student_id)}.zip"
+            outer_zf.writestr(arc, inner_buf.read())
 
     outer.seek(0)
     return outer
@@ -1848,6 +2171,25 @@ def _work_track_label_cn(raw: Optional[str]) -> str:
     }.get(v, v or "-")
 
 
+def _work_track_section_label(raw: Optional[str]) -> str:
+    """作品提交分区标题 / 导出压缩包名：作品赛道、软件赛道、硬件赛道。"""
+    v = str(raw or "").strip().lower()
+    return {
+        "works": "作品赛道",
+        "software": "软件赛道",
+        "hardware": "硬件赛道",
+    }.get(v, v or "赛道")
+
+
+def _content_disposition_attachment(filename: str) -> str:
+    """ASCII fallback + RFC5987 UTF-8 filename*，便于中文压缩包名下载。"""
+    from urllib.parse import quote
+
+    safe = _safe_export_filename(filename, fallback="export.zip")
+    ascii_name = re.sub(r"[^\x20-\x7e]", "_", safe) or "export.zip"
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(safe)}"
+
+
 def _division_track_project_label(division: Optional[str], work_track: Optional[str]) -> str:
     """组别+赛道，如「本科软件组」。"""
     div = _division_label_cn(division)
@@ -1862,6 +2204,35 @@ def _division_track_project_label(division: Optional[str], work_track: Optional[
     return f"{''.join(parts)}组"
 
 
+def _question_score_headers_for_track(competition: Competition, work_track: str) -> List[str]:
+    """队员之后的分题列表头：取自发布试卷时的分题配置名称。"""
+    from app.competition_exam_config import get_competition_question_config
+
+    cfg = get_competition_question_config(competition, work_track)
+    headers: List[str] = []
+    for q in cfg.get("questions") or []:
+        try:
+            no = int(q.get("no"))
+        except (TypeError, ValueError):
+            continue
+        if no < 1 or no > COMPETITION_QUESTION_COUNT:
+            continue
+        name = str(q.get("name") or f"第{no}题").strip() or f"第{no}题"
+        headers.append(name)
+    if not headers:
+        headers = [f"第{i}题" for i in range(1, 6)]
+    return headers
+
+
+def _grade_score_cells(grade: Optional[CompetitionTeamQuestionGrade], question_count: int) -> list:
+    """按配置题数输出分题分数单元格。"""
+    n = max(1, min(COMPETITION_QUESTION_COUNT, int(question_count) or 5))
+    attrs = ("score_q1", "score_q2", "score_q3", "score_q4", "score_q5")
+    if grade is None:
+        return [""] * n
+    return [getattr(grade, attrs[i], None) for i in range(n)]
+
+
 def _append_team_mapping_rows(
     ws,
     *,
@@ -1869,9 +2240,11 @@ def _append_team_mapping_rows(
     teams: list[Team],
     users_by_id: dict[int, AltAuthUserRecord],
     grades_by_team: Optional[dict] = None,
+    question_count: int = 5,
 ) -> None:
-    """对照表：一行一支队伍，含组别项目与五题分、总分。"""
+    """对照表：一行一支队伍，含组别项目、分题分（题数随配置）、总分。"""
     grades_by_team = grades_by_team or {}
+    q_count = max(1, min(COMPETITION_QUESTION_COUNT, int(question_count) or 5))
     for team in teams:
         advisor = _team_advisor_display_name(team, users_by_id) or "-"
         school = (getattr(team, "school", None) or "").strip() or "-"
@@ -1880,30 +2253,29 @@ def _append_team_mapping_rows(
         members = sorted(team.members, key=lambda x: (0 if x.is_captain else 1, x.id))
         member_labels = []
         for m in members:
+            if m.is_captain:
+                continue
+            if team.captain_id is not None and int(m.user_id) == int(team.captain_id):
+                continue
             u = users_by_id.get(m.user_id)
             member_name = _display_user_name(u, m.user_id)
-            member_labels.append(f"{member_name}（队长）" if m.is_captain else member_name)
+            member_labels.append(member_name)
         members_cell = "、".join(member_labels) if member_labels else "-"
         grade = grades_by_team.get(int(team.id))
-        ws.append(
-            [
-                school,
-                competition.name or "-",
-                _division_track_project_label(
-                    getattr(team, "division", None),
-                    getattr(team, "work_track", None),
-                ),
-                team.id,
-                name_and_advisor,
-                members_cell,
-                grade.score_q1 if grade else "",
-                grade.score_q2 if grade else "",
-                grade.score_q3 if grade else "",
-                grade.score_q4 if grade else "",
-                grade.score_q5 if grade else "",
-                grade.total_score if grade else "",
-            ]
-        )
+        row = [
+            school,
+            competition.name or "-",
+            _division_track_project_label(
+                getattr(team, "division", None),
+                getattr(team, "work_track", None),
+            ),
+            team.id,
+            name_and_advisor,
+            members_cell,
+        ]
+        row.extend(_grade_score_cells(grade, q_count))
+        row.append(grade.total_score if grade else "")
+        ws.append(row)
 
 
 def _load_active_teams_with_members(db: Session, competition_id: int) -> list[Team]:
@@ -1916,13 +2288,36 @@ def _load_active_teams_with_members(db: Session, competition_id: int) -> list[Te
     )
 
 
-def _team_members_label(team: Team, users_by_id: dict[int, AltAuthUserRecord]) -> str:
+def _team_captain_label(team: Team, users_by_id: dict[int, AltAuthUserRecord]) -> Tuple[Optional[int], Optional[str]]:
+    """返回 (captain_id, captain_display_name)。"""
+    captain_id = int(team.captain_id) if team.captain_id is not None else None
+    for m in team.members or []:
+        if m.is_captain and m.user_id is not None:
+            captain_id = int(m.user_id)
+            break
+    if captain_id is None:
+        return None, None
+    u = users_by_id.get(captain_id)
+    return captain_id, _display_user_name(u, captain_id)
+
+
+def _team_members_label(
+    team: Team,
+    users_by_id: dict[int, AltAuthUserRecord],
+    *,
+    exclude_captain: bool = True,
+) -> str:
+    """队员姓名列表；默认不含队长。"""
     members = sorted(team.members or [], key=lambda x: (0 if x.is_captain else 1, x.id))
     labels = []
     for m in members:
+        if exclude_captain and m.is_captain:
+            continue
+        if exclude_captain and team.captain_id is not None and int(m.user_id) == int(team.captain_id):
+            continue
         u = users_by_id.get(m.user_id)
         name = _display_user_name(u, m.user_id)
-        labels.append(f"{name}（队长）" if m.is_captain else name)
+        labels.append(name)
     return "、".join(labels) if labels else "-"
 
 
@@ -1947,13 +2342,16 @@ def _build_competition_score_team_items(
         advisor = _team_advisor_display_name(team, users_by_id) or None
         school = (getattr(team, "school", None) or "").strip() or None
         team_name = (team.name or "").strip() or f"队伍{team.id}"
+        captain_id, captain_name = _team_captain_label(team, users_by_id)
         items.append(
             CompetitionScoreTeamItem(
                 team_id=int(team.id),
                 team_name=team_name,
                 school=school,
                 advisor_name=advisor,
-                members=_team_members_label(team, users_by_id),
+                captain_name=captain_name,
+                captain_id=captain_id,
+                members=_team_members_label(team, users_by_id, exclude_captain=True),
                 score_q1=float(grade.score_q1) if grade else None,
                 score_q2=float(grade.score_q2) if grade else None,
                 score_q3=float(grade.score_q3) if grade else None,
@@ -1988,11 +2386,13 @@ async def export_team_roster_excel(
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
-    管理员导出对照表 Excel（一行一支队伍）：
-    学校名称、竞赛名称、组别项目、队伍编码、队伍名称指导老师、队员、一～五题分数、总分。
-    组别项目由组别+赛道组成，例如「本科软件组」。
+    管理员导出参赛对照表：按作品/软件/硬件赛道各生成一份 Excel，打成 zip。
+    每份表格列：学校名称、竞赛名称、组别项目、队伍编码、队伍名称指导老师、队员、
+    分题列（表头取自该赛道发布试卷时的分题配置名称）、总分。
     scope=both 时导出初赛+决赛全部队伍。
     """
+    from app.competition_exam_config import WORK_TRACKS
+
     require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
     competition = _get_competition(db, competition_id)
     scope_norm = (scope or "current").strip().lower()
@@ -2012,7 +2412,6 @@ async def export_team_roster_excel(
         comps = [competition]
         paired_id = getattr(competition, "paired_competition_id", None)
         if paired_id:
-            # 保证初赛在前、决赛在后
             other = _get_competition(db, int(paired_id))
             if _is_final_stage(competition):
                 comps = [other, competition]
@@ -2021,27 +2420,13 @@ async def export_team_roster_excel(
             else:
                 comps = [competition, other]
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "对照表"
-    headers = [
-        "学校名称",
-        "竞赛名称",
-        "组别项目",
-        "队伍编码",
-        "队伍名称指导老师",
-        "队员",
-        "一",
-        "二",
-        "三",
-        "四",
-        "五",
-        "总分",
-    ]
-    ws.append(headers)
-
+    # 预加载各场次队伍、用户、成绩
+    teams_by_comp: dict[int, list[Team]] = {}
+    users_by_comp: dict[int, dict[int, AltAuthUserRecord]] = {}
+    grades_by_comp: dict[int, dict[int, CompetitionTeamQuestionGrade]] = {}
     for comp in comps:
         teams = _load_active_teams_with_members(db, comp.id)
+        teams_by_comp[comp.id] = teams
         all_uids: set[int] = set()
         for t in teams:
             all_uids.add(t.captain_id)
@@ -2049,30 +2434,73 @@ async def export_team_roster_excel(
                 all_uids.add(t.created_by_advisor_id)
             for m in t.members:
                 all_uids.add(m.user_id)
-        users_by_id = _alt_users_by_id(adb, all_uids)
+        users_by_comp[comp.id] = _alt_users_by_id(adb, all_uids)
         grade_rows = (
             db.query(CompetitionTeamQuestionGrade)
             .filter(CompetitionTeamQuestionGrade.competition_id == comp.id)
             .all()
         )
-        grades_by_team = {int(g.team_id): g for g in grade_rows}
-        _append_team_mapping_rows(
-            ws,
-            competition=comp,
-            teams=teams,
-            users_by_id=users_by_id,
-            grades_by_team=grades_by_team,
-        )
+        grades_by_comp[comp.id] = {int(g.team_id): g for g in grade_rows}
 
-    buffer = BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-    filename = f"competition_{competition_id}_roster_{scope_norm}.xlsx"
-    headers_http = {"Content-Disposition": f'attachment; filename="{filename}"'}
-    return StreamingResponse(
-        buffer,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers_http,
+    zip_buf = BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for track in WORK_TRACKS:
+            # 表头以当前请求竞赛的该赛道分题配置为准（发布试卷时填写的题名）
+            q_headers = _question_score_headers_for_track(competition, track)
+            q_count = len(q_headers)
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = _work_track_section_label(track)[:31] or "对照表"
+            headers = [
+                "学校名称",
+                "竞赛名称",
+                "组别项目",
+                "队伍编码",
+                "队伍名称指导老师",
+                "队员",
+                *q_headers,
+                "总分",
+            ]
+            ws.append(headers)
+
+            for comp in comps:
+                all_teams = teams_by_comp.get(comp.id) or []
+                track_teams = [
+                    t
+                    for t in all_teams
+                    if _peek_team_work_track(db, comp.id, t) == track
+                ]
+                if not track_teams:
+                    continue
+                _append_team_mapping_rows(
+                    ws,
+                    competition=comp,
+                    teams=track_teams,
+                    users_by_id=users_by_comp.get(comp.id) or {},
+                    grades_by_team=grades_by_comp.get(comp.id) or {},
+                    question_count=q_count,
+                )
+
+            xlsx_buf = BytesIO()
+            wb.save(xlsx_buf)
+            xlsx_buf.seek(0)
+            # 包内文件名：赛道英文 key + 中文名，便于 Windows 正确识别
+            arcname = f"{track}_{_work_track_section_label(track)}.xlsx"
+            info = zipfile.ZipInfo(filename=arcname)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.flag_bits |= 0x800  # UTF-8 文件名
+            zf.writestr(info, xlsx_buf.getvalue())
+
+    payload = zip_buf.getvalue()
+    zip_name = f"competition_{competition_id}_roster_{scope_norm}.zip"
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": _content_disposition_attachment(zip_name),
+            "Content-Type": "application/zip",
+        },
     )
 
 
@@ -2513,23 +2941,28 @@ async def lock_competition(
 async def publish_competition_exam_paper(
     competition_id: int,
     division: Optional[str] = Form(None),
+    work_track: str = Form(..., description="works / software / hardware"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
-    """超级管理员为已发布竞赛按组别上传/覆盖试卷（上传即发布）。"""
+    """超级管理员为已发布竞赛按组别+赛道上传/覆盖试卷（上传即发布）。"""
+    from app.competition_exam_config import set_exam_paper_track_file
+
     _require_super_admin_identity(identity)
     require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
     competition = _get_competition(db, competition_id)
     _ensure_competition_published_for_papers(competition)
     div = _normalize_exam_paper_division(competition, division)
-    old_path, _old_name = _exam_paper_path_and_filename(competition, div)
-    rel, original = await _save_exam_paper_upload(file, competition_id, div)
+    track = _resolve_work_track(work_track)
+    rel, original = await _save_exam_paper_upload(file, competition_id, div, track)
+    old_path = set_exam_paper_track_file(competition, div, track, rel, original)
+    # 同步写入旧字段，兼容尚未传 work_track 的客户端
     _set_exam_paper_path_and_filename(competition, div, rel, original)
     competition.updated_at = utc_now()
     db.commit()
     db.refresh(competition)
-    if old_path and old_path != rel:
+    if old_path:
         _delete_stored_exam_paper_file(old_path)
     return _build_exam_papers_meta(competition)
 
@@ -2540,39 +2973,100 @@ async def get_competition_exam_papers(
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
-    """查询竞赛各组别试卷是否已发布（不返回本地路径）。"""
+    """查询竞赛各组别/赛道试卷是否已发布（不返回本地路径）。"""
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
     competition = _get_competition(db, competition_id)
     return _build_exam_papers_meta(competition)
+
+
+@router.put(
+    "/{competition_id}/submission-question-config",
+    response_model=CompetitionSubmissionQuestionConfigByTrack,
+)
+async def put_submission_question_config(
+    competition_id: int,
+    body: CompetitionSubmissionQuestionConfigByTrack,
+    db: Session = Depends(get_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """超级管理员按软件/硬件赛道分别配置分题：题数、题名、每题与总分分数区间。"""
+    from app.competition_exam_config import dumps_json, normalize_submission_question_config_by_track
+
+    _require_super_admin_identity(identity)
+    require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
+    competition = _get_competition(db, competition_id)
+    _ensure_competition_published_for_papers(competition)
+    normalized = normalize_submission_question_config_by_track(body.model_dump())
+    competition.submission_question_config = dumps_json(normalized)
+    competition.updated_at = utc_now()
+    db.commit()
+    db.refresh(competition)
+    return CompetitionSubmissionQuestionConfigByTrack.model_validate(normalized)
+
+
+@router.get(
+    "/{competition_id}/submission-question-config",
+    response_model=CompetitionSubmissionQuestionConfigByTrack,
+)
+async def get_submission_question_config(
+    competition_id: int,
+    work_track: Optional[str] = Query(
+        None, description="可选：software / hardware，仅返回该赛道配置"
+    ),
+    db: Session = Depends(get_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    from app.competition_exam_config import (
+        get_competition_question_config,
+        get_competition_question_config_by_track,
+    )
+
+    require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+    competition = _get_competition(db, competition_id)
+    by_track = get_competition_question_config_by_track(competition)
+    track = (work_track or "").strip().lower()
+    if track in ("software", "hardware"):
+        # 仍返回完整 by-track，便于前端统一；单赛道也可只取对应字段
+        return CompetitionSubmissionQuestionConfigByTrack.model_validate(by_track)
+    return CompetitionSubmissionQuestionConfigByTrack.model_validate(by_track)
 
 
 @router.get("/{competition_id}/exam-papers/download")
 async def download_competition_exam_paper(
     competition_id: int,
     division: Optional[str] = Query(None, description="default / undergraduate / vocational"),
+    work_track: Optional[str] = Query(None, description="works / software / hardware"),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
     下载已发布试卷。
-    仅：该组别已报名学生，或本赛该组别有关联队伍的指导老师/教师。
+    学生/指导老师按报名或关联队伍的赛道下载对应赛道试卷。
     """
+    from app.competition_exam_config import get_exam_paper_track_file
+
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
     competition = _get_competition(db, competition_id)
     _ensure_competition_published_for_papers(competition)
     div = _normalize_exam_paper_division(competition, division)
-    if not _can_download_exam_paper(db, competition, identity, div):
+    track = _resolve_identity_work_track_for_paper(db, competition, identity, div, work_track)
+    if not _can_download_exam_paper(db, competition, identity, div, track):
         raise HTTPException(
             status_code=403,
             detail=(
                 "无权下载试卷：学生须先在本赛道完成有效报名；"
                 "指导老师须已在本赛道创建过关联队伍。"
-                "双组别竞赛请确认当前详情页组别与报名组别一致。"
+                "请确认当前详情页组别与报名组别、赛道一致。"
             ),
         )
-    path, filename = _exam_paper_path_and_filename(competition, div)
+    path, filename = get_exam_paper_track_file(competition, div, track)
     if not path:
-        raise HTTPException(status_code=404, detail="Exam paper not published for this division")
+        path, filename = _exam_paper_path_and_filename(competition, div)
+    if not path:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Exam paper not published for division={div}, work_track={track}",
+        )
     fs_path = _resolve_exam_paper_fs_path(path)
     if not os.path.isfile(fs_path):
         raise HTTPException(status_code=404, detail="Exam paper file missing")
@@ -2828,28 +3322,59 @@ async def review_school_admin_application(
     adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
-    """超级管理员审核校管理员资料申请。"""
+    """
+    超级管理员审核校管理员资料申请。
+    - approve：待审核 → 已通过
+    - reject：待审核 / 已通过 → 已驳回（撤销校审权限）
+    - reset_pending：已通过 → 待审核（撤销校审权限，重新进入待审）
+    """
     _require_super_admin_identity(identity)
     row = adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.id == user_id).first()
     if row is None or _effective_alt_role(row.role) != "school_admin":
         raise HTTPException(status_code=404, detail="School admin user not found")
-    if _school_admin_application_status(row) != SchoolAdminApplicationStatus.PENDING:
-        raise HTTPException(status_code=400, detail="Application is not pending review")
-    if not getattr(row, "school_admin_photo_path", None):
-        raise HTTPException(status_code=400, detail="Application has no photo")
 
+    current = _school_admin_application_status(row)
     action = body.action.value if hasattr(body.action, "value") else str(body.action)
     feedback = (body.feedback or "").strip() or None
     now = utc_now()
 
     if action == "approve":
+        if current != SchoolAdminApplicationStatus.PENDING:
+            raise HTTPException(status_code=400, detail="Application is not pending review")
+        if not getattr(row, "school_admin_photo_path", None):
+            raise HTTPException(status_code=400, detail="Application has no photo")
         row.school_admin_verified = True
         row.school_admin_application_status = SchoolAdminApplicationStatus.APPROVED.value
     elif action == "reject":
+        if current not in (
+            SchoolAdminApplicationStatus.PENDING,
+            SchoolAdminApplicationStatus.APPROVED,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="仅待审核或已通过的校管申请可驳回",
+            )
+        if current == SchoolAdminApplicationStatus.PENDING and not getattr(
+            row, "school_admin_photo_path", None
+        ):
+            raise HTTPException(status_code=400, detail="Application has no photo")
         row.school_admin_verified = False
         row.school_admin_application_status = SchoolAdminApplicationStatus.REJECTED.value
+    elif action == "reset_pending":
+        if current != SchoolAdminApplicationStatus.APPROVED:
+            raise HTTPException(
+                status_code=400,
+                detail="仅已通过的校管可改回待审核",
+            )
+        if not getattr(row, "school_admin_photo_path", None):
+            raise HTTPException(status_code=400, detail="Application has no photo")
+        row.school_admin_verified = False
+        row.school_admin_application_status = SchoolAdminApplicationStatus.PENDING.value
     else:
-        raise HTTPException(status_code=400, detail="action must be approve or reject")
+        raise HTTPException(
+            status_code=400,
+            detail="action must be approve, reject, or reset_pending",
+        )
 
     row.school_admin_review_feedback = feedback
     row.school_admin_reviewed_at = now
@@ -3685,10 +4210,25 @@ async def assign_competition_expert(
 async def unassign_competition_expert(
     competition_id: int,
     expert_user_id: int,
+    team_id: Optional[int] = Query(
+        None,
+        description="若传入则仅取消该队伍指派；不传则撤销该竞赛下全部队伍指派",
+    ),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
+    """取消专家指派：可按单支队伍撤销，或撤销该竞赛下全部队伍。"""
     _require_super_admin_identity(identity)
+    _get_competition(db, competition_id)
+
+    team_q = db.query(CompetitionExpertTeamAssignment).filter(
+        CompetitionExpertTeamAssignment.competition_id == competition_id,
+        CompetitionExpertTeamAssignment.expert_id == expert_user_id,
+    )
+    if team_id is not None:
+        team_q = team_q.filter(CompetitionExpertTeamAssignment.team_id == int(team_id))
+    team_rows = team_q.all()
+
     row = (
         db.query(CompetitionExpertAssignment)
         .filter(
@@ -3697,7 +4237,30 @@ async def unassign_competition_expert(
         )
         .first()
     )
-    team_rows = (
+
+    if team_id is not None:
+        if not team_rows:
+            raise HTTPException(status_code=404, detail="该队伍指派记录不存在")
+        for tr in team_rows:
+            db.delete(tr)
+        remaining = (
+            db.query(CompetitionExpertTeamAssignment)
+            .filter(
+                CompetitionExpertTeamAssignment.competition_id == competition_id,
+                CompetitionExpertTeamAssignment.expert_id == expert_user_id,
+            )
+            .count()
+        )
+        # 该竞赛下已无队伍时，同步移除竞赛级指派
+        if remaining == 0 and row:
+            db.delete(row)
+        db.commit()
+        return {"ok": True, "removed_team_id": int(team_id), "competition_cleared": remaining == 0}
+
+    if not row and not team_rows:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    # 未指定 team_id：兼容旧行为，撤销该竞赛下全部
+    all_teams = (
         db.query(CompetitionExpertTeamAssignment)
         .filter(
             CompetitionExpertTeamAssignment.competition_id == competition_id,
@@ -3705,9 +4268,7 @@ async def unassign_competition_expert(
         )
         .all()
     )
-    if not row and not team_rows:
-        raise HTTPException(status_code=404, detail="Assignment not found")
-    for tr in team_rows:
+    for tr in all_teams:
         db.delete(tr)
     if row:
         db.delete(row)
@@ -3940,19 +4501,146 @@ async def delete_competition(
     return {"ok": True, "detail": f"Competition {competition_id} and all related data deleted"}
 
 
+def _peek_promotion_work_track(db: Session, row: CompetitionPromotion) -> Optional[str]:
+    """从初赛源队伍/个人报名或决赛队伍解析晋级记录赛道。"""
+    if row.source_team_id:
+        st = db.query(Team).filter(Team.id == row.source_team_id).first()
+        track = _peek_team_work_track(db, row.from_competition_id, st)
+        if track:
+            return track
+    if row.source_student_id:
+        enroll = _get_enrollment_by_scope(
+            db,
+            row.from_competition_id,
+            row.source_student_id,
+            CompetitionEnrollmentScope.INDIVIDUAL,
+        )
+        track = _normalize_optional_work_track(
+            getattr(enroll, "work_track", None) if enroll else None
+        )
+        if track:
+            return track
+    if row.final_team_id:
+        ft = db.query(Team).filter(Team.id == row.final_team_id).first()
+        track = _peek_team_work_track(db, row.to_competition_id, ft)
+        if track:
+            return track
+    return None
+
+
+def _promotion_to_schema(
+    db: Session,
+    row: CompetitionPromotion,
+    *,
+    users_by_id: Optional[dict[int, AltAuthUserRecord]] = None,
+) -> CompetitionPromotionResponse:
+    users_by_id = users_by_id or {}
+    src_name = None
+    final_name = None
+    advisor_name = None
+    captain_id = None
+    captain_name = None
+    members_label = None
+    source_team = None
+    if row.source_team_id:
+        source_team = (
+            db.query(Team)
+            .options(joinedload(Team.members))
+            .filter(Team.id == row.source_team_id)
+            .first()
+        )
+        if source_team:
+            src_name = source_team.name
+            advisor_name = _team_advisor_display_name(source_team, users_by_id)
+            captain_id, captain_name = _team_captain_label(source_team, users_by_id)
+            members_label = _team_members_label(source_team, users_by_id, exclude_captain=True)
+    if row.final_team_id:
+        ft = db.query(Team).filter(Team.id == row.final_team_id).first()
+        final_name = ft.name if ft else None
+    if row.source_student_id and not source_team:
+        captain_id = int(row.source_student_id)
+        captain_name = _display_user_name(users_by_id.get(captain_id), captain_id)
+        members_label = "-"
+    return CompetitionPromotionResponse(
+        id=row.id,
+        from_competition_id=row.from_competition_id,
+        to_competition_id=row.to_competition_id,
+        source_team_id=row.source_team_id,
+        source_student_id=row.source_student_id,
+        final_team_id=row.final_team_id,
+        source_team_name=src_name,
+        final_team_name=final_name,
+        advisor_name=advisor_name,
+        captain_name=captain_name,
+        captain_id=captain_id,
+        members=members_label,
+        work_track=_peek_promotion_work_track(db, row),
+        promoted_by=row.promoted_by,
+        created_at=row.created_at,
+    )
+
+
+def _collect_promotion_user_ids(db: Session, rows: List[CompetitionPromotion]) -> set[int]:
+    uids: set[int] = set()
+    for row in rows:
+        if row.source_student_id is not None:
+            uids.add(int(row.source_student_id))
+        if row.promoted_by is not None:
+            uids.add(int(row.promoted_by))
+        team_ids = [tid for tid in (row.source_team_id, row.final_team_id) if tid is not None]
+        if not team_ids:
+            continue
+        teams = (
+            db.query(Team)
+            .options(joinedload(Team.members))
+            .filter(Team.id.in_(team_ids))
+            .all()
+        )
+        for t in teams:
+            if t.captain_id is not None:
+                uids.add(int(t.captain_id))
+            if t.created_by_advisor_id is not None:
+                uids.add(int(t.created_by_advisor_id))
+            for m in t.members or []:
+                if m.user_id is not None:
+                    uids.add(int(m.user_id))
+    return uids
+
+
+def _assert_team_matches_promotion_track(db: Session, prelim: Competition, team: Team, track: Optional[str]) -> None:
+    if not track:
+        return
+    team_track = _peek_team_work_track(db, prelim.id, team)
+    if not team_track:
+        raise HTTPException(
+            status_code=400,
+            detail=f"队伍 {team.id} 未设置赛道，无法按{_work_track_section_label(track)}晋级",
+        )
+    if team_track != track:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"队伍 {team.id} 属于{_work_track_section_label(team_track)}，"
+                f"不能在{_work_track_section_label(track)}晋级"
+            ),
+        )
+
+
 @router.get(
     "/{competition_id}/promotions/candidates",
     response_model=CompetitionPromotionCandidatesResponse,
 )
 async def list_promotion_candidates(
     competition_id: int,
+    work_track: Optional[str] = Query(None, description="works / software / hardware"),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
-    """初赛：列出可晋级决赛的队伍（须校审通过）。"""
+    """初赛：列出可晋级决赛的队伍（须校审通过）。可按 work_track 筛选。"""
     require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
     prelim = _get_competition(db, competition_id)
     final = _paired_final_competition(db, prelim)
+    track = _normalize_optional_work_track(work_track)
     promoted_source_ids = {
         int(r[0])
         for r in db.query(CompetitionPromotion.source_team_id)
@@ -3971,13 +4659,24 @@ async def list_promotion_candidates(
     )
     items: List[CompetitionPromotionCandidateTeam] = []
     for t in teams:
+        t_track = _peek_team_work_track(db, prelim.id, t)
+        if track and t_track != track:
+            continue
+        member_ids = [
+            int(m.user_id)
+            for m in db.query(TeamMember).filter(TeamMember.team_id == t.id).all()
+            if m.user_id is not None
+            and not bool(m.is_captain)
+            and (t.captain_id is None or int(m.user_id) != int(t.captain_id))
+        ]
         items.append(
             CompetitionPromotionCandidateTeam(
                 team_id=t.id,
                 name=t.name,
                 division=getattr(t, "division", None),
-                work_track=getattr(t, "work_track", None),
+                work_track=t_track,
                 captain_id=t.captain_id,
+                member_ids=member_ids,
                 status=str(t.status),
                 already_promoted=t.id in promoted_source_ids,
             )
@@ -3995,10 +4694,12 @@ async def list_promotion_candidates(
 )
 async def list_promotions(
     competition_id: int,
+    work_track: Optional[str] = Query(None, description="works / software / hardware"),
     db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
-    """查看晋级名单：可传初赛或决赛 id。"""
+    """查看晋级名单：可传初赛或决赛 id。可按 work_track 筛选。"""
     require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
     comp = _get_competition(db, competition_id)
     if _is_preliminary_stage(comp):
@@ -4011,31 +4712,15 @@ async def list_promotions(
         )
     else:
         raise HTTPException(status_code=400, detail="仅初赛/决赛竞赛有晋级名单")
+    track = _normalize_optional_work_track(work_track)
     rows = q.order_by(CompetitionPromotion.created_at.desc()).all()
+    users_by_id = _alt_users_by_id(adb, _collect_promotion_user_ids(db, rows))
     out: List[CompetitionPromotionResponse] = []
     for row in rows:
-        src_name = None
-        final_name = None
-        if row.source_team_id:
-            st = db.query(Team).filter(Team.id == row.source_team_id).first()
-            src_name = st.name if st else None
-        if row.final_team_id:
-            ft = db.query(Team).filter(Team.id == row.final_team_id).first()
-            final_name = ft.name if ft else None
-        out.append(
-            CompetitionPromotionResponse(
-                id=row.id,
-                from_competition_id=row.from_competition_id,
-                to_competition_id=row.to_competition_id,
-                source_team_id=row.source_team_id,
-                source_student_id=row.source_student_id,
-                final_team_id=row.final_team_id,
-                source_team_name=src_name,
-                final_team_name=final_name,
-                promoted_by=row.promoted_by,
-                created_at=row.created_at,
-            )
-        )
+        item = _promotion_to_schema(db, row, users_by_id=users_by_id)
+        if track and item.work_track != track:
+            continue
+        out.append(item)
     return out
 
 
@@ -4048,12 +4733,14 @@ async def create_promotions(
     competition_id: int,
     body: CompetitionPromotionCreate,
     db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
-    """从初赛手动晋级队伍到决赛：自动在决赛建队并报名。"""
+    """从初赛手动晋级队伍到决赛：自动在决赛建队并报名。可指定 work_track 仅晋级该赛道。"""
     require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
     prelim = _get_competition(db, competition_id)
     final = _paired_final_competition(db, prelim)
+    track = _normalize_optional_work_track(getattr(body, "work_track", None))
     team_ids = [int(x) for x in (body.team_ids or []) if x is not None]
     if not team_ids and not (body.student_ids or []):
         raise HTTPException(status_code=400, detail="请选择要晋级的队伍")
@@ -4063,6 +4750,7 @@ async def create_promotions(
         team = db.query(Team).filter(Team.id == tid, Team.competition_id == prelim.id).first()
         if not team:
             raise HTTPException(status_code=404, detail=f"队伍 {tid} 不存在或不属于该初赛")
+        _assert_team_matches_promotion_track(db, prelim, team, track)
         results.append(
             _promote_prelim_team_to_final(db, prelim, final, team, identity.id)
         )
@@ -4070,6 +4758,23 @@ async def create_promotions(
     # 个人晋级：写入资格并创建个人决赛报名（若允许个人）
     for sid in body.student_ids or []:
         sid_i = int(sid)
+        if track:
+            stu_track = _normalize_optional_work_track(
+                getattr(
+                    _get_enrollment_by_scope(
+                        db, prelim.id, sid_i, CompetitionEnrollmentScope.INDIVIDUAL
+                    ),
+                    "work_track",
+                    None,
+                )
+            )
+            if stu_track != track:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"学生 {sid_i} 不属于{_work_track_section_label(track)}，无法按该赛道晋级"
+                    ),
+                )
         existing = (
             db.query(CompetitionPromotion)
             .filter(
@@ -4089,6 +4794,7 @@ async def create_promotions(
         if not final.allow_individual:
             raise HTTPException(status_code=400, detail="决赛未开放个人参赛")
         promo = CompetitionPromotion(
+            id=allocate_eight_digit_id(db, CompetitionPromotion),
             from_competition_id=prelim.id,
             to_competition_id=final.id,
             source_team_id=None,
@@ -4125,30 +4831,10 @@ async def create_promotions(
 
     db.commit()
     out: List[CompetitionPromotionResponse] = []
+    users_by_id = _alt_users_by_id(adb, _collect_promotion_user_ids(db, results))
     for row in results:
         db.refresh(row)
-        src_name = None
-        final_name = None
-        if row.source_team_id:
-            st = db.query(Team).filter(Team.id == row.source_team_id).first()
-            src_name = st.name if st else None
-        if row.final_team_id:
-            ft = db.query(Team).filter(Team.id == row.final_team_id).first()
-            final_name = ft.name if ft else None
-        out.append(
-            CompetitionPromotionResponse(
-                id=row.id,
-                from_competition_id=row.from_competition_id,
-                to_competition_id=row.to_competition_id,
-                source_team_id=row.source_team_id,
-                source_student_id=row.source_student_id,
-                final_team_id=row.final_team_id,
-                source_team_name=src_name,
-                final_team_name=final_name,
-                promoted_by=row.promoted_by,
-                created_at=row.created_at,
-            )
-        )
+        out.append(_promotion_to_schema(db, row, users_by_id=users_by_id))
     return out
 
 
@@ -4160,16 +4846,19 @@ async def create_promotions(
 async def import_promotions_excel(
     competition_id: int,
     file: UploadFile = File(...),
+    work_track: Optional[str] = Form(None, description="works / software / hardware"),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
     管理员上传 Excel 导入决赛名单。
     表头须含「队伍ID」（或 team_id / 队伍id）；可选「队伍名」用于校验。
+    传入 work_track 时仅允许该赛道队伍晋级。
     """
     require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
     prelim = _get_competition(db, competition_id)
     final = _paired_final_competition(db, prelim)
+    required_track = _normalize_optional_work_track(work_track)
 
     filename = (file.filename or "").lower()
     if not (filename.endswith(".xlsx") or filename.endswith(".xlsm")):
@@ -4260,6 +4949,35 @@ async def import_promotions_excel(
                 )
             )
             continue
+        if required_track:
+            team_track = _peek_team_work_track(db, prelim.id, team)
+            if not team_track:
+                result.failed += 1
+                result.items.append(
+                    CompetitionPromotionImportItemResult(
+                        row=row_no,
+                        team_id=tid,
+                        team_name=team.name,
+                        status="error",
+                        detail=f"队伍未设置赛道，无法导入到{_work_track_section_label(required_track)}",
+                    )
+                )
+                continue
+            if team_track != required_track:
+                result.failed += 1
+                result.items.append(
+                    CompetitionPromotionImportItemResult(
+                        row=row_no,
+                        team_id=tid,
+                        team_name=team.name,
+                        status="error",
+                        detail=(
+                            f"队伍属于{_work_track_section_label(team_track)}，"
+                            f"不能导入到{_work_track_section_label(required_track)}"
+                        ),
+                    )
+                )
+                continue
         if team.status != TeamStatus.ACTIVE:
             result.failed += 1
             result.items.append(
@@ -5580,6 +6298,8 @@ async def list_question_answers_overview(
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
     competition = _get_competition(db, competition_id)
     _assert_competition_uses_question_answers(competition)
+    from app.competition_exam_config import get_competition_question_count
+    q_count = get_competition_question_count(competition)
     is_admin = _can_view_all_competition_submissions(db, competition_id, identity)
     is_expert = _is_competition_assigned_expert(db, competition_id, identity)
     if not is_admin and not is_expert:
@@ -5591,7 +6311,7 @@ async def list_question_answers_overview(
         if not expert_team_ids:
             return CompetitionQuestionAnswersOverviewResponse(
                 competition_id=competition_id,
-                question_count=COMPETITION_QUESTION_COUNT,
+                question_count=q_count,
                 items=[],
             )
 
@@ -5626,9 +6346,16 @@ async def list_question_answers_overview(
         qmap = by_team.get(team.id, {})
         if not qmap:
             continue
+        try:
+            team_track = _resolve_team_work_track(db, competition_id, team)
+        except HTTPException:
+            team_track = str(getattr(team, "work_track", None) or "").strip().lower() or "software"
+        if team_track not in ("software", "hardware"):
+            continue
+        team_q_count = get_competition_question_count(competition, team_track)
         slots: List[CompetitionQuestionAnswerSlot] = []
         uploaded = 0
-        for q in range(1, COMPETITION_QUESTION_COUNT + 1):
+        for q in range(1, team_q_count + 1):
             row = qmap.get(q)
             slot = _slot_from_row(db, q, row)
             if slot.submitted:
@@ -5641,8 +6368,9 @@ async def list_question_answers_overview(
                 team_name=f"队伍{team.id}" if anonymize else team.name,
                 captain_id=None if anonymize else team.captain_id,
                 status=team.status,
+                work_track=team_track,
                 uploaded_count=uploaded,
-                question_count=COMPETITION_QUESTION_COUNT,
+                question_count=team_q_count,
                 slots=slots,
                 graded=grade is not None,
                 score_q1=grade.score_q1 if grade else None,
@@ -5658,7 +6386,7 @@ async def list_question_answers_overview(
 
     return CompetitionQuestionAnswersOverviewResponse(
         competition_id=competition_id,
-        question_count=COMPETITION_QUESTION_COUNT,
+        question_count=q_count,
         items=items,
     )
 
@@ -5683,11 +6411,13 @@ async def upload_question_answer(
     if _effective_alt_role(identity.role) != "student":
         raise HTTPException(status_code=403, detail="Only students can upload question answers")
 
-    qno = _validate_question_no(question_no)
     competition = _get_competition(db, competition_id)
     _assert_competition_uses_question_answers(competition)
+    team = _require_active_team_member_for_answers(db, competition, team_id, identity)
+    track = _resolve_team_work_track(db, competition.id, team)
+    _assert_work_track_allows_question_answers(track)
+    qno = _validate_question_no(question_no, competition, track)
     _ensure_competition_allows_submissions(competition)
-    _require_active_team_member_for_answers(db, competition, team_id, identity)
     _assert_team_answers_not_locked(db, competition.id, team_id)
 
     if not file or not file.filename:
@@ -5793,7 +6523,10 @@ async def submit_team_question_answers(
     competition = _get_competition(db, competition_id)
     _assert_competition_uses_question_answers(competition)
     _ensure_competition_allows_submissions(competition)
-    _require_active_team_member_for_answers(db, competition, team_id, identity)
+    team = _require_active_team_member_for_answers(db, competition, team_id, identity)
+    _assert_work_track_allows_question_answers(
+        _resolve_team_work_track(db, competition.id, team)
+    )
 
     rows = (
         db.query(CompetitionQuestionAnswer)
@@ -5834,26 +6567,54 @@ async def submit_team_question_answers(
 async def export_question_answers_zip(
     competition_id: int,
     mode: str = Query(..., description="by_team | by_question"),
+    work_track: str = Query(
+        ...,
+        description="works | software | hardware；按赛道导出，压缩包以赛道名称命名",
+    ),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
-    赛后一键导出考题答案压缩包：
-    - by_team：外层 zip 内含「队伍ID.zip」，每个内含第1题~第5题文件夹
-    - by_question：外层 zip 内含「第1题.zip」~「第5题.zip」，每个内含按队伍ID命名的文件夹
+    赛后一键导出答案压缩包（按赛道）：
+    - works + by_team：作品赛道队伍压缩包作品
+    - software/hardware + by_team：外层含「队伍ID.zip」
+    - software/hardware + by_question：外层含「第N题.zip」
+    总压缩包文件名：作品赛道.zip / 软件赛道.zip / 硬件赛道.zip
     """
-    require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
+    require_permission(identity.role, Permission.VIEW_COMPETITIONS)
     competition = _get_competition(db, competition_id)
-    _assert_competition_uses_question_answers(competition)
+    is_admin = _can_view_all_competition_submissions(db, competition_id, identity)
+    is_expert = _is_competition_assigned_expert(db, competition_id, identity)
+    if not is_admin and not is_expert:
+        raise HTTPException(status_code=403, detail="Not allowed to export answers")
     _ensure_competition_ended_for_export(competition)
 
+    track = _resolve_work_track(work_track)
     mode_norm = (mode or "").strip().lower()
     if mode_norm not in ("by_team", "by_question"):
         raise HTTPException(status_code=400, detail="mode must be by_team or by_question")
 
-    buffer = _build_answers_export_zip(db, competition, mode_norm)
-    filename = f"competition_{competition_id}_answers_{mode_norm}.zip"
-    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    allowed_team_ids = None
+    if is_expert and not is_admin:
+        allowed_team_ids = _assigned_team_ids_for_expert(db, competition_id, identity.id) or set()
+
+    if track == "works":
+        if mode_norm != "by_team":
+            raise HTTPException(
+                status_code=400,
+                detail="作品赛道仅支持按队伍导出（mode=by_team）",
+            )
+        buffer = _build_works_submissions_export_zip(
+            db, competition, allowed_team_ids=allowed_team_ids
+        )
+    else:
+        _assert_competition_uses_question_answers(competition)
+        buffer = _build_answers_export_zip(
+            db, competition, mode_norm, work_track=track, allowed_team_ids=allowed_team_ids
+        )
+
+    filename = f"{_work_track_section_label(track)}.zip"
+    headers = {"Content-Disposition": _content_disposition_attachment(filename)}
     return StreamingResponse(buffer, media_type="application/zip", headers=headers)
 
 
@@ -5963,6 +6724,7 @@ async def create_submission(
         # 个人提交：student_id 必须是当前用户，且个人报名仍有效
         student_id = identity.id
         _ensure_active_individual_enrollment(db, competition.id, identity.id)
+        work_track = _resolve_individual_work_track(db, competition.id, identity.id)
     else:
         team = db.query(Team).filter(Team.id == team_id, Team.competition_id == competition.id).first()
         if not team:
@@ -5977,6 +6739,8 @@ async def create_submission(
         if team.captain_id != identity.id:
             raise HTTPException(status_code=403, detail="Only team captain may submit for the team")
         student_id = identity.id
+        work_track = _resolve_team_work_track(db, competition.id, team)
+    _assert_work_track_allows_zip(work_track)
 
     if not payload.file_id and not payload.content_text:
         raise HTTPException(status_code=400, detail="Provide file_id or content_text")
@@ -6032,6 +6796,7 @@ async def create_submission_upload(
     if team_id is None:
         student_id = identity.id
         _ensure_active_individual_enrollment(db, competition.id, identity.id)
+        work_track = _resolve_individual_work_track(db, competition.id, identity.id)
     else:
         team = db.query(Team).filter(Team.id == team_id, Team.competition_id == competition.id).first()
         if not team:
@@ -6044,6 +6809,8 @@ async def create_submission_upload(
         if team.captain_id != identity.id:
             raise HTTPException(status_code=403, detail="Only team captain may submit for the team")
         student_id = identity.id
+        work_track = _resolve_team_work_track(db, competition.id, team)
+    _assert_work_track_allows_zip(work_track)
 
     if not (file and file.filename):
         raise HTTPException(status_code=400, detail="请上传作品压缩包（.zip）")
@@ -6051,7 +6818,7 @@ async def create_submission_upload(
     original_name = os.path.basename(str(file.filename).strip())
     ext = os.path.splitext(original_name)[1].lower()
     if ext != ".zip":
-        raise HTTPException(status_code=400, detail="初赛/单阶段作品仅支持 .zip 压缩包")
+        raise HTTPException(status_code=400, detail="作品赛道仅支持 .zip 压缩包")
 
     file_id = None
     if file is not None and file.filename:
@@ -6216,8 +6983,16 @@ def _require_expert_reviewer_for_team(
     return team
 
 
-def _team_question_grade_total(body: TeamQuestionGradeRequest) -> float:
-    return float(body.score_q1 + body.score_q2 + body.score_q3 + body.score_q4 + body.score_q5)
+def _team_question_grade_configured_count(
+    competition: Optional[Competition] = None,
+    work_track: Optional[str] = None,
+) -> int:
+    from app.competition_exam_config import get_competition_question_count
+
+    if competition is None:
+        return COMPETITION_QUESTION_COUNT
+    n = get_competition_question_count(competition, work_track)
+    return max(1, min(COMPETITION_QUESTION_COUNT, int(n)))
 
 
 def _team_question_grade_response(row: CompetitionTeamQuestionGrade) -> TeamQuestionGradeResponse:
@@ -6225,17 +7000,83 @@ def _team_question_grade_response(row: CompetitionTeamQuestionGrade) -> TeamQues
 
 
 def _apply_team_question_grade_body(
-    row: CompetitionTeamQuestionGrade, body: TeamQuestionGradeRequest, reviewer_id: int
+    row: CompetitionTeamQuestionGrade,
+    body: TeamQuestionGradeRequest,
+    reviewer_id: int,
+    competition: Optional[Competition] = None,
+    work_track: Optional[str] = None,
 ) -> None:
-    row.score_q1 = float(body.score_q1)
-    row.score_q2 = float(body.score_q2)
-    row.score_q3 = float(body.score_q3)
-    row.score_q4 = float(body.score_q4)
-    row.score_q5 = float(body.score_q5)
-    row.total_score = _team_question_grade_total(body)
+    from app.competition_exam_config import validate_grade_against_config
+
+    scores = {
+        1: float(body.score_q1),
+        2: float(body.score_q2),
+        3: float(body.score_q3),
+        4: float(body.score_q4),
+        5: float(body.score_q5),
+    }
+    count = _team_question_grade_configured_count(competition, work_track)
+    for i in range(count + 1, COMPETITION_QUESTION_COUNT + 1):
+        scores[i] = 0.0
+    total = float(sum(scores[i] for i in range(1, count + 1)))
+    if competition is not None:
+        validate_grade_against_config(competition, scores, total, work_track=work_track)
+    row.score_q1 = scores[1]
+    row.score_q2 = scores[2]
+    row.score_q3 = scores[3]
+    row.score_q4 = scores[4]
+    row.score_q5 = scores[5]
+    row.total_score = total
     row.feedback = body.feedback
     row.reviewer_id = reviewer_id
     row.reviewed_at = utc_now()
+
+
+def _sync_works_submission_review_from_team_grade(
+    db: Session,
+    competition: Competition,
+    team: Team,
+    grade_row: CompetitionTeamQuestionGrade,
+    reviewer_id: int,
+) -> None:
+    """作品赛道按题评分后，同步压缩包作品上的 Review。"""
+    try:
+        track = _resolve_team_work_track(db, competition.id, team)
+    except HTTPException:
+        track = str(getattr(team, "work_track", None) or "").strip().lower() or ""
+    if track != "works":
+        return
+    submission = (
+        db.query(Submission)
+        .options(joinedload(Submission.review))
+        .filter(
+            Submission.competition_id == competition.id,
+            Submission.team_id == team.id,
+        )
+        .order_by(Submission.submitted_at.desc(), Submission.id.desc())
+        .first()
+    )
+    if not submission:
+        return
+    now = utc_now()
+    review = submission.review
+    if review is None:
+        db.add(
+            Review(
+                submission_id=submission.id,
+                reviewer_id=reviewer_id,
+                status=SubmissionStatus.APPROVED,
+                score=float(grade_row.total_score),
+                feedback=grade_row.feedback,
+                reviewed_at=now,
+            )
+        )
+    else:
+        review.score = float(grade_row.total_score)
+        review.feedback = grade_row.feedback
+        review.reviewed_at = now
+        review.reviewer_id = reviewer_id
+    submission.status = SubmissionStatus.APPROVED
 
 
 @router.get(
@@ -6287,8 +7128,12 @@ async def put_team_question_grade(
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """首次按题评分；已评分请使用 PATCH。总分由五题相加。"""
-    _get_competition(db, competition_id)
-    _require_expert_reviewer_for_team(db, competition_id, team_id, identity)
+    competition = _get_competition(db, competition_id)
+    team = _require_expert_reviewer_for_team(db, competition_id, team_id, identity)
+    try:
+        track = _resolve_team_work_track(db, competition_id, team)
+    except HTTPException:
+        track = str(getattr(team, "work_track", None) or "").strip().lower() or None
     existing = (
         db.query(CompetitionTeamQuestionGrade)
         .filter(
@@ -6305,8 +7150,9 @@ async def put_team_question_grade(
         reviewer_id=identity.id,
         created_at=utc_now(),
     )
-    _apply_team_question_grade_body(row, body, identity.id)
+    _apply_team_question_grade_body(row, body, identity.id, competition, track)
     db.add(row)
+    _sync_works_submission_review_from_team_grade(db, competition, team, row, identity.id)
     db.commit()
     db.refresh(row)
     return _team_question_grade_response(row)
@@ -6324,8 +7170,12 @@ async def patch_team_question_grade(
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """修改某队五题评分；未评分请使用 PUT。"""
-    _get_competition(db, competition_id)
-    _require_expert_reviewer_for_team(db, competition_id, team_id, identity)
+    competition = _get_competition(db, competition_id)
+    team = _require_expert_reviewer_for_team(db, competition_id, team_id, identity)
+    try:
+        track = _resolve_team_work_track(db, competition_id, team)
+    except HTTPException:
+        track = str(getattr(team, "work_track", None) or "").strip().lower() or None
     row = (
         db.query(CompetitionTeamQuestionGrade)
         .filter(
@@ -6336,7 +7186,8 @@ async def patch_team_question_grade(
     )
     if row is None:
         raise HTTPException(status_code=400, detail="Team not graded yet")
-    _apply_team_question_grade_body(row, body, identity.id)
+    _apply_team_question_grade_body(row, body, identity.id, competition, track)
+    _sync_works_submission_review_from_team_grade(db, competition, team, row, identity.id)
     db.commit()
     db.refresh(row)
     return _team_question_grade_response(row)
@@ -6558,6 +7409,8 @@ async def score_rankings(
                 team_name=row.team_name,
                 school=row.school,
                 advisor_name=row.advisor_name,
+                captain_name=row.captain_name,
+                captain_id=row.captain_id,
                 members=row.members,
                 best_score=total,
                 reviewed_submissions=1,

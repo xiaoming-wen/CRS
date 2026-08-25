@@ -499,13 +499,46 @@ class CompetitionExamPaperSlot(BaseModel):
     published: bool = False
     filename: Optional[str] = None
     download_url: Optional[str] = None
+    work_track: Optional[str] = Field(None, description="works / software / hardware")
+    division: Optional[str] = Field(None, description="default / undergraduate / vocational")
 
 
 class CompetitionExamPapers(BaseModel):
-    """按组别试卷元信息（不暴露本地路径）。"""
+    """按组别试卷元信息（不暴露本地路径）；by_track 为组别→赛道→槽位。"""
     default: Optional[CompetitionExamPaperSlot] = None
     undergraduate: Optional[CompetitionExamPaperSlot] = None
     vocational: Optional[CompetitionExamPaperSlot] = None
+    by_track: Optional[Dict[str, Dict[str, CompetitionExamPaperSlot]]] = Field(
+        None,
+        description="division -> work_track -> slot",
+    )
+
+
+class CompetitionSubmissionQuestionItem(BaseModel):
+    no: int = Field(..., ge=1, le=5)
+    name: str = Field(..., min_length=1, max_length=80)
+    min_score: float = 0
+    max_score: float = 100
+
+
+class CompetitionSubmissionQuestionConfig(BaseModel):
+    question_count: int = Field(5, ge=1, le=5, description="提交作品题数 1～5")
+    questions: List[CompetitionSubmissionQuestionItem] = Field(default_factory=list)
+    total_min_score: float = 0
+    total_max_score: float = 500
+
+
+class CompetitionSubmissionQuestionConfigByTrack(BaseModel):
+    """作品 / 软件 / 硬件赛道各自独立的分题配置。作品赛道仅用于专家评分。"""
+    works: CompetitionSubmissionQuestionConfig = Field(
+        default_factory=lambda: CompetitionSubmissionQuestionConfig()
+    )
+    software: CompetitionSubmissionQuestionConfig = Field(
+        default_factory=lambda: CompetitionSubmissionQuestionConfig()
+    )
+    hardware: CompetitionSubmissionQuestionConfig = Field(
+        default_factory=lambda: CompetitionSubmissionQuestionConfig()
+    )
 
 
 class SubmissionStatus(str, Enum):
@@ -614,8 +647,28 @@ class CompetitionResponse(CompetitionBase):
     )
     exam_papers: Optional[CompetitionExamPapers] = Field(
         None,
-        description="各组别试卷是否已发布及下载地址（元信息）",
+        description="各组别/赛道试卷是否已发布及下载地址（元信息）",
     )
+    submission_question_config: Optional[CompetitionSubmissionQuestionConfigByTrack] = Field(
+        None,
+        description="分题配置（works / software / hardware；作品赛道仅用于专家评分）",
+    )
+
+    @field_validator("submission_question_config", mode="before")
+    @classmethod
+    def parse_submission_question_config(cls, v: Any) -> Any:
+        """ORM 存 Text；列表/详情 from_attributes 时需先解析为 dict。"""
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            import json
+
+            try:
+                parsed = json.loads(v)
+            except Exception:
+                return None
+            return parsed if isinstance(parsed, dict) else None
+        return v
 
     class Config:
         from_attributes = True
@@ -626,6 +679,10 @@ class CompetitionPromotionCreate(BaseModel):
     student_ids: List[EightDigitAltUserId] = Field(
         default_factory=list,
         description="初赛个人赛道学生 id（可选）",
+    )
+    work_track: Optional[str] = Field(
+        None,
+        description="works / software / hardware；传入时仅允许晋级该赛道队伍",
     )
 
 
@@ -653,6 +710,11 @@ class CompetitionPromotionResponse(BaseModel):
     final_team_id: Optional[int] = None
     source_team_name: Optional[str] = None
     final_team_name: Optional[str] = None
+    advisor_name: Optional[str] = Field(None, description="指导老师")
+    captain_name: Optional[str] = Field(None, description="队长姓名")
+    captain_id: Optional[int] = Field(None, description="队长用户 id")
+    members: Optional[str] = Field(None, description="队员姓名（不含队长）")
+    work_track: Optional[str] = Field(None, description="works / software / hardware")
     promoted_by: int
     created_at: UtcDatetime
 
@@ -666,6 +728,7 @@ class CompetitionPromotionCandidateTeam(BaseModel):
     division: Optional[str] = None
     work_track: Optional[str] = None
     captain_id: int
+    member_ids: List[int] = Field(default_factory=list, description="队员用户 id（不含队长）")
     status: str
     already_promoted: bool = False
 
@@ -1165,6 +1228,7 @@ class SchoolAdminApplicationListResponse(BaseModel):
 class SchoolAdminApplicationReviewAction(str, Enum):
     APPROVE = "approve"
     REJECT = "reject"
+    RESET_PENDING = "reset_pending"  # 超管：已通过 → 待审核
 
 
 class SchoolAdminApplicationReviewRequest(BaseModel):
@@ -1300,6 +1364,7 @@ class CompetitionQuestionAnswersTeamOverview(BaseModel):
     team_name: Optional[str] = None
     captain_id: Optional[int] = None
     status: Optional[str] = None
+    work_track: Optional[str] = Field(None, description="software / hardware（分题答案赛道）")
     uploaded_count: int = 0
     question_count: int = 5
     slots: List[CompetitionQuestionAnswerSlot] = Field(default_factory=list)
@@ -1351,13 +1416,13 @@ class ReviewGrade(BaseModel):
 
 
 class TeamQuestionGradeRequest(BaseModel):
-    """专家按 5 题分别打分；总分由服务端相加。"""
+    """专家按题分别打分；未启用的题填 0；总分由服务端按赛道题数合计。"""
 
-    score_q1: float = Field(..., ge=0, le=100, description="第1题分数 0～100")
-    score_q2: float = Field(..., ge=0, le=100, description="第2题分数 0～100")
-    score_q3: float = Field(..., ge=0, le=100, description="第3题分数 0～100")
-    score_q4: float = Field(..., ge=0, le=100, description="第4题分数 0～100")
-    score_q5: float = Field(..., ge=0, le=100, description="第5题分数 0～100")
+    score_q1: float = Field(..., ge=0, le=5000, description="第1题分数")
+    score_q2: float = Field(..., ge=0, le=5000, description="第2题分数")
+    score_q3: float = Field(..., ge=0, le=5000, description="第3题分数")
+    score_q4: float = Field(..., ge=0, le=5000, description="第4题分数")
+    score_q5: float = Field(..., ge=0, le=5000, description="第5题分数")
     feedback: Optional[str] = None
 
 
@@ -1399,7 +1464,9 @@ class CompetitionScoreTeamItem(BaseModel):
     team_name: str
     school: Optional[str] = None
     advisor_name: Optional[str] = None
-    members: str = Field("", description="队员姓名，队长标注")
+    captain_name: Optional[str] = Field(None, description="队长姓名")
+    captain_id: Optional[int] = Field(None, description="队长用户 id")
+    members: str = Field("", description="队员姓名（不含队长）")
     score_q1: Optional[float] = None
     score_q2: Optional[float] = None
     score_q3: Optional[float] = None
@@ -1437,6 +1504,8 @@ class CompetitionScoreRankingItem(BaseModel):
     team_name: Optional[str] = None
     school: Optional[str] = None
     advisor_name: Optional[str] = None
+    captain_name: Optional[str] = None
+    captain_id: Optional[int] = None
     members: Optional[str] = None
     best_score: float
     reviewed_submissions: int = 1

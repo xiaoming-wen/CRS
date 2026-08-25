@@ -99,13 +99,17 @@ class Competition(Base):
     # 竞赛 Logo（创建/修改时 multipart 上传）
     logo_path = Column(String(512), nullable=True)
 
-    # 竞赛试卷（上传即发布；dual 时本科/高职各一份）
+    # 竞赛试卷（上传即发布；dual 时本科/高职各一份；兼容旧字段）
     exam_paper_path = Column(String(512), nullable=True)
     exam_paper_filename = Column(String(255), nullable=True)
     exam_paper_path_undergraduate = Column(String(512), nullable=True)
     exam_paper_filename_undergraduate = Column(String(255), nullable=True)
     exam_paper_path_vocational = Column(String(512), nullable=True)
     exam_paper_filename_vocational = Column(String(255), nullable=True)
+    # JSON：按组别+赛道存试卷 {division:{works|software|hardware:{path,filename}}}
+    exam_papers_by_track = Column(Text, nullable=True)
+    # JSON：分题提交配置（题数、题名、每题/总分 min-max）
+    submission_question_config = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
@@ -310,7 +314,7 @@ class SubmissionStatus(str):
     REJECTED = "rejected"
 
 
-# 每场竞赛固定 5 道题，队员分题上传答案
+# 每场竞赛最多 5 道题（实际题数见 submission_question_config）
 COMPETITION_QUESTION_COUNT = 5
 
 

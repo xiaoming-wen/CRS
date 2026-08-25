@@ -180,6 +180,27 @@ def migrate_alt_user_ids_to_eight_digit(alt_engine: Engine, main_engine: Engine)
         conn.commit()
 
 
+def migrate_promotion_ids_to_eight_digit(engine: Engine) -> None:
+    """将 competition_promotions.id 迁移为 8 位唯一数字（无其它表外键引用该 id）。"""
+    with engine.connect() as conn:
+        if not conn.dialect.has_table(conn, "competition_promotions"):
+            return
+        rows = conn.execute(text("SELECT id FROM competition_promotions")).fetchall()
+        existing = {int(r[0]) for r in rows if r[0] is not None}
+        mapping = _build_id_mapping(existing)
+        if not mapping:
+            return
+        disable_foreign_keys(conn)
+        for old_id, new_id in mapping.items():
+            conn.execute(
+                text("UPDATE competition_promotions SET id = :new WHERE id = :old"),
+                {"new": new_id, "old": old_id},
+            )
+        enable_foreign_keys(conn)
+        conn.commit()
+        logger.info("Migrated %s competition_promotions ids to 8-digit", len(mapping))
+
+
 def run_eight_digit_id_migrations(main_engine: Engine, alt_engine: Engine) -> None:
     try:
         migrate_competition_ids_to_eight_digit(main_engine)
@@ -193,3 +214,7 @@ def run_eight_digit_id_migrations(main_engine: Engine, alt_engine: Engine) -> No
         migrate_alt_user_ids_to_eight_digit(alt_engine, main_engine)
     except Exception as e:
         logger.warning("Alt user 8-digit id migration skipped: %s", e)
+    try:
+        migrate_promotion_ids_to_eight_digit(main_engine)
+    except Exception as e:
+        logger.warning("Promotion 8-digit id migration skipped: %s", e)
