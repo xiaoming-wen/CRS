@@ -810,6 +810,14 @@ class MyEnrollmentResponse(BaseModel):
     )
     team_id: Optional[int] = None
     enrollment_scope: CompetitionEnrollmentScope
+    division: CompetitionDivision = Field(
+        CompetitionDivision.DEFAULT,
+        description="学历组别：default / undergraduate / vocational",
+    )
+    work_track: Optional[CompetitionWorkTrack] = Field(
+        None,
+        description="赛道 works / software / hardware",
+    )
     is_captain: bool
 
     student_no: Optional[str] = None

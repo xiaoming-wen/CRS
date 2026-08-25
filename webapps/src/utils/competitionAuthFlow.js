@@ -15,8 +15,8 @@ const COMPETITION_ALT_GATE_ROUTES = [
  */
 export function getStudentAdvisorLandingCompetitionId () {
   const raw = process.env.VUE_APP_STUDENT_ADVISOR_LANDING_COMPETITION_ID
-  const n = raw != null && String(raw).trim() !== '' ? Number(String(raw).trim()) : 58582342
-  return Number.isFinite(n) && n > 0 ? n : 58582342
+  const n = raw != null && String(raw).trim() !== '' ? Number(String(raw).trim()) : 80024817
+  return Number.isFinite(n) && n > 0 ? n : 80024817
 }
 
 /** @returns {{ path: string, query: { id: string, share: string } }} */

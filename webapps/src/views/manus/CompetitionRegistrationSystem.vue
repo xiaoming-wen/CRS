@@ -2108,7 +2108,7 @@
 
         <a-empty
           v-else
-          description="请先完成组队报名并选择赛道（作品 / 软件 / 硬件），再提交作品"
+          :description="standaloneMyWorksEmptyDescription"
         />
 
         <div class="standalone-modal-footer-actions">
@@ -3843,7 +3843,22 @@ export default {
         const t = normalize(teamRow.work_track)
         if (t) return t
       }
+      // 兼容：报名接口未带回 work_track 时，从队伍详情回退
+      const teamStatusTrack = normalize(this.myTeamStatus && this.myTeamStatus.work_track)
+      if (teamStatusTrack) return teamStatusTrack
       return ''
+    },
+    /** 提交作品弹窗空态说明 */
+    standaloneMyWorksEmptyDescription () {
+      if (this.myEnrolledTeam || this.myEnrolledIndividual) {
+        if (!this.activeEnrollmentWorkTrack) {
+          return '已报名，但未识别到赛道信息。请确认建队/报名时已选择作品、软件或硬件赛道；若仍无法提交，请联系管理员检查报名记录的赛道字段。'
+        }
+        if (this.enrollMode === 'team' && this.myTeamId && !this.isMyTeamSchoolReviewActive) {
+          return '队伍须经本校校管理员校审通过后，方可提交作品。'
+        }
+      }
+      return '请先完成组队报名并选择赛道（作品 / 软件 / 硬件），再提交作品'
     },
     /** 作品赛道：压缩包提交；软件/硬件：分题答案（现有表单） */
     usesZipPackageSubmission () {
@@ -5813,11 +5828,17 @@ export default {
         this.$message.warning('仅学生身份可提交作品')
         return
       }
-      const tasks = [this.refreshMySubmissions()]
-      if (this.activeEnrollmentWorkTrack === 'software' || this.activeEnrollmentWorkTrack === 'hardware') {
-        tasks.push(this.refreshQuestionAnswersBoard())
+      const tasks = [
+        this.refreshActiveCompetitionMyEnrollKind(),
+        this.refreshMySubmissions()
+      ]
+      if (this.myTeamId) {
+        tasks.push(this.refreshMyTeamStatus())
       }
       void Promise.all(tasks).finally(() => {
+        if (this.activeEnrollmentWorkTrack === 'software' || this.activeEnrollmentWorkTrack === 'hardware') {
+          void this.refreshQuestionAnswersBoard()
+        }
         this.showStandaloneMyWorksModal = true
       })
     },
