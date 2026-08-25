@@ -18,16 +18,6 @@
           <div class="auth-card__body">
             <ManuAltIdentityRegisterPanel @register-success="registerSuccessNavigate" />
           </div>
-
-          <footer class="auth-card__footer">
-            <div class="auth-footer__links">
-              <a href="_self">帮助</a>
-              <span class="auth-footer__sep" aria-hidden="true">|</span>
-              <a href="_self">隐私</a>
-              <span class="auth-footer__sep" aria-hidden="true">|</span>
-              <a href="_self">条款</a>
-            </div>
-          </footer>
         </div>
       </div>
     </div>
@@ -180,35 +170,5 @@ export default {
   border-top: 1px solid rgba(26, 115, 232, 0.18);
   padding-top: 8px;
   -webkit-overflow-scrolling: touch;
-}
-
-.auth-card__footer {
-  flex-shrink: 0;
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid #eef1f5;
-  text-align: center;
-}
-
-.auth-footer__links {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  font-size: 13px;
-  color: #6c757d;
-
-  a {
-    color: #6c757d;
-    text-decoration: none;
-
-    &:hover {
-      color: #1a73e8;
-    }
-  }
-}
-
-.auth-footer__sep {
-  color: #c5cad1;
 }
 </style>
