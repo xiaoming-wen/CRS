@@ -4231,9 +4231,9 @@ export default {
     },
     questionAnswersSubmitHintText () {
       if (this.hasFormalSubmittedQuestionAnswers) {
-        return '作品已正式提交，无法再提交作品，也无法再上传或删除题目文件。'
+        return '本队作品已正式提交，全队都不能再上传、删除或再次提交。'
       }
-      return '请先为各题选择文件，再点击「上传作品」；在弹窗中点击「确认提交」正式提交，提交后无法再提交作品。'
+      return '同一队伍内队员上传的题目文件彼此可见，同题后传覆盖先传。请先确认各题文件齐全，再点击「上传作品」；在弹窗中确认后正式提交，提交后全队都不能再上传、删除或再次提交。'
     },
     currentSubmissionTrackContext () {
       const scope = this.submissionMode === 'team' ? 'team' : 'individual'
@@ -10229,7 +10229,7 @@ export default {
       const confirmed = await new Promise((resolve) => {
         this.$confirm({
           title: '确认提交作品',
-          content: '确认后将正式提交本队已选文件的题目答案。提交后无法再提交作品，是否继续？',
+          content: '确认后将正式提交本队已选文件的题目答案。提交后全队都不能再上传、删除或再次提交，是否继续？',
           okText: '确认提交',
           cancelText: '取消',
           onOk: () => resolve(true),
