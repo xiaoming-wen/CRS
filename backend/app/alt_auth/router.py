@@ -79,6 +79,8 @@ def _assigned_teams_for_expert(main_db: Session, expert_user_id: int):
             CompetitionExpertTeamAssignment.competition_id,
             CompetitionExpertTeamAssignment.team_id,
             Team.name,
+            Team.division,
+            Team.work_track,
         )
         .outerjoin(Team, Team.id == CompetitionExpertTeamAssignment.team_id)
         .filter(CompetitionExpertTeamAssignment.expert_id == expert_user_id)
@@ -89,8 +91,10 @@ def _assigned_teams_for_expert(main_db: Session, expert_user_id: int):
             competition_id=int(comp_id),
             team_id=int(team_id),
             team_name=team_name,
+            division=str(division) if division is not None else None,
+            work_track=str(work_track) if work_track is not None else None,
         )
-        for comp_id, team_id, team_name in rows
+        for comp_id, team_id, team_name, division, work_track in rows
     ]
     return sorted(items, key=lambda t: (t.competition_id, t.team_id))
 

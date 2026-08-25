@@ -947,6 +947,10 @@ class TeamDetailResponse(BaseModel):
     captain_id: int
     created_by_advisor_id: Optional[int] = Field(None, description="建队指导老师 alt_auth_users.id")
     advisor_name: Optional[str] = Field(None, description="建队指导老师姓名（展示用）")
+    division: CompetitionDivision = CompetitionDivision.DEFAULT
+    work_track: Optional[CompetitionWorkTrack] = Field(
+        None, description="works / software / hardware"
+    )
     status: TeamStatus
     created_at: UtcDatetime
     members: List[TeamMemberWithUserResponse] = []
@@ -1007,6 +1011,8 @@ class CompetitionExpertAssignedTeam(BaseModel):
     competition_id: int
     team_id: int
     team_name: Optional[str] = None
+    division: Optional[str] = Field(None, description="default / undergraduate / vocational")
+    work_track: Optional[str] = Field(None, description="works / software / hardware")
 
 
 class CompetitionExpertAssignRequest(BaseModel):

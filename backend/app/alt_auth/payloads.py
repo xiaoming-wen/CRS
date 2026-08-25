@@ -224,6 +224,8 @@ class AltAuthAssignedTeam(BaseModel):
     competition_id: int
     team_id: int
     team_name: Optional[str] = None
+    division: Optional[str] = None
+    work_track: Optional[str] = None
 
 
 class AltAuthProfileResponse(BaseModel):

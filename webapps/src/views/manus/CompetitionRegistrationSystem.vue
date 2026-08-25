@@ -1103,11 +1103,15 @@
             :title="adminSubmissionsPanelTitle"
             style="margin-top: 16px"
           >
-            <div style="display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 12px">
-              <a-button :loading="adminSubmissionsLoading" :disabled="!activeCompetitionId" @click="refreshAdminSubmissions">
-                {{ adminSubmissionsRefreshLabel }}
-              </a-button>
-            </div>
+            <a-button
+              slot="extra"
+              size="small"
+              :loading="adminSubmissionsLoading"
+              :disabled="!activeCompetitionId"
+              @click="refreshAdminSubmissions"
+            >
+              {{ adminSubmissionsRefreshLabel }}
+            </a-button>
 
             <a-empty
               v-if="isCompetitionExpert && !adminSubmissionsLoading && !adminHasAnyTrackSubmissions"
@@ -1178,7 +1182,7 @@
                         size="small"
                         type="primary"
                         :disabled="s.status === 'draft'"
-                        @click="fillGradeForm(s.id, false)"
+                        @click.stop="fillGradeForm(s.id, false)"
                       >
                         评分
                       </a-button>
@@ -1186,7 +1190,7 @@
                         v-else
                         size="small"
                         type="primary"
-                        @click="fillGradeForm(s.id, true)"
+                        @click.stop="fillGradeForm(s.id, true)"
                       >
                         修改评分
                       </a-button>
@@ -1327,7 +1331,7 @@
                     v-if="canReviewSubmissions && !record.graded"
                     size="small"
                     type="primary"
-                    @click="fillTeamQuestionGradeForm(record, false)"
+                    @click.stop="fillTeamQuestionGradeForm(record, false)"
                   >
                     评分
                   </a-button>
@@ -1335,7 +1339,7 @@
                     v-else-if="canReviewSubmissions"
                     size="small"
                     type="primary"
-                    @click="fillTeamQuestionGradeForm(record, true)"
+                    @click.stop="fillTeamQuestionGradeForm(record, true)"
                   >
                     修改评分
                   </a-button>
@@ -1343,68 +1347,6 @@
               </a-table>
               </div>
             </template>
-          </a-card>
-
-          <a-card
-            v-if="showGradeAudit && canReviewSubmissions"
-            size="small"
-            class="sub-card"
-            :bordered="true"
-            :title="gradeFormIsEdit ? '修改评分（评委）' : '评分/审核（评委）'"
-            style="margin-top: 16px"
-          >
-            <a-form layout="vertical">
-              <a-form-item v-if="gradeForm.team_id" label="队伍ID">
-                <a-input :value="String(gradeForm.team_id)" disabled style="width: 240px" />
-              </a-form-item>
-              <a-form-item v-else label="作品提交ID" required>
-                <a-input-number v-model="gradeForm.submission_id" :min="1" placeholder="请输入作品提交ID" style="width: 240px" />
-              </a-form-item>
-              <template v-if="gradeFormUsesQuestionScores">
-                <a-row :gutter="12" type="flex" class="grade-question-scores-row">
-                  <a-col
-                    v-for="q in gradeFormQuestionItems"
-                    :key="'grade-q-' + q.no"
-                    :xs="12"
-                    :sm="8"
-                    :md="4"
-                  >
-                    <a-form-item :label="'第' + q.no + '题' + (q.name && q.name !== ('第' + q.no + '题') ? ('（' + q.name + '）') : '')" required>
-                      <a-input
-                        :value="gradeForm['score_q' + q.no]"
-                        :placeholder="gradeQuestionPlaceholder(q)"
-                        style="width: 100%"
-                        @input="onGradeQuestionScoreInput(q.no, $event)"
-                      />
-                    </a-form-item>
-                  </a-col>
-                  <a-col :xs="12" :sm="8" :md="4">
-                    <a-form-item label="总分">
-                      <a-input :value="gradeFormAutoTotal" disabled style="width: 100%" />
-                    </a-form-item>
-                  </a-col>
-                </a-row>
-              </template>
-              <a-form-item v-else label="分数" required>
-                <a-input v-model="gradeForm.score" placeholder="例如：95.0" style="width: 240px" />
-              </a-form-item>
-              <a-form-item label="反馈">
-                <a-textarea v-model="gradeForm.feedback" :rows="3" placeholder="选填" style="max-width: 520px" />
-              </a-form-item>
-              <div class="row">
-                <a-button
-                  type="primary"
-                  :loading="gradeLoading"
-                  @click="handleReviewGrade"
-                  :disabled="gradeFormUsesQuestionScores ? false : !gradeForm.submission_id"
-                >
-                  {{ gradeFormIsEdit ? '保存修改' : '提交评分' }}
-                </a-button>
-                <a-button style="margin-left: 8px" @click="cancelGradeAudit" :disabled="gradeLoading">
-                  取消
-                </a-button>
-              </div>
-            </a-form>
           </a-card>
 
           <a-card
@@ -2718,14 +2660,14 @@
       <p v-if="!competitionUrlModalLines.length" class="muted">暂无可用链接</p>
     </a-modal>
 
-    <!-- 超级管理员：按组别+赛道发布试卷，并配置分题提交 -->
+    <!-- 超级管理员：按组别切换上传三赛道试卷，并配置分题提交 -->
     <a-modal
       :visible="showExamPaperPublishModal"
       title="发布试卷"
       :confirmLoading="examPaperUploading"
       okText="保存发布"
       cancelText="取消"
-      width="720px"
+      width="760px"
       @ok="submitExamPaperPublish"
       @cancel="closeExamPaperPublishModal"
     >
@@ -2736,14 +2678,19 @@
         type="info"
         show-icon
         style="margin-bottom: 12px"
-        message="竞赛须已发布。请按赛道（作品/软件/硬件）分别上传试卷；学生与指导老师将按报名赛道下载对应试卷。"
+        message="竞赛须已发布。请切换本科 / 高职组别，分别为作品、软件、硬件三赛道上传试卷；学生与指导老师将按本人组别+赛道下载对应试卷。"
       />
 
-      <template v-for="divKey in examPaperModalDivisionKeys">
-        <div :key="'exam-div-' + divKey" style="margin-bottom: 16px">
-          <h4 style="margin: 0 0 8px; font-size: 14px">
-            {{ examPaperDivisionLabel(divKey) }}试卷
-          </h4>
+      <a-tabs
+        v-model="examPaperModalActiveDivision"
+        type="card"
+        style="margin-bottom: 8px"
+      >
+        <a-tab-pane
+          v-for="divKey in examPaperModalDivisionKeys"
+          :key="divKey"
+          :tab="examPaperDivisionLabel(divKey)"
+        >
           <a-form-item
             v-for="track in examPaperTrackOptions"
             :key="'exam-' + divKey + '-' + track.value"
@@ -2763,8 +2710,8 @@
               <a-button size="small"><a-icon type="upload" /> 选择文件（pdf/doc/docx/zip）</a-button>
             </a-upload>
           </a-form-item>
-        </div>
-      </template>
+        </a-tab-pane>
+      </a-tabs>
 
       <a-divider>分题配置（作品 / 软件 / 硬件分别设置）</a-divider>
       <a-alert
@@ -2843,6 +2790,75 @@
           高职组 · 查看详情
         </a-button>
       </div>
+    </a-modal>
+
+    <!-- 评分弹窗：挂到 body，避免独立详情深色布局裁切 -->
+    <a-modal
+      v-model="showGradeAudit"
+      :title="(gradeFormIsEdit ? '修改评分（评委）' : '评分/审核（评委）') + (gradeFormTrackLabel ? (' · ' + gradeFormTrackLabel) : '')"
+      :footer="null"
+      :width="760"
+      :zIndex="3200"
+      :maskClosable="false"
+      :destroyOnClose="false"
+      :get-container="getGradeAuditModalContainer"
+      wrap-class-name="grade-audit-modal-wrap"
+      @cancel="cancelGradeAudit"
+    >
+      <a-spin :spinning="gradeFormLoading">
+        <a-form layout="vertical" class="grade-audit-panel__form">
+          <a-form-item v-if="gradeForm.team_id" label="队伍ID">
+            <a-input :value="String(gradeForm.team_id)" disabled style="width: 240px" />
+          </a-form-item>
+          <a-form-item v-else-if="gradeForm.submission_id" label="作品提交ID">
+            <a-input :value="String(gradeForm.submission_id)" disabled style="width: 240px" />
+          </a-form-item>
+          <template v-if="gradeFormUsesQuestionScores">
+            <a-row :gutter="12" type="flex" class="grade-question-scores-row">
+              <a-col
+                v-for="q in gradeFormQuestionItems"
+                :key="'grade-q-modal-' + q.no"
+                :xs="12"
+                :sm="8"
+                :md="4"
+              >
+                <a-form-item :label="'第' + q.no + '题' + (q.name && q.name !== ('第' + q.no + '题') ? ('（' + q.name + '）') : '')" required>
+                  <a-input
+                    :value="gradeForm['score_q' + q.no]"
+                    :placeholder="gradeQuestionPlaceholder(q)"
+                    style="width: 100%"
+                    @input="onGradeQuestionScoreInput(q.no, $event)"
+                  />
+                </a-form-item>
+              </a-col>
+              <a-col :xs="12" :sm="8" :md="4">
+                <a-form-item label="总分">
+                  <a-input :value="gradeFormAutoTotal" disabled style="width: 100%" />
+                </a-form-item>
+              </a-col>
+            </a-row>
+          </template>
+          <a-form-item v-else label="分数" required>
+            <a-input v-model="gradeForm.score" placeholder="例如：95.0" style="width: 240px" />
+          </a-form-item>
+          <a-form-item label="反馈">
+            <a-textarea v-model="gradeForm.feedback" :rows="3" placeholder="选填" style="max-width: 520px" />
+          </a-form-item>
+          <div class="row">
+            <a-button
+              type="primary"
+              :loading="gradeLoading"
+              :disabled="gradeFormLoading || (gradeFormUsesQuestionScores ? false : !gradeForm.submission_id)"
+              @click="handleReviewGrade"
+            >
+              {{ gradeFormIsEdit ? '保存修改' : '提交评分' }}
+            </a-button>
+            <a-button style="margin-left: 8px" :disabled="gradeLoading" @click="cancelGradeAudit">
+              取消
+            </a-button>
+          </div>
+        </a-form>
+      </a-spin>
     </a-modal>
   </div>
 </template>
@@ -3137,9 +3153,10 @@ export default {
       examPaperModalCompetitionId: null,
       examPaperModalCompetitionName: '',
       examPaperModalIsDual: false,
+      examPaperModalActiveDivision: 'default',
       examPaperUploading: false,
       examPaperMeta: null,
-      /** { [division]: { works|software|hardware: File|null } } */
+      /** key: `${division}__${track}` -> File */
       examPaperTrackFiles: {},
       examPaperTrackFileLists: {},
       examPaperQuestionConfigByTrack: {
@@ -3347,8 +3364,9 @@ export default {
         score_q5: '',
         feedback: ''
       },
-      /** 教师：仅在点击作品列表的“评分/修改评分”后显示表单 */
+      /** 专家：点击「评分/修改评分」后弹出评分表单 */
       showGradeAudit: false,
+      gradeFormLoading: false,
       gradeFormIsEdit: false,
       gradeLoading: false,
 
@@ -3555,7 +3573,8 @@ export default {
       return this.isCompetitionShareableStatus(this.selectedCompetitionRecord.status)
     },
     examPaperModalDivisionKeys () {
-      return this.examPaperModalIsDual ? ['undergraduate', 'vocational'] : ['default']
+      // 发布试卷一律按本科 / 高职分槽（不再使用「不分学历组别」）
+      return ['undergraduate', 'vocational']
     },
     examPaperMetaDefault () {
       return (this.examPaperMeta && this.examPaperMeta.default) || null
@@ -3592,10 +3611,18 @@ export default {
       return Number.isFinite(n) && n >= 1 && n <= 5 ? n : 5
     },
     examPaperDownloadDivision () {
-      if (this.isCompetitionDualDivision(this.activeCompetition)) {
-        return this.normalizeViewDivision(this.activeViewDivision) || null
+      // 下载一律按本科 / 高职（与报名/建队组别一致）
+      if (this.isStudent) {
+        return this.normalizeViewDivision(this.activeCompetitionEnrolledDivision)
+          || this.normalizeViewDivision(this.activeViewDivision)
+          || null
       }
-      return 'default'
+      if (this.isAdvisorOrTeacher) {
+        return this.normalizeViewDivision(this.activeCompetitionAdvisorTeamDivision)
+          || this.normalizeViewDivision(this.activeViewDivision)
+          || null
+      }
+      return this.normalizeViewDivision(this.activeViewDivision) || null
     },
     examPaperDownloadWorkTrack () {
       if (this.isStudent) {
@@ -3605,7 +3632,7 @@ export default {
         const div = this.examPaperDownloadDivision
         const list = this.advisorTeamsForCurrentView || this.advisorTeams || []
         const hit = list.find((t) => {
-          if (!div || div === 'default') return true
+          if (!div) return true
           return this.normalizeViewDivision(t.division) === div
         }) || list[0]
         const track = hit && hit.work_track != null ? String(hit.work_track).trim().toLowerCase() : ''
@@ -3619,7 +3646,7 @@ export default {
         return false
       }
       const div = this.examPaperDownloadDivision
-      if (!div) return false
+      if (!div || (div !== 'undergraduate' && div !== 'vocational')) return false
       const track = this.examPaperDownloadWorkTrack
       if (!track && (this.isStudent || this.isAdvisorOrTeacher)) return false
       const meta = this.examPapersForDetail
@@ -3629,27 +3656,23 @@ export default {
       if (trackSlot && trackSlot.published) {
         // ok
       } else {
+        const legacyDefault = byTrack.default && byTrack.default[track]
         const slot = div === 'undergraduate'
           ? meta.undergraduate
-          : (div === 'vocational' ? meta.vocational : meta.default)
-        if (!(slot && slot.published)) return false
+          : meta.vocational
+        if (!(slot && slot.published) && !(legacyDefault && legacyDefault.published)) return false
       }
 
       if (this.isStudent) {
         if (!this.hasAnyEnrollment) return false
-        if (this.isCompetitionDualDivision(this.activeCompetition)) {
-          const enrolledDiv = this.normalizeViewDivision(this.activeCompetitionEnrolledDivision)
-          if (!enrolledDiv || enrolledDiv !== div) return false
-        }
+        const enrolledDiv = this.normalizeViewDivision(this.activeCompetitionEnrolledDivision)
+        if (!enrolledDiv || enrolledDiv !== div) return false
         return true
       }
 
       if (this.isAdvisorOrTeacher) {
-        if (this.isCompetitionDualDivision(this.activeCompetition)) {
-          const teamDiv = this.normalizeViewDivision(this.activeCompetitionAdvisorTeamDivision)
-          return !!(teamDiv && teamDiv === div)
-        }
-        return Array.isArray(this.advisorTeams) && this.advisorTeams.length > 0
+        const teamDiv = this.normalizeViewDivision(this.activeCompetitionAdvisorTeamDivision)
+        return !!(teamDiv && teamDiv === div)
       }
 
       return false
@@ -4246,7 +4269,7 @@ export default {
       if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
         return `刷新${this.activeDivisionLabel}提交`
       }
-      return '刷新作品提交'
+      return '刷新'
     },
     adminSubmissionsEmptyDescription () {
       if (this.usesQuestionAnswerSubmission) {
@@ -4737,6 +4760,13 @@ export default {
     },
     gradeFormUsesQuestionScores () {
       return !!this.gradeForm.team_id || this.gradeForm.work_track === 'works'
+    },
+    gradeFormTrackLabel () {
+      const t = this.gradeForm && this.gradeForm.work_track
+      if (t === 'works') return '作品赛道'
+      if (t === 'software') return '软件赛道'
+      if (t === 'hardware') return '硬件赛道'
+      return ''
     },
     gradeFormQuestionItems () {
       const cfg = this.getQuestionConfigForTrack(this.gradeForm.work_track)
@@ -5386,6 +5416,7 @@ export default {
       this.examPaperModalCompetitionId = comp.id
       this.examPaperModalCompetitionName = comp.name || `竞赛 #${comp.id}`
       this.examPaperModalIsDual = this.isCompetitionDualDivision(comp)
+      this.examPaperModalActiveDivision = 'undergraduate'
       this.examPaperTrackFiles = {}
       this.examPaperTrackFileLists = {}
       this.examPaperMeta = null
@@ -5409,6 +5440,7 @@ export default {
       this.examPaperModalCompetitionId = null
       this.examPaperModalCompetitionName = ''
       this.examPaperModalIsDual = false
+      this.examPaperModalActiveDivision = 'default'
       this.examPaperMeta = null
       this.examPaperTrackFiles = {}
       this.examPaperTrackFileLists = {}
@@ -5417,7 +5449,7 @@ export default {
     examPaperDivisionLabel (divKey) {
       if (divKey === 'undergraduate') return '本科组'
       if (divKey === 'vocational') return '高职组'
-      return '共用'
+      return '未分组别'
     },
 
     examPaperTrackPublishedMeta (divKey, track) {
@@ -5668,7 +5700,11 @@ export default {
         a.click()
         a.remove()
         window.URL.revokeObjectURL(url)
-        this.$message.success('下载已开始')
+        this.$message.success(
+          `下载已开始（${this.examPaperDivisionLabel(div)} · ${
+            track === 'works' ? '作品赛道' : (track === 'software' ? '软件赛道' : '硬件赛道')
+          }）`
+        )
       } catch (e) {
         this.$message.error('下载试卷失败：' + (e && e.message ? e.message : '未知错误'))
       } finally {
@@ -5736,7 +5772,11 @@ export default {
       this.syncEnrollProfileDefaults()
       this.$forceUpdate()
       if (this.standaloneDetailMode && this.initialCompetitionId != null && String(this.initialCompetitionId).trim() !== '') {
-        void this.bootstrapStandaloneDetail()
+        const hasAuth = !!getStoredAltToken() && !this.shareGuestMode
+        // 仅首次或登录态从无到有时全量 bootstrap；避免 /me 回写反复触发请求风暴
+        if (!this._standaloneDetailBootstrapped || (hasAuth && !this._standaloneBootstrappedWithAuth)) {
+          void this.bootstrapStandaloneDetail()
+        }
         return
       }
       if (this.showStandaloneCompetitionBriefingLayout && this.activeCompetitionId) {
@@ -5747,7 +5787,8 @@ export default {
       if (!getStoredAltToken() || !isAltCompetitionExpert()) return
       try {
         const me = await fetchAltIdentityMe()
-        applyAltIdentityMeToStorage(me)
+        // silent：同步资料但不广播，防止 onAltIdentityChanged → bootstrap → /me 死循环
+        applyAltIdentityMeToStorage(me, { silent: true })
       } catch (e) {
         const msg = e && e.message ? e.message : ''
         if (msg) console.warn('[CompetitionRegistrationSystem] sync expert profile failed:', msg)
@@ -5758,40 +5799,50 @@ export default {
       await this.fetchCompetitions()
     },
     async bootstrapStandaloneDetail () {
-      this.manualCompetitionId = null
-      this.applyActiveViewDivisionFromRoute()
-      await this.refreshAltExpertProfile()
-      const hasAlt = !!getStoredAltToken() && !this.shareGuestMode
-      if (hasAlt) {
-        await this.fetchCompetitions()
-      } else {
-        this.competitions = []
-        this.competitionsError = ''
-      }
-      const raw = this.initialCompetitionId
-      if (raw != null && String(raw).trim() !== '') {
-        this.selectCompetition(raw)
-        await this.ensureCompetitionDetail(raw)
-      }
-      if (hasAlt) {
-        void this.refreshExamPapersForDetail()
-      } else {
-        this.examPapersForDetail = null
-        this.$emit('exam-papers-changed')
-      }
-      this.$nextTick(() => {
-        this.syncDualDivisionContextAfterCompetitionSelect()
-        if (this.showStandaloneCompetitionBriefingLayout && this.activeCompetitionId) {
-          void this.fetchStudentBriefingQr()
+      if (this._bootstrapStandaloneInFlight) return this._bootstrapStandaloneInFlight
+      this._bootstrapStandaloneInFlight = (async () => {
+        try {
+          this.manualCompetitionId = null
+          this.applyActiveViewDivisionFromRoute()
+          await this.refreshAltExpertProfile()
+          const hasAlt = !!getStoredAltToken() && !this.shareGuestMode
+          if (hasAlt) {
+            await this.fetchCompetitions()
+          } else {
+            this.competitions = []
+            this.competitionsError = ''
+          }
+          const raw = this.initialCompetitionId
+          if (raw != null && String(raw).trim() !== '') {
+            this.selectCompetition(raw)
+            await this.ensureCompetitionDetail(raw)
+          }
+          if (hasAlt) {
+            void this.refreshExamPapersForDetail()
+          } else {
+            this.examPapersForDetail = null
+            this.$emit('exam-papers-changed')
+          }
+          this.$nextTick(() => {
+            this.syncDualDivisionContextAfterCompetitionSelect()
+            if (this.showStandaloneCompetitionBriefingLayout && this.activeCompetitionId) {
+              void this.fetchStudentBriefingQr()
+            }
+            // 登录后竞赛 ID 可能未变，不会触发 activeCompetitionId watcher，需主动拉指导老师队伍列表
+            if (hasAlt && this.showAdvisorTeamPanel && this.activeCompetitionId) {
+              void this.refreshAdvisorTeams()
+            } else if (!this.showAdvisorTeamPanel) {
+              this.advisorTeams = []
+              this.advisorSelectedTeamId = null
+            }
+          })
+          this._standaloneDetailBootstrapped = true
+          this._standaloneBootstrappedWithAuth = hasAlt
+        } finally {
+          this._bootstrapStandaloneInFlight = null
         }
-        // 登录后竞赛 ID 可能未变，不会触发 activeCompetitionId watcher，需主动拉指导老师队伍列表
-        if (hasAlt && this.showAdvisorTeamPanel && this.activeCompetitionId) {
-          void this.refreshAdvisorTeams()
-        } else if (!this.showAdvisorTeamPanel) {
-          this.advisorTeams = []
-          this.advisorSelectedTeamId = null
-        }
-      })
+      })()
+      return this._bootstrapStandaloneInFlight
     },
 
     /** 竞赛详情独立页顶部「报名」：打开报名弹窗（供父组件 ref 调用） */
@@ -9158,6 +9209,20 @@ export default {
       }
     },
 
+    gradeQuestionPlaceholder (q) {
+      if (!q) return '请输入分数'
+      const mn = q.min_score != null && Number.isFinite(Number(q.min_score)) ? Number(q.min_score) : 0
+      const mx = q.max_score != null && Number.isFinite(Number(q.max_score)) ? Number(q.max_score) : 100
+      return `${mn}～${mx}`
+    },
+
+    onGradeQuestionScoreInput (no, e) {
+      const key = 'score_q' + no
+      if (!Object.prototype.hasOwnProperty.call(this.gradeForm, key)) return
+      const raw = e && e.target != null ? e.target.value : e
+      this.$set(this.gradeForm, key, raw != null ? String(raw) : '')
+    },
+
     getQuestionConfigForTrack (trackKey) {
       const track = String(trackKey || '').trim().toLowerCase()
       const byTrack = this.activeSubmissionQuestionConfig
@@ -9215,6 +9280,7 @@ export default {
 
     fillTeamQuestionGradeForm (record, isEdit = false) {
       if (!this.canReviewSubmissions || !record) return
+      this.gradeFormLoading = false
       this.gradeForm.submission_id = null
       this.gradeForm.team_id = record.team_id
       const track = record.work_track != null ? String(record.work_track).trim().toLowerCase() : ''
@@ -9233,7 +9299,19 @@ export default {
         Object.assign(this.gradeForm, this.emptyTeamQuestionGradeFields())
         this.gradeForm.feedback = ''
       }
+      this.openGradeAuditModal()
+      void this.refreshActiveSubmissionQuestionConfig()
+    },
+
+    getGradeAuditModalContainer () {
+      return document.body
+    },
+
+    openGradeAuditModal () {
       this.showGradeAudit = true
+      this.$nextTick(() => {
+        if (!this.showGradeAudit) this.showGradeAudit = true
+      })
     },
 
     async fillGradeForm (submissionId, isEdit = false) {
@@ -9245,66 +9323,76 @@ export default {
       this.gradeForm.questionGradeExists = false
       this.gradeFormIsEdit = !!isEdit
       Object.assign(this.gradeForm, this.emptyTeamQuestionGradeFields())
+      this.gradeForm.feedback = ''
+      this.gradeForm.score = ''
+      // 先弹出评分窗，再异步回填已有分数，避免接口等待时用户感觉“没反应”
+      this.openGradeAuditModal()
+      this.gradeFormLoading = true
       void this.refreshActiveSubmissionQuestionConfig()
 
-      if (this.gradeForm.team_id && this.activeCompetitionId) {
-        try {
-          const g = await getTeamQuestionGrade(this.activeCompetitionId, this.gradeForm.team_id)
-          if (g) {
-            this.gradeForm.questionGradeExists = true
-            this.gradeForm.score_q1 = g.score_q1 != null ? String(g.score_q1) : ''
-            this.gradeForm.score_q2 = g.score_q2 != null ? String(g.score_q2) : ''
-            this.gradeForm.score_q3 = g.score_q3 != null ? String(g.score_q3) : ''
-            this.gradeForm.score_q4 = g.score_q4 != null ? String(g.score_q4) : ''
-            this.gradeForm.score_q5 = g.score_q5 != null ? String(g.score_q5) : ''
-            this.gradeForm.feedback = g.feedback ? String(g.feedback) : ''
-          }
-        } catch (_) {
-          this.gradeForm.questionGradeExists = false
-        }
-      }
-
-      let detail = sub
-      if (this.gradeFormIsEdit && sub && this.resolveSubmissionScoreRaw(sub) == null) {
-        const cached = getSubmissionReviewGradeCache(submissionId)
-        if (cached) {
-          detail = { ...sub, score: cached.score, feedback: cached.feedback, reviewed_at: cached.reviewed_at }
-        } else {
+      try {
+        // 首次评分无需查询：后端对「未评分」固定返回 404，会在 Network 里造成误导
+        if (isEdit && this.gradeForm.team_id && this.activeCompetitionId) {
           try {
-            const reviewRes = await getCompetitionSubmissionReviewGrade(submissionId)
-            const review = this.normalizeReviewGradeResponse(reviewRes)
-            if (review) {
-              detail = {
-                ...sub,
-                score: review.score,
-                feedback: review.feedback,
-                reviewed_at: review.reviewed_at
-              }
+            const g = await getTeamQuestionGrade(this.activeCompetitionId, this.gradeForm.team_id)
+            if (g) {
+              this.gradeForm.questionGradeExists = true
+              this.gradeForm.score_q1 = g.score_q1 != null ? String(g.score_q1) : ''
+              this.gradeForm.score_q2 = g.score_q2 != null ? String(g.score_q2) : ''
+              this.gradeForm.score_q3 = g.score_q3 != null ? String(g.score_q3) : ''
+              this.gradeForm.score_q4 = g.score_q4 != null ? String(g.score_q4) : ''
+              this.gradeForm.score_q5 = g.score_q5 != null ? String(g.score_q5) : ''
+              this.gradeForm.feedback = g.feedback ? String(g.feedback) : ''
             }
           } catch (_) {
-            detail = sub
+            this.gradeForm.questionGradeExists = false
           }
         }
-      }
 
-      if (!this.gradeForm.questionGradeExists) {
-        if (this.gradeFormIsEdit && detail) {
-          const scoreRaw = this.resolveSubmissionScoreRaw(detail)
-          this.gradeForm.score = scoreRaw != null ? String(scoreRaw) : ''
-          if (!this.gradeForm.feedback) {
-            this.gradeForm.feedback = this.resolveSubmissionFeedback(detail)
+        let detail = sub
+        if (this.gradeFormIsEdit && sub && this.resolveSubmissionScoreRaw(sub) == null) {
+          const cached = getSubmissionReviewGradeCache(submissionId)
+          if (cached) {
+            detail = { ...sub, score: cached.score, feedback: cached.feedback, reviewed_at: cached.reviewed_at }
+          } else {
+            try {
+              const reviewRes = await getCompetitionSubmissionReviewGrade(submissionId)
+              const review = this.normalizeReviewGradeResponse(reviewRes)
+              if (review) {
+                detail = {
+                  ...sub,
+                  score: review.score,
+                  feedback: review.feedback,
+                  reviewed_at: review.reviewed_at
+                }
+              }
+            } catch (_) {
+              detail = sub
+            }
           }
-        } else {
-          this.gradeForm.score = ''
-          if (!this.gradeForm.feedback) this.gradeForm.feedback = ''
         }
-      }
 
-      this.showGradeAudit = true
+        if (!this.gradeForm.questionGradeExists) {
+          if (this.gradeFormIsEdit && detail) {
+            const scoreRaw = this.resolveSubmissionScoreRaw(detail)
+            this.gradeForm.score = scoreRaw != null ? String(scoreRaw) : ''
+            if (!this.gradeForm.feedback) {
+              this.gradeForm.feedback = this.resolveSubmissionFeedback(detail)
+            }
+          } else {
+            this.gradeForm.score = ''
+            if (!this.gradeForm.feedback) this.gradeForm.feedback = ''
+          }
+        }
+      } finally {
+        this.gradeFormLoading = false
+      }
     },
 
     cancelGradeAudit () {
+      if (this.gradeLoading) return
       this.showGradeAudit = false
+      this.gradeFormLoading = false
       this.gradeFormIsEdit = false
       this.gradeForm.submission_id = null
       this.gradeForm.team_id = null
@@ -10361,6 +10449,20 @@ export default {
     color: rgba(255, 255, 255, 0.96) !important;
   }
 
+  ::v-deep .grade-audit-panel {
+    background: #fff !important;
+    border: 2px solid #1890ff !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  ::v-deep .grade-audit-panel__title {
+    color: rgba(0, 0, 0, 0.85) !important;
+  }
+
+  ::v-deep .grade-audit-panel .ant-form-item-label > label {
+    color: rgba(0, 0, 0, 0.85) !important;
+  }
+
   ::v-deep .sub-card .ant-form-item-label > label {
     color: rgba(255, 255, 255, 0.88);
   }
@@ -11361,6 +11463,31 @@ export default {
   margin-bottom: 16px;
 }
 
+.grade-audit-panel {
+  margin-top: 16px;
+  padding: 16px;
+  background: #fff;
+  border: 2px solid #1890ff;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+
+.grade-audit-panel__title {
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.grade-audit-panel__track {
+  font-weight: 500;
+  color: #1890ff;
+}
+
+.grade-audit-panel__form {
+  max-width: 100%;
+}
+
 .admin-track-bar {
   display: flex;
   align-items: center;
@@ -11491,6 +11618,41 @@ export default {
 /* Modal 挂载在 body，需非 scoped */
 .standalone-competition-modal-wrap .ant-modal-body {
   padding-top: 8px;
+}
+
+/* 专家评分弹窗：白底可读，层级高于独立详情遮罩 */
+.grade-audit-modal-wrap {
+  z-index: 3200 !important;
+
+  .ant-modal {
+    top: 64px;
+    padding-bottom: 24px;
+  }
+
+  .ant-modal-content {
+    background: #fff;
+    border: 1px solid #e8e8e8;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+  }
+
+  .ant-modal-header {
+    background: #fff;
+    border-bottom: 1px solid #f0f0f0;
+  }
+
+  .ant-modal-title {
+    color: rgba(0, 0, 0, 0.85);
+    font-weight: 600;
+  }
+
+  .ant-modal-body {
+    background: #fff;
+    color: rgba(0, 0, 0, 0.85);
+  }
+
+  .ant-modal-close {
+    color: rgba(0, 0, 0, 0.45);
+  }
 }
 
 /* 教师/管理员：参赛者名单、评分汇总、排行榜弹窗内表格透明（与独立详情深色底一致） */

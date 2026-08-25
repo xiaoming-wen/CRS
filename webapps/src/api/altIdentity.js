@@ -277,8 +277,9 @@ function normalizeAssignedTeams (raw) {
   return out
 }
 
-export function applyAltIdentityMeToStorage (me) {
+export function applyAltIdentityMeToStorage (me, options = {}) {
   if (!me || typeof me !== 'object') return
+  const silent = options && options.silent === true
   const prev = getAltProfileFromStorage()
   const assignedRaw =
     me.assigned_competition_ids != null
@@ -318,11 +319,20 @@ export function applyAltIdentityMeToStorage (me) {
       ? me.effective_permissions
       : prev.effective_permissions
   }
+  let changed = true
+  try {
+    changed = JSON.stringify(prev) !== JSON.stringify(profile)
+  } catch (_) {
+    changed = true
+  }
+  if (!changed) return
   const store = getActiveAltStore()
   if (store) {
     store.setItem(ALT_PROFILE_KEY, JSON.stringify(profile))
   }
-  notifyAltIdentityStorageChanged()
+  if (!silent) {
+    notifyAltIdentityStorageChanged()
+  }
 }
 
 /**

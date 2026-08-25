@@ -323,7 +323,7 @@ export default {
       if (!this.isWorkbenchDetailRole || !getStoredAltToken()) return
       try {
         const me = await fetchAltIdentityMe()
-        applyAltIdentityMeToStorage(me)
+        applyAltIdentityMeToStorage(me, { silent: true })
         this.bumpToolbarIdentityTick()
         const sys = this.$refs.registrationSys
         if (sys && typeof sys.bootstrapStandaloneDetail === 'function') {
@@ -340,7 +340,7 @@ export default {
       try {
         if (getStoredAltToken()) {
           const me = await fetchAltIdentityMe()
-          applyAltIdentityMeToStorage(me)
+          applyAltIdentityMeToStorage(me, { silent: true })
           this.bumpToolbarIdentityTick()
         }
         const sys = this.$refs.registrationSys

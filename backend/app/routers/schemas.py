@@ -685,6 +685,8 @@ class TeamDetailResponse(BaseModel):
     competition_id: int
     name: Optional[str] = None
     captain_id: int
+    division: Optional[str] = None
+    work_track: Optional[str] = None
     status: TeamStatus
     created_at: UtcDatetime
     members: List[TeamMemberResponse] = []
@@ -738,6 +740,8 @@ class CompetitionExpertAssignedTeam(BaseModel):
     competition_id: int
     team_id: int
     team_name: Optional[str] = None
+    division: Optional[str] = None
+    work_track: Optional[str] = None
 
 
 class CompetitionExpertAssignRequest(BaseModel):

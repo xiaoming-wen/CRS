@@ -115,6 +115,7 @@ from app.schemas import (
     CompetitionScoreRankingItem,
     CompetitionScoreRankingResponse,
     CompetitionDivision,
+    CompetitionWorkTrack,
     MyCompetitionScoresResponse,
     SubmissionForStudentScoreResponse,
 )
@@ -1206,21 +1207,14 @@ def _ensure_competition_published_for_papers(competition: Competition) -> None:
 
 
 def _normalize_exam_paper_division(competition: Competition, division: Optional[str]) -> str:
-    mode = str(getattr(competition, "division_mode", None) or "single").lower()
+    """试卷组别：一律按本科 / 高职分槽（不再使用 default 不分学历槽位）。"""
     raw = (division or "").strip().lower() if division is not None else ""
-    if mode == "dual":
-        if raw not in ("undergraduate", "vocational"):
-            raise HTTPException(
-                status_code=400,
-                detail="dual competition requires division=undergraduate or vocational",
-            )
+    if raw in ("undergraduate", "vocational"):
         return raw
     if raw in ("", "default"):
-        return "default"
-    if raw in ("undergraduate", "vocational"):
         raise HTTPException(
             status_code=400,
-            detail="single competition only supports division=default",
+            detail="须指定组别：undergraduate（本科）或 vocational（高职）",
         )
     raise HTTPException(status_code=400, detail="Invalid division")
 
@@ -1338,9 +1332,9 @@ def _exam_paper_slot(
 def _build_exam_papers_meta(competition: Competition) -> CompetitionExamPapers:
     from app.competition_exam_config import WORK_TRACKS, get_exam_papers_by_track_map
 
-    mode = str(getattr(competition, "division_mode", None) or "single").lower()
     cid = competition.id
-    divisions = ["undergraduate", "vocational"] if mode == "dual" else ["default"]
+    # 试卷一律按本科 / 高职分槽；仍读取旧 default 槽以便兼容展示/回退
+    divisions = ["undergraduate", "vocational", "default"]
     by_track = {}
     track_map = get_exam_papers_by_track_map(competition)
 
@@ -1366,13 +1360,10 @@ def _build_exam_papers_meta(competition: Competition) -> CompetitionExamPapers:
         path, name = _exam_paper_path_and_filename(competition, div)
         return _exam_paper_slot(cid, path, name, div)
 
-    if mode == "dual":
-        return CompetitionExamPapers(
-            undergraduate=_legacy_slot("undergraduate"),
-            vocational=_legacy_slot("vocational"),
-            by_track=by_track,
-        )
+    # 对外主字段仅本科/高职；by_track 可含 default 供兼容
     return CompetitionExamPapers(
+        undergraduate=_legacy_slot("undergraduate"),
+        vocational=_legacy_slot("vocational"),
         default=_legacy_slot("default"),
         by_track=by_track,
     )
@@ -1410,12 +1401,8 @@ async def _save_exam_paper_upload(
 
 
 def _exam_paper_requires_division_match(competition: Competition) -> bool:
-    """
-    双组别才按本科/高职核对报名组别。
-    单组别试卷槽位是 default，但报名/队伍仍可能记 undergraduate / vocational。
-    """
-    mode = str(getattr(competition, "division_mode", None) or "single").lower()
-    return mode == "dual"
+    """试卷已按本科/高职分槽，下载时须与报名/队伍组别一致。"""
+    return True
 
 
 def _can_download_exam_paper(
@@ -2111,6 +2098,18 @@ def _team_detail_response(
     members_out = _build_team_member_user_responses(
         team.members, users_by_id, anonymize=anonymize
     )
+    raw_div = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).strip().lower()
+    try:
+        division = CompetitionDivision(raw_div)
+    except ValueError:
+        division = CompetitionDivision.DEFAULT
+    raw_track = getattr(team, "work_track", None)
+    work_track = None
+    if raw_track is not None and str(raw_track).strip():
+        try:
+            work_track = CompetitionWorkTrack(str(raw_track).strip().lower())
+        except ValueError:
+            work_track = None
     if anonymize:
         return TeamDetailResponse(
             id=team.id,
@@ -2119,6 +2118,8 @@ def _team_detail_response(
             captain_id=team.captain_id,
             created_by_advisor_id=None,
             advisor_name=None,
+            division=division,
+            work_track=work_track,
             status=TeamStatus(team.status),
             created_at=team.created_at,
             members=members_out,
@@ -2132,6 +2133,8 @@ def _team_detail_response(
         captain_id=team.captain_id,
         created_by_advisor_id=team.created_by_advisor_id,
         advisor_name=advisor_name,
+        division=division,
+        work_track=work_track,
         status=TeamStatus(team.status),
         created_at=team.created_at,
         members=members_out,
@@ -2727,17 +2730,21 @@ async def list_all_experts(
                 CompetitionExpertTeamAssignment.competition_id,
                 CompetitionExpertTeamAssignment.team_id,
                 Team.name,
+                Team.division,
+                Team.work_track,
             )
             .outerjoin(Team, Team.id == CompetitionExpertTeamAssignment.team_id)
             .filter(CompetitionExpertTeamAssignment.expert_id.in_(expert_ids))
             .all()
         )
-        for expert_id, comp_id, team_id, team_name in team_rows:
+        for expert_id, comp_id, team_id, team_name, division, work_track in team_rows:
             teams_by_expert.setdefault(int(expert_id), []).append(
                 CompetitionExpertAssignedTeam(
                     competition_id=int(comp_id),
                     team_id=int(team_id),
                     team_name=team_name,
+                    division=str(division) if division is not None else None,
+                    work_track=str(work_track) if work_track is not None else None,
                 )
             )
 
@@ -3034,14 +3041,14 @@ async def get_submission_question_config(
 @router.get("/{competition_id}/exam-papers/download")
 async def download_competition_exam_paper(
     competition_id: int,
-    division: Optional[str] = Query(None, description="default / undergraduate / vocational"),
+    division: Optional[str] = Query(None, description="undergraduate / vocational"),
     work_track: Optional[str] = Query(None, description="works / software / hardware"),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
     下载已发布试卷。
-    学生/指导老师按报名或关联队伍的赛道下载对应赛道试卷。
+    学生/指导老师按报名或关联队伍的组别（本科/高职）与赛道下载对应试卷。
     """
     from app.competition_exam_config import get_exam_paper_track_file
 
@@ -3062,6 +3069,11 @@ async def download_competition_exam_paper(
     path, filename = get_exam_paper_track_file(competition, div, track)
     if not path:
         path, filename = _exam_paper_path_and_filename(competition, div)
+    # 兼容旧「不分学历组别」default 槽位
+    if not path:
+        path, filename = get_exam_paper_track_file(competition, "default", track)
+    if not path:
+        path, filename = _exam_paper_path_and_filename(competition, "default")
     if not path:
         raise HTTPException(
             status_code=404,

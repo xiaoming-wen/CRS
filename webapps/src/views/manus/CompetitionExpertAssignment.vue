@@ -11,7 +11,7 @@
           <ol class="expert-assignment-desc-list">
             <li>用户可在注册页选择 <strong>专家</strong> 自助注册，此时，<strong>无法登录</strong>。</li>
             <li>通过加载全部专家；待审核者点击 <strong>确定专家身份</strong>。</li>
-            <li>已核验专家点击 <strong>指派</strong> → 选择竞赛并<strong>至少勾选一支队伍</strong> → 可对某一支队伍点击 <strong>取消指派</strong>，在弹窗确认后仅撤销该队伍。</li>
+            <li>已核验专家点击 <strong>指派</strong> → 选择竞赛，按<strong>组别</strong>与<strong>赛道</strong>筛选并勾选队伍（可全选当前筛选）→ 可对某一支队伍点击 <strong>取消指派</strong>。</li>
           </ol>
         </template>
       </a-alert>
@@ -95,7 +95,7 @@
                 >
                   <span class="assignment-team-name">
                     {{ t.team_name || ('队伍#' + t.team_id) }}
-                    <span class="muted">（ID {{ t.team_id }}）</span>
+                    <span class="muted">（ID {{ t.team_id }}{{ formatTeamDivisionTrackSuffix(t) }}）</span>
                   </span>
                   <a-button
                     type="link"
@@ -126,7 +126,7 @@
       ok-text="确认指派"
       cancel-text="取消"
       destroy-on-close
-      :width="640"
+      :width="720"
       @ok="submitAssignModal"
       @cancel="closeAssignModal"
     >
@@ -135,7 +135,13 @@
           专家：<strong>{{ assignModalExpert.username }}</strong>
           <span class="muted">（ID {{ assignModalExpert.expert_user_id }}）</span>
         </p>
-        <a-form-item label="选择竞赛" required :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
+        <a-alert
+          type="info"
+          show-icon
+          style="margin-bottom: 12px"
+          message="请先选择竞赛，再按本科/高职组别与赛道筛选队伍；可一键全选当前组别×赛道下尚未指派的队伍。"
+        />
+        <a-form-item label="选择竞赛" required :label-col="{ span: 5 }" :wrapper-col="{ span: 19 }">
           <a-select
             v-model="assignModalCompetitionId"
             show-search
@@ -150,10 +156,54 @@
               :value="c.id"
             >
               {{ c.id }} — {{ c.name || '未命名' }}（{{ getStatusText(c.status) }}）
+              <span v-if="isCompetitionDual(c)" class="muted"> · 双组别</span>
             </a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="选择队伍" required :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
+        <a-form-item label="组别" required :label-col="{ span: 5 }" :wrapper-col="{ span: 19 }">
+          <a-radio-group
+            v-model="assignModalDivisionFilter"
+            :disabled="!assignModalCompetitionId"
+            button-style="solid"
+          >
+            <a-radio-button value="undergraduate">本科</a-radio-button>
+            <a-radio-button value="vocational">高职</a-radio-button>
+            <a-radio-button value="all">全部组别</a-radio-button>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item label="赛道" :label-col="{ span: 5 }" :wrapper-col="{ span: 19 }">
+          <a-radio-group
+            v-model="assignModalTrackFilter"
+            :disabled="!assignModalCompetitionId"
+            button-style="solid"
+          >
+            <a-radio-button value="all">全部赛道</a-radio-button>
+            <a-radio-button value="works">作品</a-radio-button>
+            <a-radio-button value="software">软件</a-radio-button>
+            <a-radio-button value="hardware">硬件</a-radio-button>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item label="选择队伍" required :label-col="{ span: 5 }" :wrapper-col="{ span: 19 }">
+          <div style="margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 8px">
+            <a-button
+              size="small"
+              :disabled="!assignModalFilteredSelectableIds.length"
+              @click="selectAllFilteredTeams"
+            >
+              全选当前筛选（{{ assignModalFilteredSelectableIds.length }}）
+            </a-button>
+            <a-button
+              size="small"
+              :disabled="!(assignModalTeamIds && assignModalTeamIds.length)"
+              @click="assignModalTeamIds = []"
+            >
+              清空已选
+            </a-button>
+            <span class="muted" style="line-height: 24px">
+              已选 {{ (assignModalTeamIds || []).length }} 支
+              · 筛选可见 {{ assignModalFilteredTeamOptions.length }} 支
+            </span>
+          </div>
           <a-spin :spinning="assignModalTeamsLoading">
             <a-select
               v-model="assignModalTeamIds"
@@ -165,18 +215,25 @@
               :disabled="!assignModalCompetitionId"
             >
               <a-select-option
-                v-for="t in assignModalTeamOptions"
+                v-for="t in assignModalFilteredTeamOptions"
                 :key="t.id"
                 :value="t.id"
                 :disabled="t.alreadyAssigned"
               >
-                {{ t.id }} — {{ t.name || '未命名队伍' }}
+                {{ formatTeamOptionLabel(t) }}
                 <span v-if="t.alreadyAssigned" class="muted">（已指派）</span>
               </a-select-option>
             </a-select>
           </a-spin>
           <p v-if="assignModalCompetitionId && !assignModalTeamsLoading && !assignModalTeamOptions.length" class="muted" style="margin-top: 8px">
             该竞赛暂无队伍，请先完成组队后再指派。
+          </p>
+          <p
+            v-else-if="assignModalCompetitionId && !assignModalTeamsLoading && assignModalTeamOptions.length && !assignModalFilteredTeamOptions.length"
+            class="muted"
+            style="margin-top: 8px"
+          >
+            当前组别/赛道筛选下暂无队伍，请调整筛选条件。
           </p>
         </a-form-item>
         <p v-if="assignModalExpert.assignments && assignModalExpert.assignments.length" class="muted assign-modal-hint">
@@ -242,6 +299,9 @@ export default {
       assignModalTeamIds: [],
       assignModalTeamOptions: [],
       assignModalTeamsLoading: false,
+      assignModalDivisionFilter: 'undergraduate',
+      assignModalTrackFilter: 'all',
+      assignModalCompetitionIsDual: false,
       pendingExpertsColumns: [
         { title: '用户 ID', dataIndex: 'expert_user_id', key: 'expert_user_id', width: 88 },
         { title: '用户名', dataIndex: 'username', key: 'username', width: 140, ellipsis: true },
@@ -276,6 +336,35 @@ export default {
       if (raw == null || String(raw).trim() === '') return null
       const n = Number(raw)
       return Number.isFinite(n) && n > 0 ? n : null
+    },
+    assignModalDivisionOptions () {
+      return [
+        { value: 'undergraduate', label: '本科' },
+        { value: 'vocational', label: '高职' }
+      ]
+    },
+    assignModalFilteredTeamOptions () {
+      const list = this.assignModalTeamOptions || []
+      const div = this.assignModalDivisionFilter
+      const track = this.assignModalTrackFilter
+      return list.filter((t) => {
+        if (!t) return false
+        if (div && div !== 'all') {
+          const td = this.normalizeDivision(t.division)
+          // 组别仅按本科 / 高职匹配（报名与建队均使用这两类）
+          if (td !== div) return false
+        }
+        if (track && track !== 'all') {
+          const tt = this.normalizeTrack(t.work_track)
+          if (tt !== track) return false
+        }
+        return true
+      })
+    },
+    assignModalFilteredSelectableIds () {
+      return (this.assignModalFilteredTeamOptions || [])
+        .filter(t => t && !t.alreadyAssigned)
+        .map(t => t.id)
     }
   },
   watch: {
@@ -309,9 +398,54 @@ export default {
       return teams
         .map(t => {
           const name = t.team_name || `队伍#${t.team_id}`
-          return `${name}`
+          const suffix = this.formatTeamDivisionTrackSuffix(t)
+          return suffix ? `${name}${suffix}` : name
         })
         .join('、')
+    },
+    normalizeDivision (raw) {
+      const s = raw != null ? String(raw).trim().toLowerCase() : ''
+      if (s === 'undergraduate' || s === '本科' || s === '本科组') return 'undergraduate'
+      if (s === 'vocational' || s === '高职' || s === '高职组') return 'vocational'
+      return s || ''
+    },
+    normalizeTrack (raw) {
+      const s = raw != null ? String(raw).trim().toLowerCase() : ''
+      if (s === 'works' || s === 'software' || s === 'hardware') return s
+      return ''
+    },
+    divisionLabel (raw) {
+      const d = this.normalizeDivision(raw)
+      if (d === 'undergraduate') return '本科'
+      if (d === 'vocational') return '高职'
+      return ''
+    },
+    trackLabel (raw) {
+      const t = this.normalizeTrack(raw)
+      if (t === 'works') return '作品赛道'
+      if (t === 'software') return '软件赛道'
+      if (t === 'hardware') return '硬件赛道'
+      return ''
+    },
+    formatTeamDivisionTrackSuffix (t) {
+      if (!t) return ''
+      const parts = []
+      const d = this.divisionLabel(t.division)
+      const tr = this.trackLabel(t.work_track)
+      if (d) parts.push(d)
+      if (tr) parts.push(tr)
+      return parts.length ? ` · ${parts.join(' · ')}` : ''
+    },
+    formatTeamOptionLabel (t) {
+      if (!t) return ''
+      const base = `${t.id} — ${t.name || '未命名队伍'}`
+      const suffix = this.formatTeamDivisionTrackSuffix(t)
+      return suffix ? `${base}${suffix}` : base
+    },
+    isCompetitionDual (comp) {
+      if (!comp || typeof comp !== 'object') return false
+      const mode = comp.division_mode != null ? comp.division_mode : comp.divisionMode
+      return String(mode || '').toLowerCase() === 'dual'
     },
     revokeKeyOf (expertId, competitionId, teamId) {
       return `${competitionId}-${expertId}-${teamId}`
@@ -405,7 +539,9 @@ export default {
         if (!teamsByComp[cid]) teamsByComp[cid] = []
         teamsByComp[cid].push({
           team_id: Number(t.team_id),
-          team_name: t.team_name || null
+          team_name: t.team_name || null,
+          division: t.division != null ? String(t.division) : null,
+          work_track: t.work_track != null ? String(t.work_track) : null
         })
       })
       const compIds = new Set([
@@ -511,6 +647,9 @@ export default {
       this.assignModalCompetitionId = undefined
       this.assignModalTeamIds = []
       this.assignModalTeamOptions = []
+      this.assignModalDivisionFilter = 'undergraduate'
+      this.assignModalTrackFilter = 'all'
+      this.assignModalCompetitionIsDual = false
       this.assignModalVisible = true
     },
     closeAssignModal () {
@@ -519,14 +658,30 @@ export default {
       this.assignModalCompetitionId = undefined
       this.assignModalTeamIds = []
       this.assignModalTeamOptions = []
+      this.assignModalDivisionFilter = 'undergraduate'
+      this.assignModalTrackFilter = 'all'
+      this.assignModalCompetitionIsDual = false
       this.assignModalLoading = false
       this.assignModalTeamsLoading = false
+    },
+    selectAllFilteredTeams () {
+      const ids = this.assignModalFilteredSelectableIds || []
+      const current = new Set((this.assignModalTeamIds || []).map(id => Number(id)))
+      ids.forEach((id) => current.add(Number(id)))
+      this.assignModalTeamIds = Array.from(current)
     },
     async onAssignCompetitionChange (competitionId) {
       this.assignModalTeamIds = []
       this.assignModalTeamOptions = []
+      this.assignModalDivisionFilter = 'undergraduate'
+      this.assignModalTrackFilter = 'all'
       const cid = Number(competitionId)
-      if (!Number.isFinite(cid) || cid <= 0) return
+      if (!Number.isFinite(cid) || cid <= 0) {
+        this.assignModalCompetitionIsDual = false
+        return
+      }
+      const comp = (this.competitions || []).find(c => Number(c.id) === cid)
+      this.assignModalCompetitionIsDual = this.isCompetitionDual(comp)
       this.assignModalTeamsLoading = true
       try {
         const res = await getCompetitionTeams(cid)
@@ -545,11 +700,24 @@ export default {
             return {
               id,
               name: t.name || t.team_name || `队伍#${id}`,
+              division: t.division != null ? String(t.division) : '',
+              work_track: t.work_track != null ? String(t.work_track) : '',
               alreadyAssigned: already.has(id)
             }
           })
           .filter(Boolean)
-          .sort((a, b) => a.id - b.id)
+          .sort((a, b) => {
+            const order = { undergraduate: 0, vocational: 1 }
+            const da = this.normalizeDivision(a.division)
+            const db = this.normalizeDivision(b.division)
+            const oa = order[da] != null ? order[da] : 9
+            const ob = order[db] != null ? order[db] : 9
+            if (oa !== ob) return oa - ob
+            const ta = this.normalizeTrack(a.work_track) || 'zzz'
+            const tb = this.normalizeTrack(b.work_track) || 'zzz'
+            if (ta !== tb) return ta.localeCompare(tb)
+            return a.id - b.id
+          })
       } catch (e) {
         this.assignModalTeamOptions = []
         this.$message.error('加载队伍失败：' + this.getApiErrorMessage(e))
