@@ -5371,6 +5371,9 @@ export default {
       if (t.includes('already enrolled in division')) {
         return '该学生已在另一学历组别报名，不能跨组入队'
       }
+      if (/同一学校|same school|学校不一致|must.*same.*school|未配置学校.*组队/i.test(detailText || '')) {
+        return String(detailText || '').trim() || '仅允许同一学校的学生组队'
+      }
       return null
     },
 
@@ -6299,6 +6302,16 @@ export default {
 
       if (/captain must have school configured|captain account not found/i.test(text)) {
         return '建队失败：当前学生账号未填写学校。请使用已填写学校的账号，或联系管理员补全学校信息后重试'
+      }
+
+      if (/仅允许同一学校的学生组队|学校不一致|未配置学校，无法组队/i.test(text)) {
+        return text.includes('未配置学校')
+          ? text
+          : '仅允许同一学校的学生组队，队长与队员必须属于同一学校'
+      }
+
+      if (/作品已提交，无法再添加\/修改指导老师|作品已提交，无法再变更|作品已提交，无法再添加/i.test(text)) {
+        return text
       }
 
       if (/组别必选|division.*undergraduate|赛道必选|work_track/i.test(text) && /必选|required/i.test(text)) {

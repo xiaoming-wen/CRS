@@ -563,10 +563,52 @@ def _team_matches_school(team: Team, school: str) -> bool:
     return team_school.casefold() == _normalize_school_name(school).casefold()
 
 
+def _team_ids_with_submitted_work(db: Session, teams: List[Team]) -> set[int]:
+    """批量判断哪些队伍已提交作品（分题正式提交或压缩包）。"""
+    if not teams:
+        return set()
+    by_comp: dict[int, List[int]] = {}
+    for t in teams:
+        by_comp.setdefault(int(t.competition_id), []).append(int(t.id))
+    submitted: set[int] = set()
+    for cid, tids in by_comp.items():
+        qa_ids = {
+            int(r[0])
+            for r in (
+                db.query(CompetitionQuestionAnswer.team_id)
+                .filter(
+                    CompetitionQuestionAnswer.competition_id == cid,
+                    CompetitionQuestionAnswer.team_id.in_(tids),
+                    CompetitionQuestionAnswer.status == CompetitionQuestionAnswerStatus.SUBMITTED,
+                )
+                .distinct()
+                .all()
+            )
+            if r and r[0] is not None
+        }
+        zip_ids = {
+            int(r[0])
+            for r in (
+                db.query(Submission.team_id)
+                .filter(
+                    Submission.competition_id == cid,
+                    Submission.team_id.in_(tids),
+                )
+                .distinct()
+                .all()
+            )
+            if r and r[0] is not None
+        }
+        submitted |= qa_ids | zip_ids
+    return submitted
+
+
 def _build_school_admin_team_item(
     team: Team,
     competition: Competition,
     users_by_id: dict[int, AltAuthUserRecord],
+    *,
+    work_submitted: bool = False,
 ) -> SchoolAdminTeamReviewItem:
     advisor_id = team.created_by_advisor_id
     advisor_name = _team_advisor_display_name(team, users_by_id)
@@ -605,6 +647,7 @@ def _build_school_admin_team_item(
         review_feedback=getattr(team, "review_feedback", None),
         reviewed_at=getattr(team, "reviewed_at", None),
         created_at=team.created_at,
+        work_submitted=bool(work_submitted),
     )
 
 
@@ -1705,6 +1748,70 @@ def _assert_team_roster_mutable(db: Session, competition_id: int, team_id: int) 
             status_code=400,
             detail="作品已提交，无法再变更队伍成员（邀请、移除、转让或退队）",
         )
+
+
+def _assert_team_school_meta_mutable(db: Session, competition_id: int, team_id: int) -> None:
+    """队伍提交作品后，禁止校管修改指导老师 / 组别 / 赛道。"""
+    if _team_has_submitted_work(db, competition_id, team_id):
+        raise HTTPException(
+            status_code=400,
+            detail="作品已提交，无法再添加/修改指导老师或修改组别/赛道",
+        )
+
+
+def _assert_student_same_school_as_team(
+    adb: Session,
+    team: Team,
+    student_id: int,
+    *,
+    label: str = "学生",
+) -> None:
+    """组队要求：队长与队员须属同一学校。"""
+    team_school = _normalize_school_name(getattr(team, "school", None))
+    if not team_school:
+        team_school = _resolve_team_school(adb, int(team.captain_id))
+    stu = adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.id == int(student_id)).first()
+    if stu is None:
+        raise HTTPException(status_code=404, detail=f"{label}不存在")
+    stu_school = _normalize_school_name(getattr(stu, "school", None))
+    if not stu_school:
+        raise HTTPException(status_code=400, detail=f"{label}未配置学校，无法组队")
+    if stu_school.casefold() != team_school.casefold():
+        raise HTTPException(
+            status_code=400,
+            detail="仅允许同一学校的学生组队，该学生与队伍/队长学校不一致",
+        )
+
+
+def _assert_student_ids_same_school(adb: Session, student_ids: List[int]) -> str:
+    """校验多名学生同一学校，返回规范化校名。"""
+    ids = []
+    seen = set()
+    for sid in student_ids:
+        n = int(sid)
+        if n not in seen:
+            seen.add(n)
+            ids.append(n)
+    if not ids:
+        raise HTTPException(status_code=400, detail="缺少学生信息")
+    schools: List[str] = []
+    for sid in ids:
+        u = adb.query(AltAuthUserRecord).filter(AltAuthUserRecord.id == sid).first()
+        if u is None:
+            raise HTTPException(status_code=404, detail=f"学生 {sid} 不存在")
+        sch = _normalize_school_name(getattr(u, "school", None))
+        if not sch:
+            name = (u.full_name or u.username or str(sid)).strip()
+            raise HTTPException(status_code=400, detail=f"学生「{name}」未配置学校，无法组队")
+        schools.append(sch)
+    base = schools[0]
+    for sch in schools[1:]:
+        if sch.casefold() != base.casefold():
+            raise HTTPException(
+                status_code=400,
+                detail="仅允许同一学校的学生组队，队长与队员必须属于同一学校",
+            )
+    return base
 
 
 def _build_team_invite_response(
@@ -3610,8 +3717,14 @@ async def list_school_admin_teams(
                 matched.append(t)
         teams = matched
 
+    submitted_ids = _team_ids_with_submitted_work(db, teams)
     items = [
-        _build_school_admin_team_item(t, t.competition, users_by_id)
+        _build_school_admin_team_item(
+            t,
+            t.competition,
+            users_by_id,
+            work_submitted=(int(t.id) in submitted_ids),
+        )
         for t in teams
     ]
     return SchoolAdminTeamReviewListResponse(total=len(items), items=items)
@@ -3741,6 +3854,8 @@ async def set_team_advisor(
     if team.status == TeamStatus.REJECTED:
         raise HTTPException(status_code=400, detail="Cannot set advisor on a rejected team")
 
+    _assert_team_school_meta_mutable(db, team.competition_id, team.id)
+
     advisor_username = (body.advisor_username or "").strip()
     advisor_name = (body.advisor_name or "").strip()
     advisor_id = body.advisor_id
@@ -3818,6 +3933,8 @@ async def set_team_division_track(
     if team.status == TeamStatus.REJECTED:
         raise HTTPException(status_code=400, detail="Cannot update division on a rejected team")
 
+    _assert_team_school_meta_mutable(db, team.competition_id, team.id)
+
     competition = _get_competition(db, team.competition_id)
     division = _resolve_enrollment_division(competition, body.division)
     work_track = _resolve_work_track(body.work_track)
@@ -3890,8 +4007,14 @@ async def list_admin_team_reviews(
             all_uids.add(m.user_id)
     users_by_id = _alt_users_by_id(adb, all_uids)
 
+    submitted_ids = _team_ids_with_submitted_work(db, teams)
     items = [
-        _build_school_admin_team_item(t, t.competition, users_by_id)
+        _build_school_admin_team_item(
+            t,
+            t.competition,
+            users_by_id,
+            work_submitted=(int(t.id) in submitted_ids),
+        )
         for t in teams
     ]
     return SchoolAdminTeamReviewListResponse(total=len(items), items=items)
@@ -5778,7 +5901,7 @@ async def create_team(
             ):
                 raise HTTPException(status_code=400, detail=f"学生 {sid} 已在该竞赛组队赛道报名")
 
-        team_school = _resolve_team_school(adb, captain_id)
+        team_school = _assert_student_ids_same_school(adb, ordered_ids)
         # 指导老师/教师代建队：自动将当前登录老师设为建队指导老师（忽略请求体中的 advisor_id/advisor_name）
         team = Team(
             id=allocate_eight_digit_id(db, Team),
@@ -5883,6 +6006,8 @@ async def create_team(
 
         extras = team_create.initial_member_ids or []
         extras = [x for x in extras if x != identity.id]
+        if extras:
+            _assert_student_ids_same_school(adb, [identity.id] + list(extras))
         for sid in extras:
             _ensure_alt_principal_is_student(adb, sid)
             if _has_active_enrollment_in_scope(
@@ -5890,6 +6015,7 @@ async def create_team(
             ):
                 db.rollback()
                 raise HTTPException(status_code=400, detail=f"学生 {sid} 已在竞赛组队赛道报名")
+            _assert_student_same_school_as_team(adb, team, sid, label="学生")
             db.add(TeamMember(team_id=team.id, user_id=sid, is_captain=False))
             row_other = _get_enrollment_by_scope(
                 db, competition.id, sid, CompetitionEnrollmentScope.TEAM
@@ -6034,6 +6160,8 @@ async def invite_team_member(
 
     _ensure_alt_principal_is_student(adb, sid)
 
+    _assert_student_same_school_as_team(adb, team, sid, label="学生")
+
     if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == sid).first():
         raise HTTPException(status_code=400, detail="Already a team member")
 
@@ -6161,6 +6289,7 @@ async def respond_team_invite(
         raise HTTPException(status_code=400, detail="Competition not published")
     _assert_final_stage_roster_frozen(competition)
     _assert_team_roster_mutable(db, competition.id, team.id)
+    _assert_student_same_school_as_team(adb, team, identity.id, label="当前账号")
 
     if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == identity.id).first():
         inv.status = TeamInviteStatus.ACCEPTED
@@ -6270,6 +6399,8 @@ async def request_join_team(
 
     if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == identity.id).first():
         raise HTTPException(status_code=400, detail="Already a team member")
+
+    _assert_student_same_school_as_team(adb, team, identity.id, label="当前账号")
 
     if _has_active_enrollment_in_scope(
         db, competition.id, identity.id, CompetitionEnrollmentScope.TEAM
@@ -6396,6 +6527,7 @@ async def review_team_join_request(
 
     _assert_team_roster_mutable(db, competition.id, team.id)
     _ensure_alt_principal_is_student(adb, req.user_id)
+    _assert_student_same_school_as_team(adb, team, req.user_id, label="申请人")
     if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == req.user_id).first():
         raise HTTPException(status_code=400, detail="Already a team member")
     if _has_active_enrollment_in_scope(

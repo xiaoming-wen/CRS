@@ -1102,6 +1102,10 @@ class SchoolAdminTeamReviewItem(BaseModel):
     review_feedback: Optional[str] = None
     reviewed_at: OptionalUtcDatetime = None
     created_at: UtcDatetime
+    work_submitted: bool = Field(
+        False,
+        description="队伍是否已提交作品（提交后不可改指导老师/组别/赛道）",
+    )
 
 
 class SchoolAdminTeamReviewListResponse(BaseModel):

@@ -124,20 +124,23 @@
                   </a-button>
                 </template>
                 <a-button
-                  v-if="record.status !== 'rejected'"
+                  v-if="record.status !== 'rejected' && !record.work_submitted"
                   size="small"
                   @click="openAdvisorModal(record)"
                 >
                   添加/修改指导老师
                 </a-button>
                 <a-button
-                  v-if="record.status !== 'rejected'"
+                  v-if="record.status !== 'rejected' && !record.work_submitted"
                   size="small"
                   @click="openDivisionTrackModal(record)"
                 >
                   修改组别/赛道
                 </a-button>
                 <span v-if="record.status === 'rejected'" class="muted">—</span>
+                <span v-else-if="record.work_submitted" class="muted" title="作品已提交，不可再改指导老师或组别/赛道">
+                  作品已提交
+                </span>
               </div>
             </template>
           </a-table>
@@ -599,6 +602,10 @@ export default {
       }
     },
     openAdvisorModal (record) {
+      if (record && record.work_submitted) {
+        this.$message.warning('作品已提交，无法再添加/修改指导老师')
+        return
+      }
       this.advisorModalTeam = record
       this.advisorForm = { advisor_ref: '' }
       this.advisorModalVisible = true
@@ -635,6 +642,10 @@ export default {
       }
     },
     openDivisionTrackModal (record) {
+      if (record && record.work_submitted) {
+        this.$message.warning('作品已提交，无法再修改组别/赛道')
+        return
+      }
       this.divisionTrackModalTeam = record
       const div = String((record && record.division) || '').trim().toLowerCase()
       const track = String((record && record.work_track) || '').trim().toLowerCase()
