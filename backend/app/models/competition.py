@@ -168,7 +168,7 @@ class CompetitionEnrollment(Base):
     """
     学生在某竞赛的报名记录。
     ``student_id`` 存 **第二套主体** ``alt_auth_users.id``（无外键、不引用主库 ``users``）。
-    每人每赛每种赛道（``enrollment_scope``）至多一条记录。
+    每人每赛每个作品赛道（``work_track``：作品/软件/硬件）至多一条记录；最多可同时报满三条赛道。
     """
 
     __tablename__ = "competition_enrollments"
@@ -176,8 +176,8 @@ class CompetitionEnrollment(Base):
         UniqueConstraint(
             "competition_id",
             "student_id",
-            "enrollment_scope",
-            name="uq_competition_student_scope",
+            "work_track",
+            name="uq_competition_student_work_track",
         ),
     )
 

@@ -39,7 +39,7 @@ https://www.chaoxiangedu.com/#/manu/competition-list
 |--------|------|------|
 | `ahnu_stu1` ~ `ahnu_stu3` | 学生 | 安徽师范大学 |
 | `hfu_stu1` ~ `hfu_stu3` | 学生 | 合肥大学 |
-| `hfu_advisor1` | 指导老师 | 合肥大学 |
+| `ahnu_advisor1` / `hfu_advisor1` | 指导老师 | 对应学校 |
 | `ahnu_expert1` / `hfu_expert1` | 专家（已核验） | 对应学校 |
 | `ahnu_school_admin` / `hfu_school_admin` | 校管理员（已通过） | 对应学校 |
 

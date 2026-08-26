@@ -475,7 +475,27 @@
 
             <div style="margin-top: 12px">
               <a-form layout="vertical">
-                <a-form-item label="我的队伍ID（创建或加入成功后自动填入）">
+                <a-form-item v-if="showMultiTrackTeamSwitcher" label="当前操作赛道">
+                  <a-radio-group
+                    :value="activeEnrollmentWorkTrack"
+                    @change="e => selectPreferredEnrollmentWorkTrack(e && e.target ? e.target.value : e)"
+                  >
+                    <a-radio
+                      v-for="row in myTeamEnrollmentList"
+                      :key="'trk-' + (row.id || row.team_id) + '-' + row.work_track"
+                      :value="String(row.work_track || '').trim().toLowerCase()"
+                    >
+                      {{ workTrackDisplayLabel(row.work_track) }}（队伍 {{ row.team_id }}）
+                    </a-radio>
+                  </a-radio-group>
+                  <div class="muted" style="margin-top: 4px; font-size: 12px">
+                    切换赛道后，下方队伍 ID / 队名 / 校审 / 入队申请 / 队员与队长操作均对应该赛道队伍。
+                  </div>
+                </a-form-item>
+                <a-form-item v-else-if="showCurrentTrackTeamContextHint" label="当前赛道">
+                  <a-tag color="blue">{{ currentEnrollmentTrackLabel }}</a-tag>
+                </a-form-item>
+                <a-form-item :label="myTeamIdFormLabel">
                   <a-input-number
                     v-model="myTeamId"
                     :min="1"
@@ -1646,7 +1666,27 @@
 
         <div style="margin-top: 12px">
           <a-form layout="vertical">
-            <a-form-item label="我的队伍ID（创建或加入成功后自动填入）">
+            <a-form-item v-if="showMultiTrackTeamSwitcher" label="当前操作赛道">
+              <a-radio-group
+                :value="activeEnrollmentWorkTrack"
+                @change="e => selectPreferredEnrollmentWorkTrack(e && e.target ? e.target.value : e)"
+              >
+                <a-radio
+                  v-for="row in myTeamEnrollmentList"
+                  :key="'trk-m-' + (row.id || row.team_id) + '-' + row.work_track"
+                  :value="String(row.work_track || '').trim().toLowerCase()"
+                >
+                  {{ workTrackDisplayLabel(row.work_track) }}（队伍 {{ row.team_id }}）
+                </a-radio>
+              </a-radio-group>
+              <div class="muted" style="margin-top: 4px; font-size: 12px">
+                切换赛道后，下方队伍 ID / 队名 / 校审 / 入队申请 / 队员与队长操作均对应该赛道队伍。
+              </div>
+            </a-form-item>
+            <a-form-item v-else-if="showCurrentTrackTeamContextHint" label="当前赛道">
+              <a-tag color="blue">{{ currentEnrollmentTrackLabel }}</a-tag>
+            </a-form-item>
+            <a-form-item :label="myTeamIdFormLabel">
               <a-input-number
                 v-model="myTeamId"
                 :min="1"
@@ -1655,7 +1695,7 @@
                 :disabled="true"
               />
             </a-form-item>
-            <a-form-item v-if="myTeamId" label="队伍名">
+            <a-form-item v-if="myTeamId" :label="currentEnrollmentTrackLabel ? (`队伍名（${currentEnrollmentTrackLabel}）`) : '队伍名'">
               <a-input :value="myTeamNameDisplay" style="max-width: 360px" :disabled="true" />
             </a-form-item>
             <a-form-item v-if="myTeamId && myTeamAdvisorName" label="指导老师">
@@ -1689,7 +1729,7 @@
             </a-form-item>
             <a-form-item
               v-if="showCaptainTeamJoinRequestsInEnrollModal"
-              label="入队申请（待处理）"
+              :label="enrollModalJoinRequestsLabel"
             >
               <a-spin :spinning="teamJoinRequestsLoading">
                 <a-empty
@@ -1724,7 +1764,7 @@
             </a-form-item>
             <a-form-item
               v-if="showCaptainTeamMembersInEnrollModal"
-              label="队员"
+              :label="enrollModalMembersLabel"
             >
               <a-spin :spinning="myTeamMembersLoading">
                 <a-empty
@@ -1762,11 +1802,19 @@
               </p>
             </a-form-item>
             <div v-if="showTeamSchoolReviewStatusInEnrollModal" class="team-school-review-status-row">
-              <span class="team-school-review-status-label">校审状态：</span>
+              <span class="team-school-review-status-label">{{ enrollModalSchoolReviewLabel }}</span>
               <a-tag v-if="isMyTeamPendingSchoolReview" color="orange">待校审</a-tag>
               <a-tag v-else-if="isMyTeamSchoolReviewRejected" color="red">已驳回</a-tag>
               <a-tag v-else-if="isMyTeamSchoolReviewActive" color="green">已通过</a-tag>
+              <a-tag v-if="isCurrentTeamCaptain" color="purple" style="margin-left: 4px">队长</a-tag>
+              <a-tag v-else color="default" style="margin-left: 4px">队员</a-tag>
             </div>
+            <p
+              v-if="showTeamSchoolReviewStatusInEnrollModal && studentTeamEnrolledAsMember"
+              class="muted team-school-review-status-hint"
+            >
+              当前赛道您为队员：入队申请、邀请、移除等由该队队长操作；可切换其它赛道查看对应队伍。
+            </p>
             <p
               v-if="showTeamSchoolReviewStatusInEnrollModal && isMyTeamPendingSchoolReview"
               class="muted team-school-review-status-hint"
@@ -1782,7 +1830,7 @@
           </a-form>
 
           <template v-if="showStudentTeamCaptainOpsInEnrollModal">
-          <a-divider />
+          <a-divider>{{ currentEnrollmentTrackLabel ? `${currentEnrollmentTrackLabel}赛道 · 队长操作` : '队长操作' }}</a-divider>
           <a-form layout="vertical">
             <a-form-item label="队长转让（可选）">
               <div class="row">
@@ -1902,17 +1950,26 @@
         </a-form-item>
         <a-form-item label="赛道" required>
           <a-radio-group v-model="studentCreateTeamForm.work_track">
-            <a-radio value="works">作品</a-radio>
-            <a-radio value="software">软件</a-radio>
-            <a-radio value="hardware">硬件</a-radio>
+            <a-radio value="works" :disabled="isWorkTrackAlreadyEnrolled('works')">作品</a-radio>
+            <a-radio value="software" :disabled="isWorkTrackAlreadyEnrolled('software')">软件</a-radio>
+            <a-radio value="hardware" :disabled="isWorkTrackAlreadyEnrolled('hardware')">硬件</a-radio>
           </a-radio-group>
+          <div v-if="myEnrolledWorkTracks.length" class="muted" style="margin-top: 4px; font-size: 12px">
+            已报名赛道不可再选：{{ myEnrolledWorkTracks.map(workTrackDisplayLabel).join('、') }}
+          </div>
         </a-form-item>
         <a-form-item label="组别" required>
-          <a-radio-group v-model="studentCreateTeamForm.division">
+          <a-radio-group
+            v-model="studentCreateTeamForm.division"
+            :disabled="!!activeCompetitionEnrolledDivision"
+          >
             <a-radio value="undergraduate">本科</a-radio>
             <a-radio value="vocational">高职</a-radio>
           </a-radio-group>
           <div class="division-choice-self-risk">请认真核对组别（本科 / 高职），选错后果自负。</div>
+          <div v-if="activeCompetitionEnrolledDivision" class="muted" style="margin-top: 4px; font-size: 12px">
+            本竞赛已锁定组别，不可再改。
+          </div>
         </a-form-item>
         <a-form-item label="指导老师（选填）">
           <a-input
@@ -1953,18 +2010,40 @@
       />
     </a-modal>
 
-    <!-- 独立详情页：我的作品（分题提交） -->
+    <!-- 独立详情页：我的作品（按已报名赛道提交） -->
     <a-modal
       v-model="showStandaloneMyWorksModal"
-      title="提交作品"
+      :title="standaloneMyWorksModalTitle"
       :width="900"
       :footer="null"
       wrap-class-name="standalone-competition-modal-wrap"
       @cancel="showStandaloneMyWorksModal = false"
     >
       <div class="standalone-modal-scroll">
+        <div v-if="submitWorksAvailableTracks.length" style="margin-bottom: 16px">
+          <div class="muted" style="margin-bottom: 8px; font-size: 13px">
+            请选择要提交的赛道（仅显示您已报名的赛道；各赛道独立提交）
+          </div>
+          <a-radio-group
+            :value="activeEnrollmentWorkTrack"
+            button-style="solid"
+            @change="e => onSubmitWorksTrackChange(e && e.target ? e.target.value : e)"
+          >
+            <a-radio-button
+              v-for="opt in submitWorksTrackOptions"
+              :key="'submit-trk-' + opt.work_track"
+              :value="opt.work_track"
+            >
+              {{ opt.label }}
+              <span v-if="opt.team_id != null" class="muted" style="margin-left: 4px; font-size: 12px">
+                · 队 {{ opt.team_id }}
+              </span>
+            </a-radio-button>
+          </a-radio-group>
+        </div>
+
         <template v-if="activeEnrollmentWorkTrack === 'works'">
-          <h4 class="standalone-modal-section-title">提交作品（压缩包）</h4>
+          <h4 class="standalone-modal-section-title">作品赛道 · 提交压缩包</h4>
           <a-alert
             v-if="competitionSubmissionBlocked"
             type="warning"
@@ -1986,7 +2065,7 @@
             type="info"
             show-icon
             message="作品赛道"
-            description="请由队长上传作品压缩包（.zip）。软件 / 硬件赛道请关闭本窗后使用分题提交。"
+            description="请由队长上传作品压缩包（.zip）。若还需提交软件/硬件赛道，请在上方切换赛道。"
             style="margin-bottom: 12px"
           />
           <a-form layout="vertical" style="max-width: 640px">
@@ -2025,7 +2104,7 @@
               提交作品
             </a-button>
             <p v-if="enrollModalSubmissionLocked" class="muted" style="margin-top: 8px; font-size: 13px; color: #389e0d">
-              已提交作品
+              本赛道已提交作品
             </p>
             <p
               v-else-if="!canSubmitZipPackage && !competitionSubmissionBlocked && !teamSchoolReviewSubmissionBlocked"
@@ -2038,7 +2117,9 @@
         </template>
 
         <template v-else-if="activeEnrollmentWorkTrack === 'software' || activeEnrollmentWorkTrack === 'hardware'">
-          <h4 class="standalone-modal-section-title">按题提交作品（共{{ submissionQuestionCount }}题）</h4>
+          <h4 class="standalone-modal-section-title">
+            {{ currentEnrollmentTrackLabel }}赛道 · 按题提交（共{{ submissionQuestionCount }}题）
+          </h4>
           <div class="row" style="margin-bottom: 12px; flex-wrap: wrap; gap: 8px">
             <a-button
               :loading="questionAnswersLoading"
@@ -2051,6 +2132,14 @@
           <a-empty
             v-if="!questionAnswerTeamId"
             description="请先完成组队报名并等待校审通过"
+          />
+          <a-alert
+            v-else-if="teamSchoolReviewSubmissionBlocked"
+            type="warning"
+            show-icon
+            :message="teamSchoolReviewBlockedTitle"
+            :description="teamSchoolReviewBlockedDescription"
+            style="margin-bottom: 12px"
           />
           <div v-else class="question-answer-slots" style="margin-bottom: 16px">
             <div
@@ -3154,7 +3243,9 @@ export default {
       /** 本竞赛是否已个人报名 / 已队伍报名（可同时为 true） */
       myEnrolledIndividual: false,
       myEnrolledTeam: false,
-      activeCompetitionEnrollmentRows: { individual: null, team: null },
+      /** 当前选中的作品赛道上下文（多赛道报名时切换提交/队务） */
+      preferredEnrollmentWorkTrack: null,
+      activeCompetitionEnrollmentRows: { individual: null, team: null, teams: [] },
       /** 本竞赛已有效报名所属的学历组别（undergraduate | vocational），跨组详情页禁止再报名 */
       activeCompetitionEnrolledDivision: null,
       /** 退赛后忽略此前作品的时间戳（接口未带 enrollment_id 时用于区分旧作品） */
@@ -3929,6 +4020,8 @@ export default {
         const s = raw != null ? String(raw).trim().toLowerCase() : ''
         return (s === 'works' || s === 'software' || s === 'hardware') ? s : ''
       }
+      const prefer = normalize(this.preferredEnrollmentWorkTrack)
+      if (prefer) return prefer
       const preferTeam = this.enrollMode === 'team' || this.submissionMode === 'team' || this.myEnrolledTeam
       const teamRow = this.activeCompetitionEnrollmentRows && this.activeCompetitionEnrollmentRows.team
       const individualRow = this.activeCompetitionEnrollmentRows && this.activeCompetitionEnrollmentRows.individual
@@ -3949,6 +4042,36 @@ export default {
       if (teamDetailTrack) return teamDetailTrack
       return ''
     },
+    /** 本竞赛已报名的作品赛道列表 */
+    myEnrolledWorkTracks () {
+      const tracks = []
+      const rows = this.activeCompetitionEnrollmentRows
+      const teamList = (rows && Array.isArray(rows.teams) && rows.teams.length)
+        ? rows.teams
+        : (rows && rows.team ? [rows.team] : [])
+      for (const row of teamList) {
+        const t = row && row.work_track != null ? String(row.work_track).trim().toLowerCase() : ''
+        if ((t === 'works' || t === 'software' || t === 'hardware') && !tracks.includes(t)) tracks.push(t)
+      }
+      if (rows && rows.individual) {
+        const t = rows.individual.work_track != null ? String(rows.individual.work_track).trim().toLowerCase() : ''
+        if ((t === 'works' || t === 'software' || t === 'hardware') && !tracks.includes(t)) tracks.push(t)
+      }
+      return tracks
+    },
+    /** 是否还可再报其它作品赛道（最多 3） */
+    canEnrollAnotherWorkTrack () {
+      return this.myEnrolledWorkTracks.length < 3
+    },
+    myTeamEnrollmentList () {
+      const rows = this.activeCompetitionEnrollmentRows
+      if (rows && Array.isArray(rows.teams) && rows.teams.length) return rows.teams
+      if (rows && rows.team) return [rows.team]
+      return []
+    },
+    showMultiTrackTeamSwitcher () {
+      return this.enrollMode === 'team' && this.myTeamEnrollmentList.length > 1
+    },
     /** 提交作品弹窗空态说明 */
     standaloneMyWorksEmptyDescription () {
       if (this.myEnrolledTeam || this.myEnrolledIndividual) {
@@ -3960,6 +4083,39 @@ export default {
         }
       }
       return '请先完成组队报名并选择赛道（作品 / 软件 / 硬件），再提交作品'
+    },
+    standaloneMyWorksModalTitle () {
+      const track = this.currentEnrollmentTrackLabel
+      return track ? `提交作品（${track}赛道）` : '提交作品'
+    },
+    /** 已报名可提交的赛道 */
+    submitWorksAvailableTracks () {
+      return this.myEnrolledWorkTracks || []
+    },
+    submitWorksTrackOptions () {
+      const teams = this.myTeamEnrollmentList || []
+      const byTrack = {}
+      teams.forEach((row) => {
+        const t = row && row.work_track != null ? String(row.work_track).trim().toLowerCase() : ''
+        if (t === 'works' || t === 'software' || t === 'hardware') {
+          byTrack[t] = row
+        }
+      })
+      const order = ['works', 'software', 'hardware']
+      const tracks = this.submitWorksAvailableTracks.length
+        ? this.submitWorksAvailableTracks
+        : Object.keys(byTrack)
+      return order
+        .filter(t => tracks.includes(t) || byTrack[t])
+        .map((t) => {
+          const row = byTrack[t]
+          return {
+            work_track: t,
+            label: t === 'works' ? '作品' : t === 'software' ? '软件' : '硬件',
+            team_id: row && row.team_id != null ? row.team_id : null,
+            is_captain: !!(row && row.is_captain)
+          }
+        })
     },
     /** 作品赛道：压缩包提交；软件/硬件：分题答案（现有表单） */
     usesZipPackageSubmission () {
@@ -4115,12 +4271,13 @@ export default {
       }
       return false
     },
-    /** 队伍赛道已报名且当前账号为队员（非队长） */
+    /** 队员身份：针对当前选中赛道队伍 */
     studentTeamEnrolledAsMember () {
-      return this.enrollMode === 'team' && this.myEnrolledTeam && !this.isCurrentTeamCaptain
+      return this.enrollMode === 'team' && !!this.myTeamId && !this.isCurrentTeamCaptain
     },
     teamEnrollActionBlockedForMember () {
-      return this.studentTeamEnrolledAsMember
+      // 仅当已报满全部赛道且当前赛道为队员时，提示无需再报名操作
+      return this.studentTeamEnrolledAsMember && !this.canEnrollAnotherWorkTrack
     },
     studentTeamEnrollFlowHint () {
       if (this.isActiveCompetitionFinal) {
@@ -4129,10 +4286,19 @@ export default {
         }
         return '决赛仅对初赛晋级队伍开放：不接受报名与新建队伍。未晋级账号登录后也无法参赛。'
       }
-      if (this.studentTeamEnrolledAsMember) {
-        return '您已完成队伍赛道报名（队员身份）。队伍由队长统一管理，无需创建/加入队伍或进行队长操作。'
+      if (this.myEnrolledWorkTracks.length > 1) {
+        return '您已报名多个赛道：请先在上方选择当前操作赛道，下方队伍信息、校审与队长操作均对应该赛道队伍；提交作品也按所选赛道进行。'
       }
-      return '队伍参赛流程：① 创建队伍或申请加入已有队伍（须队长同意）→ ② 等待本校校管理员校审通过 → ③ 队员按题上传答案。创建/加入成功时通常已自动完成组队报名；校审通过前无法上传。'
+      if (this.myEnrolledWorkTracks.length > 0 && this.canEnrollAnotherWorkTrack) {
+        return '同一竞赛可报名作品/软件/硬件各一次（最多 3 个赛道），每赛道对应一支队伍；提交与退赛按赛道分别进行。可继续创建或加入其它赛道的队伍。'
+      }
+      if (this.studentTeamEnrolledAsMember && !this.canEnrollAnotherWorkTrack) {
+        return '您已完成全部可报赛道的队伍报名。当前赛道为队员身份，队伍由队长统一管理。'
+      }
+      if (this.myEnrolledWorkTracks.length >= 3) {
+        return '您已报名作品、软件、硬件三个赛道，不可再新建或加入其它赛道队伍。'
+      }
+      return '队伍参赛流程：① 创建队伍或申请加入已有队伍（须队长同意）→ ② 等待本校校管理员校审通过 → ③ 队员按题上传答案。同一竞赛最多可报三个赛道（作品/软件/硬件各一次）。'
     },
     myTeamStatusNormalized () {
       const s = this.myTeamStatus
@@ -4174,10 +4340,11 @@ export default {
       }
       return '队伍已创建/报名，须本校校管理员在「校审」中审核通过后，队长方可提交作品压缩包。'
     },
-    /** 队员已队伍报名后：不可再创建/加入队伍；决赛全程不可创建/加入 */
+    /** 队员已队伍报名后：仍可报其它赛道；决赛全程不可创建/加入 */
     showStudentTeamCreateJoinOps () {
       if (this.isActiveCompetitionFinal) return false
-      return this.enrollMode === 'team' && !this.studentTeamEnrolledAsMember
+      if (this.enrollMode !== 'team') return false
+      return this.canEnrollAnotherWorkTrack
     },
     /** 决赛未晋级：拦截提示 */
     finalStageAccessDenied () {
@@ -4187,28 +4354,54 @@ export default {
     finalStagePromoted () {
       return this.isActiveCompetitionFinal && this.hasAnyEnrollment
     },
-    /** 报名弹窗：队长在「加入已有队伍」下方查看入队申请 */
+    /** 报名弹窗：队长在「加入已有队伍」下方查看入队申请（按当前赛道队伍） */
     showCaptainTeamJoinRequestsInEnrollModal () {
       return this.enrollMode === 'team' && this.isCurrentTeamCaptain && !!this.myTeamId
     },
     showCaptainTeamMembersInEnrollModal () {
       return this.enrollMode === 'team' && this.isCurrentTeamCaptain && !!this.myTeamId
     },
-    /** 当前竞赛是否仍占用有效队伍（已报名或进行中的校审队伍）；校审已驳回后应允许重新建队/加入 */
+    /** 当前竞赛是否已占满全部作品赛道（不可再建/加其它赛道队伍） */
     studentHasTeamForCurrentCompetition () {
-      if (this.isMyTeamSchoolReviewRejected) return false
-      return !!this.currentTeamEnrollmentRow || !!this.myTeamId
+      if (this.isMyTeamSchoolReviewRejected && this.myEnrolledWorkTracks.length === 0) return false
+      return !this.canEnrollAnotherWorkTrack
     },
-    /** 仅队长或未队伍报名时展示转让/退队 */
+    /** 仅当前选中赛道队伍的队长可操作转让/邀请/移除 */
     showStudentTeamCaptainOptionalOps () {
       if (this.enrollMode !== 'team') return false
-      if (this.studentTeamEnrolledAsMember) return false
-      return this.studentCreatedTeamInCurrentCompetition || this.isCurrentTeamCaptain
+      return this.isCurrentTeamCaptain
     },
     /** 报名弹窗：队伍名展示（有队伍 ID 即展示，未设置时显示占位） */
     myTeamNameDisplay () {
       const name = this.myTeamName != null ? String(this.myTeamName).trim() : ''
       return name || '（未设置）'
+    },
+    currentEnrollmentTrackLabel () {
+      const t = this.activeEnrollmentWorkTrack
+      if (t === 'works') return '作品'
+      if (t === 'software') return '软件'
+      if (t === 'hardware') return '硬件'
+      return ''
+    },
+    showCurrentTrackTeamContextHint () {
+      return this.enrollMode === 'team' && this.myTeamEnrollmentList.length === 1 && !!this.currentEnrollmentTrackLabel
+    },
+    myTeamIdFormLabel () {
+      const track = this.currentEnrollmentTrackLabel
+      if (track) return `我的队伍ID（${track}赛道）`
+      return '我的队伍ID（创建或加入成功后自动填入）'
+    },
+    enrollModalJoinRequestsLabel () {
+      const track = this.currentEnrollmentTrackLabel
+      return track ? `入队申请（待处理 · ${track}）` : '入队申请（待处理）'
+    },
+    enrollModalMembersLabel () {
+      const track = this.currentEnrollmentTrackLabel
+      return track ? `队员（${track}赛道）` : '队员'
+    },
+    enrollModalSchoolReviewLabel () {
+      const track = this.currentEnrollmentTrackLabel
+      return track ? `校审状态（${track}赛道）：` : '校审状态：'
     },
     /** 报名弹窗：校审状态行（有队伍 ID 即展示） */
     showTeamSchoolReviewStatusInEnrollModal () {
@@ -4951,7 +5144,8 @@ export default {
       this.activeCompetitionEnrollmentId = null
       this.myEnrolledIndividual = false
       this.myEnrolledTeam = false
-      this.activeCompetitionEnrollmentRows = { individual: null, team: null }
+      this.activeCompetitionEnrollmentRows = { individual: null, team: null, teams: [] }
+      this.preferredEnrollmentWorkTrack = null
       this.activeCompetitionEnrolledDivision = null
       this.activeCompetitionAdvisorTeamDivision = null
       this.studentDivisionByUserId = null
@@ -5040,10 +5234,21 @@ export default {
       if (newMode === 'team' && this.myTeamId) this.submissionTeamId = this.myTeamId
       this.applyEnrollmentContextFromRows()
     },
-    myTeamId (newId) {
+    myTeamId (newId, oldId) {
       if (this.submissionTeamId == null && newId) this.submissionTeamId = newId
+      if (Number(newId) === Number(oldId)) return
       if (newId && this.enrollMode === 'team') {
-        void this.refreshMyTeamStatus()
+        void this.syncEnrollModalTeamContextForCurrentTrack()
+      } else if (!newId) {
+        this.myTeamStatus = null
+        this.myTeamName = null
+        this.myTeamAdvisorName = null
+        this.myTeamWorkTrack = null
+        this.myTeamMembers = []
+        this.teamJoinRequests = []
+        this.questionAnswerSlots = []
+        this.transferTeamId = null
+        this.leaveTeamId = null
       }
     },
     showCreateCompetitionModal (visible) {
@@ -5056,13 +5261,7 @@ export default {
         this.$nextTick(() => {
           this.syncEnrollProfileDefaults()
           if (this.enrollMode === 'team' && this.myTeamId) {
-            void this.refreshMyTeamStatus()
-          }
-          if (this.showCaptainTeamJoinRequestsInEnrollModal) {
-            void this.refreshTeamJoinRequests()
-          }
-          if (this.showCaptainTeamMembersInEnrollModal) {
-            void this.refreshMyTeamMembers()
+            void this.syncEnrollModalTeamContextForCurrentTrack()
           }
         })
       }
@@ -5997,15 +6196,27 @@ export default {
         this.refreshActiveCompetitionMyEnrollKind(),
         this.refreshMySubmissions()
       ]
-      if (this.myTeamId) {
-        tasks.push(this.refreshMyTeamStatus())
-      }
       void Promise.all(tasks).finally(() => {
-        if (this.activeEnrollmentWorkTrack === 'software' || this.activeEnrollmentWorkTrack === 'hardware') {
-          void this.refreshQuestionAnswersBoard()
+        const opts = this.submitWorksTrackOptions
+        if (opts.length) {
+          const prefer = this.activeEnrollmentWorkTrack
+          const hit = opts.find(o => o.work_track === prefer) || opts[0]
+          if (hit && hit.work_track) {
+            this.preferredEnrollmentWorkTrack = hit.work_track
+            this.applyEnrollmentContextFromRows()
+          }
         }
-        this.showStandaloneMyWorksModal = true
+        void this.syncEnrollModalTeamContextForCurrentTrack().finally(() => {
+          this.showStandaloneMyWorksModal = true
+        })
       })
+    },
+
+    onSubmitWorksTrackChange (track) {
+      const t = track != null ? String(track).trim().toLowerCase() : ''
+      if (t !== 'works' && t !== 'software' && t !== 'hardware') return
+      this.resetSubmissionFormFields()
+      this.selectPreferredEnrollmentWorkTrack(t)
     },
 
     /** 参赛对象：拆出导语 + 赛道分项（保留首段总述） */
@@ -6362,6 +6573,9 @@ export default {
         return '填写的用户 ID 不是学生账号，请填写已注册为「学生」角色的账号 ID'
       }
 
+      if (/specify work_track=/i.test(text)) {
+        return '本竞赛存在多条赛道报名，请先选择要退出的作品赛道（作品/软件/硬件）'
+      }
       if (/specify track=individual or track=team/i.test(text)) {
         return '本竞赛同时存在个人与组队报名，请指定要退出的赛道（个人或队伍）'
       }
@@ -6380,20 +6594,88 @@ export default {
       return text || fallback
     },
 
-    /** §8.8 退赛 track：仅一条有效报名时省略；双赛道时按当前 UI 参赛方式 */
+    /** §8.8 退赛：优先按当前作品赛道 work_track */
     resolveWithdrawTrack () {
+      const wt = this.activeEnrollmentWorkTrack
+      if (wt === 'works' || wt === 'software' || wt === 'hardware') {
+        return { work_track: wt }
+      }
       const hasIndividual = this.myEnrolledIndividual
       const hasTeam = this.myEnrolledTeam
       if (hasIndividual && hasTeam) {
-        return this.enrollMode === 'team' ? 'team' : 'individual'
+        return { track: this.enrollMode === 'team' ? 'team' : 'individual' }
       }
-      if (hasIndividual) return 'individual'
-      if (hasTeam) return 'team'
+      if (hasIndividual) return { track: 'individual' }
+      if (hasTeam) return { track: 'team' }
       return null
     },
 
-    withdrawTrackLabel (track) {
-      return track === 'team' ? '组队' : '个人'
+    withdrawTrackLabel (opts) {
+      if (!opts) return ''
+      const wt = opts.work_track
+      if (wt === 'works') return '作品'
+      if (wt === 'software') return '软件'
+      if (wt === 'hardware') return '硬件'
+      return opts.track === 'team' ? '组队' : '个人'
+    },
+
+    workTrackDisplayLabel (track) {
+      if (track === 'works') return '作品'
+      if (track === 'software') return '软件'
+      if (track === 'hardware') return '硬件'
+      return track || ''
+    },
+
+    isWorkTrackAlreadyEnrolled (track) {
+      const t = track != null ? String(track).trim().toLowerCase() : ''
+      return this.myEnrolledWorkTracks.includes(t)
+    },
+
+    selectPreferredEnrollmentWorkTrack (track) {
+      const t = track != null ? String(track).trim().toLowerCase() : ''
+      if (t !== 'works' && t !== 'software' && t !== 'hardware') return
+      const prevTeamId = this.myTeamId
+      this.preferredEnrollmentWorkTrack = t
+      this.applyEnrollmentContextFromRows()
+      // 队伍 ID 变化时由 myTeamId watcher 刷新；未变化时也要按新赛道上下文刷新
+      if (Number(this.myTeamId) === Number(prevTeamId)) {
+        void this.syncEnrollModalTeamContextForCurrentTrack()
+      }
+    },
+
+    /** 按当前选中赛道刷新队伍详情、入队申请、队员、分题状态 */
+    async syncEnrollModalTeamContextForCurrentTrack () {
+      if (this.enrollMode !== 'team' || !this.myTeamId) {
+        this.teamJoinRequests = []
+        this.myTeamMembers = []
+        this.questionAnswerSlots = []
+        this.transferTeamId = null
+        this.leaveTeamId = null
+        return
+      }
+      const tid = Number(this.myTeamId)
+      if (!Number.isFinite(tid) || tid <= 0) return
+      this.transferTeamId = tid
+      this.leaveTeamId = tid
+      this.studentTeamInviteRef = ''
+      this.studentTeamRemoveRef = ''
+      this.newCaptainRef = ''
+      await this.refreshMyTeamStatus()
+      if (this.showCaptainTeamJoinRequestsInEnrollModal) {
+        await this.refreshTeamJoinRequests()
+      } else {
+        this.teamJoinRequests = []
+      }
+      if (this.showCaptainTeamMembersInEnrollModal) {
+        await this.refreshMyTeamMembers()
+      }
+      const track = this.activeEnrollmentWorkTrack
+      if (track === 'software' || track === 'hardware') {
+        void this.refreshActiveSubmissionQuestionConfig()
+        await this.refreshQuestionAnswersBoard()
+      } else {
+        this.questionAnswerSlots = []
+      }
     },
 
     assertCompetitionPublishedForEnroll (showToast = true) {
@@ -6685,20 +6967,29 @@ export default {
       }
     },
 
-    async handleWithdrawCompetition (track) {
+    async handleWithdrawCompetition (trackOrOpts) {
       if (!this.activeCompetitionId) return
-      const resolvedTrack = track === 'individual' || track === 'team' ? track : this.resolveWithdrawTrack()
-      if (!resolvedTrack) {
+      let opts = null
+      if (trackOrOpts && typeof trackOrOpts === 'object') {
+        opts = trackOrOpts
+      } else if (trackOrOpts === 'individual' || trackOrOpts === 'team') {
+        opts = { track: trackOrOpts }
+      } else if (trackOrOpts === 'works' || trackOrOpts === 'software' || trackOrOpts === 'hardware') {
+        opts = { work_track: trackOrOpts }
+      } else {
+        opts = this.resolveWithdrawTrack()
+      }
+      if (!opts) {
         this.$message.warning('当前没有可退出的有效报名')
         return
       }
-      const trackLabel = this.withdrawTrackLabel(resolvedTrack)
-      const bothTracks = this.myEnrolledIndividual && this.myEnrolledTeam
+      const trackLabel = this.withdrawTrackLabel(opts)
+      const multi = this.myEnrolledWorkTracks.length > 1 || (this.myEnrolledIndividual && this.myEnrolledTeam)
       try {
         await this.$confirm({
           title: `确认退出${trackLabel}赛道`,
-          content: bothTracks
-            ? `将取消本竞赛的${trackLabel}赛道报名；另一赛道不受影响。退赛后若再次报名，需重新提交该赛道作品。是否继续？`
+          content: multi
+            ? `将取消本竞赛的${trackLabel}赛道报名；其它赛道不受影响。退赛后若再次报名，需重新提交该赛道作品。是否继续？`
             : '退赛后当前报名资格将取消；若再次报名，需重新提交作品。是否继续？',
           okText: '退赛',
           cancelText: '取消',
@@ -6709,34 +7000,11 @@ export default {
       }
       this.withdrawLoading = true
       try {
-        await withdrawCompetition(this.activeCompetitionId, { track: resolvedTrack })
+        await withdrawCompetition(this.activeCompetitionId, opts)
         this.$message.success(`${trackLabel}赛道退赛成功`)
         const withdrawTs = Date.now()
         this.ignoreSubmissionsBeforeReenrollAt = withdrawTs
         markCompetitionWithdrawnForResubmit(this.activeCompetitionId, withdrawTs)
-        if (resolvedTrack === 'individual') {
-          this.activeCompetitionEnrollmentRows = {
-            ...this.activeCompetitionEnrollmentRows,
-            individual: null
-          }
-          this.myEnrolledIndividual = false
-        } else {
-          this.activeCompetitionEnrollmentRows = {
-            ...this.activeCompetitionEnrollmentRows,
-            team: null
-          }
-          this.myEnrolledTeam = false
-          this.studentCreatedTeamInCurrentCompetition = false
-          this.teamEnrollmentEligible = false
-          this.myTeamId = null
-          this.myTeamName = null
-          this.myTeamAdvisorName = null
-          this.myTeamStatus = null
-          this.myTeamWorkTrack = null
-      this.myTeamWorkTrack = null
-          this.submissionTeamId = null
-        }
-        this.applyEnrollmentContextFromRows()
         this.resetSubmissionFormFields()
         await this.refreshActiveCompetitionMyEnrollKind()
         await this.refreshMySubmissions()
@@ -6751,9 +7019,48 @@ export default {
 
     applyEnrollmentContextFromRows () {
       const individualRow = this.activeCompetitionEnrollmentRows.individual
-      const teamRow = this.activeCompetitionEnrollmentRows.team
+      const teams = Array.isArray(this.activeCompetitionEnrollmentRows.teams)
+        ? this.activeCompetitionEnrollmentRows.teams
+        : []
+      const prefer = this.preferredEnrollmentWorkTrack
+        ? String(this.preferredEnrollmentWorkTrack).trim().toLowerCase()
+        : ''
+      let teamRow = null
+      if (prefer) {
+        teamRow = teams.find(r => {
+          const t = r && r.work_track != null ? String(r.work_track).trim().toLowerCase() : ''
+          return t === prefer
+        }) || null
+      }
+      if (!teamRow) teamRow = teams[0] || this.activeCompetitionEnrollmentRows.team || null
+      this.activeCompetitionEnrollmentRows = {
+        ...this.activeCompetitionEnrollmentRows,
+        team: teamRow,
+        teams
+      }
       this.myEnrolledIndividual = !!individualRow
-      this.myEnrolledTeam = !!teamRow
+      this.myEnrolledTeam = teams.length > 0 || !!teamRow
+      if (teamRow && teamRow.work_track) {
+        const tw = String(teamRow.work_track).trim().toLowerCase()
+        if (tw === 'works' || tw === 'software' || tw === 'hardware') {
+          this.preferredEnrollmentWorkTrack = tw
+        }
+      }
+
+      const nextTeamId = teamRow && teamRow.team_id != null ? teamRow.team_id : null
+      if (
+        this.myTeamId != null &&
+        nextTeamId != null &&
+        Number(this.myTeamId) !== Number(nextTeamId)
+      ) {
+        this.myTeamStatus = null
+        this.myTeamName = null
+        this.myTeamAdvisorName = null
+        this.myTeamWorkTrack = null
+        this.myTeamMembers = []
+        this.teamJoinRequests = []
+        this.questionAnswerSlots = []
+      }
 
       // 尊重用户当前选择的参赛方式，不因「已有个人报名」而强制切回个人
       if (this.enrollMode === 'team') {
@@ -6766,6 +7073,8 @@ export default {
           this.submissionTeamId = teamRow.team_id
         } else {
           this.activeCompetitionEnrollmentId = null
+          this.myTeamId = null
+          this.submissionTeamId = null
         }
         return
       }
@@ -6807,7 +7116,8 @@ export default {
         this.activeCompetitionEnrollmentId = null
         this.myEnrolledIndividual = false
         this.myEnrolledTeam = false
-        this.activeCompetitionEnrollmentRows = { individual: null, team: null }
+        this.preferredEnrollmentWorkTrack = null
+        this.activeCompetitionEnrollmentRows = { individual: null, team: null, teams: [] }
         this.activeCompetitionEnrolledDivision = null
         this.notifyEnrollBlockChanged()
         return
@@ -6821,15 +7131,18 @@ export default {
         )
         this.syncActiveCompetitionEnrolledDivision(allEnrolledRows)
         const enrolledRows = allEnrolledRows.filter(r => this.enrollmentMatchesActiveViewDivision(r))
-        const { individual: individualRow, team: teamRow } = splitEnrollmentsByTrack(enrolledRows)
-        this.activeCompetitionEnrollmentRows = { individual: individualRow, team: teamRow }
+        const { individual: individualRow, team: teamRow, teams } = splitEnrollmentsByTrack(enrolledRows)
+        this.activeCompetitionEnrollmentRows = {
+          individual: individualRow,
+          team: teamRow,
+          teams: Array.isArray(teams) ? teams : (teamRow ? [teamRow] : [])
+        }
         this.applyEnrollmentContextFromRows()
         if (this.myTeamId) {
           await this.refreshMyTeamStatus()
         } else {
           this.myTeamStatus = null
           this.myTeamWorkTrack = null
-      this.myTeamWorkTrack = null
         }
         // 须在 myEnrolled* 更新后再通知父页，否则「提交作品」会按旧状态隐藏
         this.notifyEnrollBlockChanged()
@@ -6838,10 +7151,10 @@ export default {
         this.activeCompetitionEnrollmentId = null
         this.myEnrolledIndividual = false
         this.myEnrolledTeam = false
-        this.activeCompetitionEnrollmentRows = { individual: null, team: null }
+        this.activeCompetitionEnrollmentRows = { individual: null, team: null, teams: [] }
         this.activeCompetitionEnrolledDivision = null
         this.myTeamStatus = null
-      this.myTeamWorkTrack = null
+        this.myTeamWorkTrack = null
         this.notifyEnrollBlockChanged()
       }
     },
@@ -6998,12 +7311,8 @@ export default {
       if (!this.activeCompetitionId) return false
       if (!this.assertEnrollDivisionContext()) return false
       if (!this.assertNotEnrolledInOtherDivision()) return false
-      if (this.studentTeamEnrolledAsMember) {
-        this.$message.info('您已是队伍报名队员，无法创建新队伍')
-        return false
-      }
-      if (this.studentHasTeamForCurrentCompetition) {
-        this.$message.info('当前竞赛已存在您的队伍，无法重复创建')
+      if (!this.canEnrollAnotherWorkTrack) {
+        this.$message.info('同一竞赛最多报名作品/软件/硬件三个赛道，已全部报满')
         return false
       }
       if (!this.assertCompetitionPublishedForEnroll()) return false
@@ -7026,11 +7335,14 @@ export default {
         this.$message.warning('决赛不可自行创建队伍，请等待管理员从初赛晋级')
         return
       }
+      const enrolled = this.myEnrolledWorkTracks
+      const defaultTrack = ['works', 'software', 'hardware'].find(t => !enrolled.includes(t)) || 'works'
+      const lockedDiv = this.activeCompetitionEnrolledDivision
       this.studentCreateTeamForm = {
         name: '',
         advisor_name: '',
-        work_track: (this.enrollProfileForm && this.enrollProfileForm.work_track) || 'works',
-        division: (this.enrollProfileForm && this.enrollProfileForm.division) || 'undergraduate'
+        work_track: defaultTrack,
+        division: lockedDiv || (this.enrollProfileForm && this.enrollProfileForm.division) || 'undergraduate'
       }
       this.showStudentCreateTeamModal = true
     },
@@ -7080,6 +7392,10 @@ export default {
         this.$message.warning('请选择赛道：作品、软件或硬件')
         throw new Error('missing work_track')
       }
+      if (this.isWorkTrackAlreadyEnrolled(workTrack)) {
+        this.$message.warning(`您已报名${this.workTrackDisplayLabel(workTrack)}赛道，不可重复报名同一赛道`)
+        throw new Error('missing work_track')
+      }
       const teamPayload = {
         competition_id: this.activeCompetitionId,
         initial_member_ids: null,
@@ -7101,6 +7417,7 @@ export default {
       // 同步报名资料中的赛道/组别，便于随后队伍报名
       this.enrollProfileForm.division = division
       this.enrollProfileForm.work_track = workTrack
+      this.preferredEnrollmentWorkTrack = workTrack
       const teamDiv = resolveTeamDivision(team) || division
       if (teamDiv) saveCompetitionTeamDivision(this.activeCompetitionId, teamId, teamDiv)
       this.myTeamId = teamId
@@ -7187,12 +7504,8 @@ export default {
     async handleJoinTeam () {
       if (!this.assertEnrollDivisionContext()) return
       if (!this.assertNotEnrolledInOtherDivision()) return
-      if (this.studentTeamEnrolledAsMember) {
-        this.$message.info('您已完成队伍报名且为队员，无法再加入其他队伍')
-        return
-      }
-      if (this.studentHasTeamForCurrentCompetition) {
-        this.$message.info('当前竞赛已存在您的队伍，无法加入其他队伍')
+      if (!this.canEnrollAnotherWorkTrack) {
+        this.$message.info('同一竞赛最多报名作品/软件/硬件三个赛道，已全部报满')
         return
       }
       if (!this.assertCompetitionPublishedForEnroll()) return

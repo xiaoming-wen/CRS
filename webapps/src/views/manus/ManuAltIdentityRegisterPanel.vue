@@ -15,9 +15,10 @@
             'username',
             {
               rules: [
-                { required: true, message: '请输入用户名' },
+                { required: true, whitespace: true, message: '请输入用户名' },
                 { min: 3, message: '用户名至少3个字符' },
-                { max: 100, message: '用户名最长100个字符' }
+                { max: 100, message: '用户名最长100个字符' },
+                { pattern: /^[a-zA-Z0-9_\u4e00-\u9fa5-]+$/, message: '用户名仅支持中文、字母、数字、下划线和连字符' }
               ],
               validateTrigger: 'change'
             }
@@ -28,7 +29,7 @@
           <a-icon slot="prefix" type="user" :style="{ color: 'rgba(0,0,0,.25)' }" />
         </a-input>
         <template slot="extra">
-          <span v-show="hintFocus.username" class="register-field-hint">至少 3 个字符，最长 100 个字符。</span>
+          <span v-show="hintFocus.username" class="register-field-hint">至少 3 个字符；支持中文、字母、数字、下划线和连字符。</span>
         </template>
       </a-form-item>
 
@@ -95,7 +96,15 @@
           placeholder="请输入姓名"
           v-decorator="[
             'full_name',
-            { rules: [{ required: true, message: '请输入姓名' }], validateTrigger: 'change' }
+            {
+              rules: [
+                { required: true, whitespace: true, message: '请输入姓名' },
+                { min: 2, message: '姓名至少2个字符' },
+                { max: 50, message: '姓名最长50个字符' },
+                { pattern: /^[\u4e00-\u9fa5a-zA-Z·\s]{2,50}$/, message: '姓名仅支持中文、英文或间隔号' }
+              ],
+              validateTrigger: 'change'
+            }
           ]"
         >
           <a-icon slot="prefix" type="idcard" :style="{ color: 'rgba(0,0,0,.25)' }" />
@@ -177,7 +186,14 @@
           placeholder="请输入学号"
           v-decorator="[
             'student_id',
-            { rules: [{ required: true, message: '请输入学号' }], validateTrigger: 'change' }
+            {
+              rules: [
+                { required: true, whitespace: true, message: '请输入学号' },
+                { max: 50, message: '学号最长50个字符' },
+                { pattern: /^[A-Za-z0-9_-]{1,50}$/, message: '学号仅支持字母、数字、下划线和连字符' }
+              ],
+              validateTrigger: 'change'
+            }
           ]"
         >
           <a-icon slot="prefix" type="number" :style="{ color: 'rgba(0,0,0,.25)' }" />
@@ -191,7 +207,13 @@
           placeholder="请输入指导老师编号"
           v-decorator="[
             'teacher_id',
-            { rules: [{ required: true, message: '请输入指导老师编号' }], validateTrigger: 'change' }
+            {
+              rules: [
+                { required: true, whitespace: true, message: '请输入指导老师编号' },
+                { max: 50, message: '指导老师编号最长50个字符' }
+              ],
+              validateTrigger: 'change'
+            }
           ]"
         >
           <a-icon slot="prefix" type="number" :style="{ color: 'rgba(0,0,0,.25)' }" />
@@ -205,7 +227,11 @@
           placeholder="请输入密码"
           v-decorator="[
             'password',
-            { rules: [{ required: true, message: '请输入密码' }, { min: 6, message: '密码至少6个字符' }], validateTrigger: 'blur' }
+            { rules: [
+              { required: true, message: '请输入密码' },
+              { min: 6, message: '密码至少6个字符' },
+              { max: 128, message: '密码最长128个字符' }
+            ], validateTrigger: 'blur' }
           ]"
           @focus="hintFocus.password = true"
           @blur="hintFocus.password = false"
@@ -349,7 +375,10 @@ export default {
     handleSendSmsCode () {
       if (this.state.smsSending || this.state.smsCooldown > 0) return
       this.form.validateFields(['phone'], { force: true }, (err, values) => {
-        if (err) return
+        if (err) {
+          this.showFormValidationModal(err, '无法获取验证码')
+          return
+        }
         const phone = String((values && values.phone) || '').trim()
         this.state.smsSending = true
         altIdentitySendSmsCode({ phone, purpose: 'register' })
@@ -365,7 +394,11 @@ export default {
           })
           .catch((e) => {
             const msg = extractRegisterError(e) || (e && e.message) || '发送失败'
-            this.$message.error(msg)
+            this.$warning({
+              title: '获取验证码失败',
+              content: msg,
+              okText: '知道了'
+            })
           })
           .finally(() => {
             this.state.smsSending = false
@@ -438,6 +471,61 @@ export default {
         callback()
       }
     },
+    /** 从 ant-design-vue 校验结果中收集可读提示 */
+    collectFormErrorMessages (err) {
+      if (!err || typeof err !== 'object') return []
+      const fieldOrder = [
+        'username',
+        'phone',
+        'sms_code',
+        'full_name',
+        'register_province',
+        'school',
+        'role',
+        'student_id',
+        'teacher_id',
+        'password',
+        'confirmPassword'
+      ]
+      const messages = []
+      const pushMsg = (fieldErr) => {
+        if (!fieldErr || !Array.isArray(fieldErr.errors) || !fieldErr.errors.length) return
+        const msg = fieldErr.errors[0] && fieldErr.errors[0].message
+        if (msg && !messages.includes(msg)) messages.push(String(msg))
+      }
+      fieldOrder.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(err, key)) pushMsg(err[key])
+      })
+      Object.keys(err).forEach((key) => {
+        if (fieldOrder.includes(key)) return
+        pushMsg(err[key])
+      })
+      return messages
+    },
+    showFormValidationModal (err, title) {
+      const messages = this.collectFormErrorMessages(err)
+      const list = messages.length ? messages : ['请检查并完善必填项']
+      this.$warning({
+        title: title || '注册信息不完整或不规范',
+        okText: '知道了',
+        content: (h) => h('div', [
+          h('p', { style: { margin: '0 0 8px' } }, '请按以下提示修改后再试：'),
+          h(
+            'ol',
+            { style: { paddingLeft: '20px', margin: '0' } },
+            list.map((msg) => h('li', { style: { marginBottom: '4px' } }, msg))
+          )
+        ])
+      })
+      this.$nextTick(() => {
+        const firstKey = err && typeof err === 'object' ? Object.keys(err)[0] : ''
+        if (!firstKey) return
+        const el = document.querySelector(`#formAltRegister [id*="${firstKey}"], #formAltRegister input, #formAltRegister .ant-select`)
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      })
+    },
     emitRegisterSuccess (payload) {
       this.$emit('register-success', payload)
     },
@@ -456,6 +544,7 @@ export default {
 
       validateFields(validateFieldsKey, { force: true }, (err, values) => {
         if (err) {
+          this.showFormValidationModal(err)
           setTimeout(() => {
             this.state.registerBtn = false
           }, 600)
@@ -463,20 +552,20 @@ export default {
         }
 
         const registerParams = {
-          username: values.username,
-          phone: values.phone,
-          sms_code: values.sms_code,
-          full_name: values.full_name,
+          username: String(values.username || '').trim(),
+          phone: String(values.phone || '').trim(),
+          sms_code: String(values.sms_code || '').trim(),
+          full_name: String(values.full_name || '').trim(),
           school: (values.school || '').trim(),
           password: values.password,
           role: values.role
         }
         if (values.role === 'student') {
-          registerParams.student_id = values.student_id
+          registerParams.student_id = String(values.student_id || '').trim()
         }
         if (this.isAdvisorRegisterRole(values.role)) {
           registerParams.role = 'advisor'
-          registerParams.teacher_id = values.teacher_id
+          registerParams.teacher_id = String(values.teacher_id || '').trim()
         }
 
         altIdentityRegister(registerParams)
@@ -517,9 +606,14 @@ export default {
             const delay = this.mode === 'embedded' ? 0 : 1500
             setTimeout(() => this.emitRegisterSuccess(payload), delay)
           })
-          .catch(err => {
-            if (!showRegisterConflictModal(this, err)) {
-              this.requestFailed(err)
+          .catch((e) => {
+            if (!showRegisterConflictModal(this, e)) {
+              const msg = extractRegisterError(e) || (e && e.message) || '注册失败，请重试'
+              this.$warning({
+                title: '注册失败',
+                content: msg,
+                okText: '知道了'
+              })
             }
           })
           .finally(() => {

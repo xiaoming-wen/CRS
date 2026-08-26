@@ -503,8 +503,19 @@ def _add_student_to_team(
     db.add(member)
     team_division = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).lower()
     team_work_track = _normalize_optional_work_track(getattr(team, "work_track", None))
-    row_any = _get_enrollment_by_scope(
-        db, competition.id, student_id, CompetitionEnrollmentScope.TEAM
+    if not team_work_track:
+        raise HTTPException(status_code=400, detail="队伍未设置赛道 work_track")
+    _assert_student_can_enroll_work_track(
+        db,
+        competition.id,
+        student_id,
+        team_work_track,
+        team_division,
+        team_id=team.id,
+        allow_same_team=True,
+    )
+    row_any = _get_enrollment_by_work_track(
+        db, competition.id, student_id, team_work_track
     )
     if row_any and row_any.status == CompetitionEnrollmentStatus.WITHDRAWN:
         row_any.team_id = team.id
@@ -512,8 +523,11 @@ def _add_student_to_team(
         row_any.is_captain = is_captain
         row_any.status = CompetitionEnrollmentStatus.ENROLLED
         row_any.division = team_division
-        if team_work_track:
-            row_any.work_track = team_work_track
+        row_any.work_track = team_work_track
+    elif row_any and row_any.status == CompetitionEnrollmentStatus.ENROLLED:
+        row_any.team_id = team.id
+        row_any.is_captain = is_captain
+        row_any.division = team_division
     else:
         db.add(
             CompetitionEnrollment(
@@ -2178,28 +2192,150 @@ def _enrollment_scope_for_team(team_id: Optional[int]) -> str:
     )
 
 
+def _list_enrollments_for_student(
+    db: Session,
+    competition_id: int,
+    student_id: int,
+    *,
+    enrolled_only: bool = False,
+) -> List[CompetitionEnrollment]:
+    q = db.query(CompetitionEnrollment).filter(
+        CompetitionEnrollment.competition_id == competition_id,
+        CompetitionEnrollment.student_id == student_id,
+    )
+    if enrolled_only:
+        q = q.filter(CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED)
+    return q.order_by(CompetitionEnrollment.id.asc()).all()
+
+
 def _get_enrollment_by_scope(
     db: Session,
     competition_id: int,
     student_id: int,
     scope: str,
+    work_track: Optional[str] = None,
 ) -> Optional[CompetitionEnrollment]:
+    """
+    按 scope 取报名。若传入 work_track 则精确匹配该赛道；
+    未传时返回该 scope 下任意一条（兼容旧调用，优先 enrolled）。
+    """
+    track = _normalize_optional_work_track(work_track)
+    q = db.query(CompetitionEnrollment).filter(
+        CompetitionEnrollment.competition_id == competition_id,
+        CompetitionEnrollment.student_id == student_id,
+        CompetitionEnrollment.enrollment_scope == scope,
+    )
+    if track:
+        q = q.filter(CompetitionEnrollment.work_track == track)
+        return q.first()
+    rows = q.order_by(
+        CompetitionEnrollment.status.asc(),  # enrolled 通常排在前（字母序）
+        CompetitionEnrollment.id.asc(),
+    ).all()
+    for row in rows:
+        if row.status == CompetitionEnrollmentStatus.ENROLLED:
+            return row
+    return rows[0] if rows else None
+
+
+def _get_enrollment_by_work_track(
+    db: Session,
+    competition_id: int,
+    student_id: int,
+    work_track: str,
+) -> Optional[CompetitionEnrollment]:
+    track = _normalize_optional_work_track(work_track)
+    if not track:
+        return None
     return (
         db.query(CompetitionEnrollment)
         .filter(
             CompetitionEnrollment.competition_id == competition_id,
             CompetitionEnrollment.student_id == student_id,
-            CompetitionEnrollment.enrollment_scope == scope,
+            CompetitionEnrollment.work_track == track,
         )
         .first()
     )
 
 
 def _has_active_enrollment_in_scope(
-    db: Session, competition_id: int, student_id: int, scope: str
+    db: Session,
+    competition_id: int,
+    student_id: int,
+    scope: str,
+    work_track: Optional[str] = None,
 ) -> bool:
-    row = _get_enrollment_by_scope(db, competition_id, student_id, scope)
-    return row is not None and row.status == CompetitionEnrollmentStatus.ENROLLED
+    if work_track:
+        row = _get_enrollment_by_scope(
+            db, competition_id, student_id, scope, work_track=work_track
+        )
+        return row is not None and row.status == CompetitionEnrollmentStatus.ENROLLED
+    rows = _list_enrollments_for_student(
+        db, competition_id, student_id, enrolled_only=True
+    )
+    return any(r.enrollment_scope == scope for r in rows)
+
+
+def _active_work_tracks_for_student(
+    db: Session, competition_id: int, student_id: int
+) -> List[str]:
+    tracks: List[str] = []
+    for row in _list_enrollments_for_student(
+        db, competition_id, student_id, enrolled_only=True
+    ):
+        t = _normalize_optional_work_track(getattr(row, "work_track", None))
+        if t and t not in tracks:
+            tracks.append(t)
+    return tracks
+
+
+def _assert_student_can_enroll_work_track(
+    db: Session,
+    competition_id: int,
+    student_id: int,
+    work_track: str,
+    division: str,
+    *,
+    team_id: Optional[int] = None,
+    allow_same_team: bool = True,
+) -> None:
+    """
+    同一竞赛：作品/软件/硬件各最多一次；组别须与已有有效报名一致；
+    同赛道已报名其他队伍则拒绝。
+    """
+    track = _normalize_optional_work_track(work_track) or _resolve_work_track(work_track)
+    div = str(division or CompetitionDivision.DEFAULT.value).strip().lower()
+    existing = _get_enrollment_by_work_track(db, competition_id, student_id, track)
+    if existing and existing.status == CompetitionEnrollmentStatus.ENROLLED:
+        if (
+            allow_same_team
+            and team_id is not None
+            and existing.team_id is not None
+            and int(existing.team_id) == int(team_id)
+        ):
+            return
+        raise HTTPException(
+            status_code=400,
+            detail=f"已在该竞赛报名赛道 {track}，同一赛道不可重复报名",
+        )
+
+    active = _list_enrollments_for_student(
+        db, competition_id, student_id, enrolled_only=True
+    )
+    for row in active:
+        row_div = str(getattr(row, "division", None) or "").strip().lower()
+        if row_div and div and row_div != "default" and div != "default" and row_div != div:
+            raise HTTPException(
+                status_code=400,
+                detail="同一竞赛只能选择一个学历组别（本科或高职）",
+            )
+
+    tracks = _active_work_tracks_for_student(db, competition_id, student_id)
+    if track not in tracks and len(tracks) >= 3:
+        raise HTTPException(
+            status_code=400,
+            detail="同一竞赛最多报名作品/软件/硬件三个赛道",
+        )
 
 
 def _ensure_active_individual_enrollment(db: Session, competition_id: int, user_id: int) -> None:
@@ -2332,14 +2468,14 @@ def _build_team_member_user_responses(
     for m in sorted(members, key=lambda x: (not x.is_captain, x.joined_at or utc_now(), x.id)):
         u = users_by_id.get(m.user_id)
         item = TeamMemberWithUserResponse(
-            id=m.id,
-            team_id=m.team_id,
-            user_id=m.user_id,
+                id=m.id,
+                team_id=m.team_id,
+                user_id=m.user_id,
             username=(u.username if u else "") if not anonymize else "",
             full_name=(u.full_name if u else None) if not anonymize else None,
-            is_captain=m.is_captain,
-            joined_at=m.joined_at,
-        )
+                is_captain=m.is_captain,
+                joined_at=m.joined_at,
+            )
         out.append(item)
     return out
 
@@ -3652,8 +3788,7 @@ async def review_school_admin_application(
                 status_code=400,
                 detail="仅已通过的校管可改回待审核",
             )
-        if not getattr(row, "school_admin_photo_path", None):
-            raise HTTPException(status_code=400, detail="Application has no photo")
+        # 改回待审核不强制照片：历史账号可能无照片字段，仍应允许超管撤销已通过状态
         row.school_admin_verified = False
         row.school_admin_application_status = SchoolAdminApplicationStatus.PENDING.value
     else:
@@ -4104,15 +4239,25 @@ def _upsert_team_enrollment(
     division: str,
     work_track: str,
 ) -> None:
-    row_any = _get_enrollment_by_scope(
-        db, competition.id, student_id, CompetitionEnrollmentScope.TEAM
+    track = _normalize_optional_work_track(work_track) or _resolve_work_track(work_track)
+    _assert_student_can_enroll_work_track(
+        db,
+        competition.id,
+        student_id,
+        track,
+        division,
+        team_id=team.id,
+        allow_same_team=True,
     )
+    row_any = _get_enrollment_by_work_track(db, competition.id, student_id, track)
     if row_any and row_any.status == CompetitionEnrollmentStatus.ENROLLED:
         if row_any.team_id != team.id:
             raise HTTPException(
                 status_code=400,
-                detail=f"学生 {student_id} 已在该竞赛组队赛道报名其他队伍",
+                detail=f"学生 {student_id} 已在该竞赛赛道 {track} 报名其他队伍",
             )
+        row_any.is_captain = is_captain
+        row_any.division = division
         return
     if row_any and row_any.status == CompetitionEnrollmentStatus.WITHDRAWN:
         row_any.team_id = team.id
@@ -4120,7 +4265,7 @@ def _upsert_team_enrollment(
         row_any.is_captain = is_captain
         row_any.status = CompetitionEnrollmentStatus.ENROLLED
         row_any.division = division
-        row_any.work_track = work_track
+        row_any.work_track = track
         return
     db.add(
         CompetitionEnrollment(
@@ -4129,7 +4274,7 @@ def _upsert_team_enrollment(
             team_id=team.id,
             enrollment_scope=CompetitionEnrollmentScope.TEAM,
             division=division,
-            work_track=work_track,
+            work_track=track,
             is_captain=is_captain,
             status=CompetitionEnrollmentStatus.ENROLLED,
         )
@@ -4144,13 +4289,21 @@ def _upsert_individual_enrollment(
     division: str,
     work_track: str,
 ) -> None:
-    row_any = _get_enrollment_by_scope(
-        db, competition.id, student_id, CompetitionEnrollmentScope.INDIVIDUAL
+    track = _normalize_optional_work_track(work_track) or _resolve_work_track(work_track)
+    _assert_student_can_enroll_work_track(
+        db,
+        competition.id,
+        student_id,
+        track,
+        division,
+        team_id=None,
+        allow_same_team=False,
     )
+    row_any = _get_enrollment_by_work_track(db, competition.id, student_id, track)
     if row_any and row_any.status == CompetitionEnrollmentStatus.ENROLLED:
         raise HTTPException(
             status_code=400,
-            detail=f"学生 {student_id} 已在该竞赛个人赛道报名",
+            detail=f"学生 {student_id} 已在该竞赛报名赛道 {track}",
         )
     if row_any and row_any.status == CompetitionEnrollmentStatus.WITHDRAWN:
         row_any.team_id = None
@@ -4158,7 +4311,7 @@ def _upsert_individual_enrollment(
         row_any.is_captain = False
         row_any.status = CompetitionEnrollmentStatus.ENROLLED
         row_any.division = division
-        row_any.work_track = work_track
+        row_any.work_track = track
         return
     db.add(
         CompetitionEnrollment(
@@ -4167,7 +4320,7 @@ def _upsert_individual_enrollment(
             team_id=None,
             enrollment_scope=CompetitionEnrollmentScope.INDIVIDUAL,
             division=division,
-            work_track=work_track,
+            work_track=track,
             is_captain=False,
             status=CompetitionEnrollmentStatus.ENROLLED,
         )
@@ -4234,9 +4387,28 @@ async def school_admin_proxy_create_team(
         username_by_id[sid] = uname
         ordered_ids.append(sid)
         if _has_active_enrollment_in_scope(
-            db, competition.id, sid, CompetitionEnrollmentScope.TEAM
+            db,
+            competition.id,
+            sid,
+            CompetitionEnrollmentScope.TEAM,
+            work_track=team_work_track,
         ):
-            raise HTTPException(status_code=400, detail=f"学生「{uname}」已在该竞赛组队赛道报名")
+            raise HTTPException(
+                status_code=400,
+                detail=f"学生「{uname}」已在该竞赛报名赛道 {team_work_track}",
+            )
+        try:
+            _assert_student_can_enroll_work_track(
+                db,
+                competition.id,
+                sid,
+                team_work_track,
+                team_division,
+                team_id=None,
+                allow_same_team=False,
+            )
+        except HTTPException:
+            raise
         _assert_final_stage_participant(db, competition, sid, team_id=None)
 
     captain_row = _resolve_alt_user_by_username(adb, captain_username, label="队长")
@@ -5439,17 +5611,18 @@ async def enroll_competition(
     enroll_work_track = _resolve_work_track(getattr(enroll, "work_track", None))
 
     scope = _enrollment_scope_for_team(enroll.team_id)
-    existing_row = _get_enrollment_by_scope(db, competition.id, identity.id, scope)
-    if existing_row and existing_row.status == CompetitionEnrollmentStatus.ENROLLED:
-        if is_team:
-            raise HTTPException(
-                status_code=400,
-                detail="Already enrolled in the team track for this competition",
-            )
-        raise HTTPException(
-            status_code=400,
-            detail="Already enrolled in the individual track for this competition",
-        )
+    _assert_student_can_enroll_work_track(
+        db,
+        competition.id,
+        identity.id,
+        enroll_work_track,
+        enroll_division,
+        team_id=enroll.team_id,
+        allow_same_team=True,
+    )
+    existing_row = _get_enrollment_by_work_track(
+        db, competition.id, identity.id, enroll_work_track
+    )
 
     team: Optional[Team] = None
     if is_team:
@@ -5555,14 +5728,19 @@ async def withdraw_from_competition(
     competition_id: int,
     track: Optional[str] = Query(
         None,
-        description="退赛赛道：individual（个人）或 team（组队）。同时存在两条有效报名时必填。",
+        description="兼容旧参数：individual（个人）或 team（组队）。多赛道组队报名时请改用 work_track。",
+    ),
+    work_track: Optional[str] = Query(
+        None,
+        description="作品赛道：works / software / hardware。按赛道退赛时优先使用。",
     ),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
     参赛学生退赛（取消当前竞赛中某一赛道的有效报名）。
-    - 个人赛道：将个人报名置为 withdrawn（不影响组队赛道）
+    - 指定 work_track：仅撤回该作品赛道报名（及其关联队伍成员身份）
+    - 个人赛道（track=individual）：将个人报名置为 withdrawn
     - 组队赛道：从 team_members 移除；队长若队伍内仍有其他成员，须先转让队长；
       若队长为队内唯一成员，则退赛同时解散队伍（team 标记为 disbanded）
     """
@@ -5572,59 +5750,83 @@ async def withdraw_from_competition(
 
     competition = _get_competition(db, competition_id)
 
-    has_individual = _has_active_enrollment_in_scope(
-        db, competition.id, identity.id, CompetitionEnrollmentScope.INDIVIDUAL
+    active_rows = _list_enrollments_for_student(
+        db, competition.id, identity.id, enrolled_only=True
     )
-    team_enrollment = (
-        db.query(CompetitionEnrollment)
-        .filter(
-            CompetitionEnrollment.competition_id == competition.id,
-            CompetitionEnrollment.student_id == identity.id,
-            CompetitionEnrollment.enrollment_scope == CompetitionEnrollmentScope.TEAM,
-            CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
-        )
-        .first()
-    )
-    has_team = team_enrollment is not None
-
-    if not has_individual and not has_team:
+    if not active_rows:
         raise HTTPException(status_code=404, detail="No active enrollment in this competition")
 
-    resolved_track = (track or "").strip().lower() or None
-    if resolved_track not in (None, CompetitionEnrollmentScope.INDIVIDUAL, CompetitionEnrollmentScope.TEAM):
+    wt = _normalize_optional_work_track(work_track)
+    resolved_scope = (track or "").strip().lower() or None
+    if resolved_scope not in (
+        None,
+        CompetitionEnrollmentScope.INDIVIDUAL,
+        CompetitionEnrollmentScope.TEAM,
+    ):
         raise HTTPException(
             status_code=400,
             detail="Invalid track; use individual or team",
         )
-    if resolved_track is None:
-        if has_individual and has_team:
+
+    enrollment: Optional[CompetitionEnrollment] = None
+    if wt:
+        enrollment = next(
+            (
+                r
+                for r in active_rows
+                if _normalize_optional_work_track(getattr(r, "work_track", None)) == wt
+            ),
+            None,
+        )
+        if enrollment is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No active enrollment for work_track={wt}",
+            )
+    elif resolved_scope == CompetitionEnrollmentScope.INDIVIDUAL:
+        enrollment = next(
+            (
+                r
+                for r in active_rows
+                if r.enrollment_scope == CompetitionEnrollmentScope.INDIVIDUAL
+            ),
+            None,
+        )
+        if enrollment is None:
+            raise HTTPException(
+                status_code=404,
+                detail="No active individual enrollment in this competition",
+            )
+    elif resolved_scope == CompetitionEnrollmentScope.TEAM:
+        team_rows = [
+            r
+            for r in active_rows
+            if r.enrollment_scope == CompetitionEnrollmentScope.TEAM
+        ]
+        if not team_rows:
+            raise HTTPException(
+                status_code=404,
+                detail="No active team enrollment in this competition",
+            )
+        if len(team_rows) > 1:
             raise HTTPException(
                 status_code=400,
-                detail="Specify track=individual or track=team when enrolled in both tracks",
+                detail="Specify work_track=works|software|hardware when enrolled in multiple work tracks",
             )
-        resolved_track = (
-            CompetitionEnrollmentScope.TEAM if has_team else CompetitionEnrollmentScope.INDIVIDUAL
-        )
-    elif resolved_track == CompetitionEnrollmentScope.INDIVIDUAL and not has_individual:
-        raise HTTPException(status_code=404, detail="No active individual enrollment in this competition")
-    elif resolved_track == CompetitionEnrollmentScope.TEAM and not has_team:
-        raise HTTPException(status_code=404, detail="No active team enrollment in this competition")
+        enrollment = team_rows[0]
+    else:
+        if len(active_rows) > 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Specify work_track=works|software|hardware (or track=individual|team) when enrolled in multiple tracks",
+            )
+        enrollment = active_rows[0]
 
-    if resolved_track == CompetitionEnrollmentScope.INDIVIDUAL:
-        enrollment = _get_enrollment_by_scope(
-            db, competition.id, identity.id, CompetitionEnrollmentScope.INDIVIDUAL
-        )
-        assert enrollment is not None
-        enrollment.status = CompetitionEnrollmentStatus.WITHDRAWN
-        db.commit()
-        db.refresh(enrollment)
-        return enrollment
-
-    enrollment = team_enrollment
     assert enrollment is not None
 
-    if enrollment.team_id is None:
+    if enrollment.enrollment_scope == CompetitionEnrollmentScope.INDIVIDUAL or enrollment.team_id is None:
         enrollment.status = CompetitionEnrollmentStatus.WITHDRAWN
+        enrollment.is_captain = False
         db.commit()
         db.refresh(enrollment)
         return enrollment
@@ -5677,7 +5879,6 @@ async def withdraw_from_competition(
     db.commit()
     db.refresh(enrollment)
     return enrollment
-
 
 @router.get("/{competition_id}/teams/lookup", response_model=TeamResponse)
 async def lookup_team_by_name(
@@ -5747,7 +5948,7 @@ async def list_teams(
             if not allowed:
                 return []
             teams_q = (
-                q.options(joinedload(Team.members))
+            q.options(joinedload(Team.members))
                 .filter(Team.status == TeamStatus.ACTIVE, Team.id.in_(allowed))
             )
         else:
@@ -5930,7 +6131,9 @@ async def create_team(
         elif team_create.captain_student_id is not None:
             captain_id = team_create.captain_student_id
             if ordered_ids and captain_id not in ordered_ids:
-                raise HTTPException(status_code=400, detail="captain_student_id 必须出现在 initial_member_ids 中")
+                raise HTTPException(
+                    status_code=400, detail="captain_student_id 必须出现在 initial_member_ids 中"
+                )
             if captain_id not in ordered_ids:
                 ordered_ids = [captain_id] + ordered_ids
         elif ordered_ids:
@@ -5946,10 +6149,15 @@ async def create_team(
 
         for sid in ordered_ids:
             _ensure_alt_principal_is_student(adb, sid)
-            if _has_active_enrollment_in_scope(
-                db, competition.id, sid, CompetitionEnrollmentScope.TEAM
-            ):
-                raise HTTPException(status_code=400, detail=f"学生 {sid} 已在该竞赛组队赛道报名")
+            _assert_student_can_enroll_work_track(
+                db,
+                competition.id,
+                sid,
+                team_work_track,
+                team_division,
+                team_id=None,
+                allow_same_team=False,
+            )
 
         team_school = _assert_student_ids_same_school(adb, ordered_ids)
         # 指导老师/教师代建队：自动将当前登录老师设为建队指导老师（忽略请求体中的 advisor_id/advisor_name）
@@ -5980,13 +6188,15 @@ async def create_team(
             )
 
     elif role_eff == "student":
-        if _has_active_enrollment_in_scope(
-            db, competition.id, identity.id, CompetitionEnrollmentScope.TEAM
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="You have already enrolled in the team track for this competition",
-            )
+        _assert_student_can_enroll_work_track(
+            db,
+            competition.id,
+            identity.id,
+            team_work_track,
+            team_division,
+            team_id=None,
+            allow_same_team=False,
+        )
 
         team_school = _resolve_team_school(adb, identity.id)
         created_by_advisor_id = None
@@ -6008,11 +6218,11 @@ async def create_team(
                 advisor_display_name = _display_user_name(adv_row, adv_row.id)
             else:
                 advisor_display_name = advisor_raw
-                advisor_row = _try_resolve_advisor_by_name(adb, advisor_display_name)
-                if advisor_row:
-                    if int(advisor_row.id) == int(identity.id):
-                        raise HTTPException(status_code=400, detail="不能将自己指定为指导老师")
-                    created_by_advisor_id = advisor_row.id
+            advisor_row = _try_resolve_advisor_by_name(adb, advisor_display_name)
+            if advisor_row:
+                if int(advisor_row.id) == int(identity.id):
+                    raise HTTPException(status_code=400, detail="不能将自己指定为指导老师")
+                created_by_advisor_id = advisor_row.id
 
         team = Team(
             id=allocate_eight_digit_id(db, Team),
@@ -6032,27 +6242,15 @@ async def create_team(
         captain_member = TeamMember(team_id=team.id, user_id=identity.id, is_captain=True)
         db.add(captain_member)
 
-        row_any = _get_enrollment_by_scope(
-            db, competition.id, identity.id, CompetitionEnrollmentScope.TEAM
+        _upsert_team_enrollment(
+            db,
+            competition=competition,
+            student_id=identity.id,
+            team=team,
+            is_captain=True,
+            division=team_division,
+            work_track=team_work_track,
         )
-        if row_any and row_any.status == CompetitionEnrollmentStatus.WITHDRAWN:
-            row_any.team_id = team.id
-            row_any.enrollment_scope = CompetitionEnrollmentScope.TEAM
-            row_any.is_captain = True
-            row_any.status = CompetitionEnrollmentStatus.ENROLLED
-            row_any.division = team_division
-        else:
-            enrollment = CompetitionEnrollment(
-                competition_id=competition.id,
-                student_id=identity.id,
-                team_id=team.id,
-                enrollment_scope=CompetitionEnrollmentScope.TEAM,
-                division=team_division,
-                work_track=team_work_track,
-                is_captain=True,
-                status=CompetitionEnrollmentStatus.ENROLLED,
-            )
-            db.add(enrollment)
 
         extras = team_create.initial_member_ids or []
         extras = [x for x in extras if x != identity.id]
@@ -6060,35 +6258,26 @@ async def create_team(
             _assert_student_ids_same_school(adb, [identity.id] + list(extras))
         for sid in extras:
             _ensure_alt_principal_is_student(adb, sid)
-            if _has_active_enrollment_in_scope(
-                db, competition.id, sid, CompetitionEnrollmentScope.TEAM
-            ):
-                db.rollback()
-                raise HTTPException(status_code=400, detail=f"学生 {sid} 已在竞赛组队赛道报名")
+            _assert_student_can_enroll_work_track(
+                db,
+                competition.id,
+                sid,
+                team_work_track,
+                team_division,
+                team_id=None,
+                allow_same_team=False,
+            )
             _assert_student_same_school_as_team(adb, team, sid, label="学生")
             db.add(TeamMember(team_id=team.id, user_id=sid, is_captain=False))
-            row_other = _get_enrollment_by_scope(
-                db, competition.id, sid, CompetitionEnrollmentScope.TEAM
+            _upsert_team_enrollment(
+                db,
+                competition=competition,
+                student_id=sid,
+                team=team,
+                is_captain=False,
+                division=team_division,
+                work_track=team_work_track,
             )
-            if row_other and row_other.status == CompetitionEnrollmentStatus.WITHDRAWN:
-                row_other.team_id = team.id
-                row_other.enrollment_scope = CompetitionEnrollmentScope.TEAM
-                row_other.is_captain = False
-                row_other.status = CompetitionEnrollmentStatus.ENROLLED
-                row_other.division = team_division
-            else:
-                db.add(
-                    CompetitionEnrollment(
-                        competition_id=competition.id,
-                        student_id=sid,
-                        team_id=team.id,
-                        enrollment_scope=CompetitionEnrollmentScope.TEAM,
-                        division=team_division,
-                        work_track=team_work_track,
-                        is_captain=False,
-                        status=CompetitionEnrollmentStatus.ENROLLED,
-                    )
-                )
 
     else:
         raise HTTPException(status_code=403, detail="Only student, advisor, or teacher can create teams")
@@ -6215,11 +6404,19 @@ async def invite_team_member(
     if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == sid).first():
         raise HTTPException(status_code=400, detail="Already a team member")
 
-    if _has_active_enrollment_in_scope(db, competition.id, sid, CompetitionEnrollmentScope.TEAM):
-        raise HTTPException(
-            status_code=400,
-            detail="Student already enrolled in the team track for this competition",
-        )
+    invite_track = _normalize_optional_work_track(getattr(team, "work_track", None))
+    invite_div = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).lower()
+    if not invite_track:
+        raise HTTPException(status_code=400, detail="队伍未设置赛道，无法邀请")
+    _assert_student_can_enroll_work_track(
+        db,
+        competition.id,
+        sid,
+        invite_track,
+        invite_div,
+        team_id=team.id,
+        allow_same_team=True,
+    )
 
     as_captain = int(sid) == int(team.captain_id) and not db.query(TeamMember).filter(
         TeamMember.team_id == team.id, TeamMember.is_captain.is_(True)
@@ -6349,11 +6546,15 @@ async def respond_team_invite(
         return _build_team_invite_response(inv, team=team, competition=competition)
 
     if _has_active_enrollment_in_scope(
-        db, competition.id, identity.id, CompetitionEnrollmentScope.TEAM
+        db,
+        competition.id,
+        identity.id,
+        CompetitionEnrollmentScope.TEAM,
+        work_track=_normalize_optional_work_track(getattr(team, "work_track", None)),
     ):
         raise HTTPException(
             status_code=400,
-            detail="Already enrolled in the team track for this competition",
+            detail="Already enrolled in this work track for this competition",
         )
 
     want_captain = bool(inv.as_captain) or int(team.captain_id) == int(identity.id)
@@ -6452,13 +6653,19 @@ async def request_join_team(
 
     _assert_student_same_school_as_team(adb, team, identity.id, label="当前账号")
 
-    if _has_active_enrollment_in_scope(
-        db, competition.id, identity.id, CompetitionEnrollmentScope.TEAM
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="You have already enrolled in the team track for this competition",
-        )
+    join_track = _normalize_optional_work_track(getattr(team, "work_track", None))
+    join_div = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).lower()
+    if not join_track:
+        raise HTTPException(status_code=400, detail="队伍未设置赛道，无法申请加入")
+    _assert_student_can_enroll_work_track(
+        db,
+        competition.id,
+        identity.id,
+        join_track,
+        join_div,
+        team_id=team.id,
+        allow_same_team=True,
+    )
 
     pending = (
         db.query(TeamJoinRequest)
@@ -6580,13 +6787,19 @@ async def review_team_join_request(
     _assert_student_same_school_as_team(adb, team, req.user_id, label="申请人")
     if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == req.user_id).first():
         raise HTTPException(status_code=400, detail="Already a team member")
-    if _has_active_enrollment_in_scope(
-        db, competition.id, req.user_id, CompetitionEnrollmentScope.TEAM
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="Student already enrolled in the team track for this competition",
-        )
+    approve_track = _normalize_optional_work_track(getattr(team, "work_track", None))
+    approve_div = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).lower()
+    if not approve_track:
+        raise HTTPException(status_code=400, detail="队伍未设置赛道")
+    _assert_student_can_enroll_work_track(
+        db,
+        competition.id,
+        req.user_id,
+        approve_track,
+        approve_div,
+        team_id=team.id,
+        allow_same_team=True,
+    )
 
     _add_student_to_team(db, competition, team, req.user_id, is_captain=False)
     req.status = TeamJoinRequestStatus.APPROVED

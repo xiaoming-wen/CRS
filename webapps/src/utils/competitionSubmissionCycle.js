@@ -368,18 +368,22 @@ export function getEnrollmentScope (row) {
 /** 将同一竞赛下 enrolled 记录拆分为个人 / 队伍赛道（各保留一条） */
 export function splitEnrollmentsByTrack (rows) {
   let individual = null
-  let team = null
+  const teams = []
+  const teamsByWorkTrack = {}
   const list = Array.isArray(rows) ? rows : []
   for (const row of list) {
     if (!row || !isActiveEnrollmentStatus(row.status)) continue
     const scope = getEnrollmentScope(row)
     if (scope === 'team') {
-      if (!team) team = row
+      teams.push(row)
+      const wt = row.work_track != null ? String(row.work_track).trim().toLowerCase() : ''
+      if (wt && !teamsByWorkTrack[wt]) teamsByWorkTrack[wt] = row
     } else if (!individual) {
       individual = row
     }
   }
-  return { individual, team }
+  // 兼容旧调用：team 取第一条组队报名
+  return { individual, team: teams[0] || null, teams, teamsByWorkTrack }
 }
 
 /**

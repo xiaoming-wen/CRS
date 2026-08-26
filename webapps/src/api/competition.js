@@ -381,9 +381,14 @@ export function enrollCompetition (payload) {
 }
 
 // 8.8 退赛（学生；停止报名后仍可退赛，权限 ENROLL_COMPETITIONS）
-// options.track: 'individual' | 'team' — 个人与组队两条报名均有效时必填
+// options.work_track: 'works' | 'software' | 'hardware' — 多赛道时优先
+// options.track: 'individual' | 'team' — 兼容旧参数
 export function withdrawCompetition (competitionId, options = {}) {
   const params = {}
+  const workTrack = options && options.work_track
+  if (workTrack === 'works' || workTrack === 'software' || workTrack === 'hardware') {
+    params.work_track = workTrack
+  }
   const track = options && options.track
   if (track === 'individual' || track === 'team') {
     params.track = track

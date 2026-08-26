@@ -156,6 +156,17 @@ async def startup_event():
         logging.getLogger(__name__).warning("Enrollment dual-track migration skipped: %s", e)
 
     try:
+        from app.competition_enrollment_multi_track_migrate import (
+            migrate_competition_enrollment_multi_work_track,
+        )
+
+        migrate_competition_enrollment_multi_work_track(user_engine)
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "Enrollment multi work-track migration skipped: %s", e
+        )
+
+    try:
         from app.competition_team_review_migrate import migrate_competition_team_review
 
         migrate_competition_team_review(user_engine)

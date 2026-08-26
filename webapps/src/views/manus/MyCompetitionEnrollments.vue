@@ -103,7 +103,7 @@ export default {
           title: '赛道',
           dataIndex: 'track_label',
           key: 'track_label',
-          width: 72
+          width: 110
         },
         {
           title: '组别',
@@ -157,13 +157,21 @@ export default {
         const isTeam = row.team_id !== null && row.team_id !== undefined
 
         const enrollTrack = getEnrollmentScope(row)
+        const wt = row.work_track != null ? String(row.work_track).trim().toLowerCase() : ''
+        const workTrackLabel =
+          wt === 'works' ? '作品' : wt === 'software' ? '软件' : wt === 'hardware' ? '硬件' : ''
+        const scopeLabel = enrollTrack === 'team' ? '组队' : '个人'
+        const trackLabel = workTrackLabel
+          ? `${scopeLabel}·${workTrackLabel}`
+          : scopeLabel
 
         return {
           key: row.id != null ? `e-${row.id}` : `row-${index}`,
           id: row.id,
           competition_id: row.competition_id,
           enroll_track: enrollTrack,
-          track_label: enrollTrack === 'team' ? '组队' : '个人',
+          work_track: wt || null,
+          track_label: trackLabel,
           division: row.division,
           division_label: resolveEnrollmentDivisionLabelForList(
             row,
@@ -206,6 +214,9 @@ export default {
         (error && error.message) ||
         ''
       const text = typeof raw === 'string' ? raw : JSON.stringify(raw || {})
+      if (/specify work_track=/i.test(text) || /Specify work_track/i.test(text)) {
+        return '本竞赛存在多条赛道报名，请从对应行退赛（按作品/软件/硬件分别退）'
+      }
       if (/specify track=individual or track=team/i.test(text)) {
         return '本竞赛同时存在个人与组队报名，请指定要退出的赛道'
       }
@@ -218,12 +229,15 @@ export default {
     async handleWithdraw (record) {
       if (!record || record.competition_id == null) return
       if (record.status !== 'enrolled') return
+      const workTrack = record.work_track === 'works' || record.work_track === 'software' || record.work_track === 'hardware'
+        ? record.work_track
+        : null
       const track = record.enroll_track === 'team' ? 'team' : 'individual'
-      const trackLabel = track === 'team' ? '组队' : '个人'
+      const trackLabel = record.track_label || (track === 'team' ? '组队' : '个人')
       try {
         await this.$confirm({
-          title: `确认退出${trackLabel}赛道`,
-          content: `将取消本竞赛的${trackLabel}赛道报名；另一赛道不受影响。退赛后若再次报名，需重新提交该赛道作品。是否继续？`,
+          title: `确认退出${trackLabel}`,
+          content: `将取消本竞赛该赛道报名；其它赛道不受影响。退赛后若再次报名，需重新提交该赛道作品。是否继续？`,
           okText: '退赛',
           cancelText: '取消',
           okType: 'danger'
@@ -233,9 +247,10 @@ export default {
       }
       this.withdrawLoading = true
       try {
-        await withdrawCompetition(record.competition_id, { track })
+        const opts = workTrack ? { work_track: workTrack } : { track }
+        await withdrawCompetition(record.competition_id, opts)
         markCompetitionWithdrawnForResubmit(record.competition_id)
-        this.$message.success(`${trackLabel}赛道退赛成功`)
+        this.$message.success(`${trackLabel}退赛成功`)
         await this.fetchList()
       } catch (e) {
         this.$message.error('退赛失败：' + this.getWithdrawErrorMessage(e))

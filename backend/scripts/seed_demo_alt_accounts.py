@@ -45,6 +45,7 @@ ACCOUNTS = [
     ("hfu_stu1", "student", SCHOOL_HFU, "合大学生一", "13820002001", "HFU2026001", None, False, False),
     ("hfu_stu2", "student", SCHOOL_HFU, "合大学生二", "13820002002", "HFU2026002", None, False, False),
     ("hfu_stu3", "student", SCHOOL_HFU, "合大学生三", "13820002003", "HFU2026003", None, False, False),
+    ("ahnu_advisor1", "advisor", SCHOOL_AHNU, "安师大指导老师", "13810003001", None, "AHNUT2026001", False, False),
     ("hfu_advisor1", "advisor", SCHOOL_HFU, "合大指导老师", "13820003001", None, "HFUT2026001", False, False),
     ("ahnu_expert1", "expert", SCHOOL_AHNU, "安师大专家", "13810004001", None, None, True, False),
     ("hfu_expert1", "expert", SCHOOL_HFU, "合大专家", "13820004001", None, None, True, False),
