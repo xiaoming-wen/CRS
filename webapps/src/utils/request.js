@@ -145,6 +145,10 @@ service.interceptors.request.use(config => {
 
 // response interceptor
 service.interceptors.response.use((response) => {
+    // blob 下载等场景需要 Content-Disposition 等响应头时，可设 __returnFullResponse: true
+    if (response.config && response.config.__returnFullResponse) {
+        return response
+    }
     return response.data
 }, err)
 

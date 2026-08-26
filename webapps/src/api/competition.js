@@ -634,13 +634,39 @@ export function getCompetitionSubmission (submissionId) {
   })
 }
 
-// 8.16.4 下载作品文件
+/** 从 Content-Disposition 解析下载文件名 */
+function parseContentDispositionFilename (header) {
+  const raw = header == null ? '' : String(header)
+  if (!raw) return ''
+  const star = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(raw)
+  if (star && star[1]) {
+    try {
+      return decodeURIComponent(star[1].trim().replace(/^["']|["']$/g, ''))
+    } catch (_) {
+      return star[1].trim().replace(/^["']|["']$/g, '')
+    }
+  }
+  const plain = /filename\s*=\s*([^;]+)/i.exec(raw)
+  if (plain && plain[1]) {
+    return plain[1].trim().replace(/^["']|["']$/g, '')
+  }
+  return ''
+}
+
+// 8.16.4 下载作品文件（保留响应头以还原原始文件名，避免落成 .bin）
 export function downloadCompetitionSubmissionFile (submissionId) {
   return axios({
     url: `/v1/competitions/submissions/${submissionId}/download`,
     method: 'get',
     responseType: 'blob',
-    timeout: 600000
+    timeout: 600000,
+    __returnFullResponse: true
+  }).then((res) => {
+    const headers = (res && res.headers) || {}
+    const cd = headers['content-disposition'] || headers['Content-Disposition'] || ''
+    const filename =
+      parseContentDispositionFilename(cd) || `submission_${submissionId}.zip`
+    return { blob: res.data, filename }
   })
 }
 

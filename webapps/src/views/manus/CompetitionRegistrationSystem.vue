@@ -8083,11 +8083,15 @@ export default {
     async downloadSubmission (submissionId) {
       if (!submissionId) return
       try {
-        const blob = await downloadCompetitionSubmissionFile(submissionId)
+        const result = await downloadCompetitionSubmissionFile(submissionId)
+        const blob = result && result.blob != null ? result.blob : result
+        const filename =
+          (result && result.filename) ||
+          `submission_${submissionId}.zip`
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `submission_${submissionId}.bin`
+        a.download = filename
         document.body.appendChild(a)
         a.click()
         a.remove()
