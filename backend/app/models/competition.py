@@ -290,6 +290,31 @@ class TeamJoinRequest(Base):
     team = relationship("Team", backref="join_requests")
 
 
+class TeamInviteStatus(str):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+
+
+class TeamInvite(Base):
+    """队长/指导老师发出的入队邀请，须被邀请学生同意后才正式入队。"""
+
+    __tablename__ = "team_invites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    competition_id = Column(Integer, nullable=False, index=True)
+    invitee_id = Column(Integer, nullable=False, index=True, comment="被邀请学生 alt_auth_users.id")
+    inviter_id = Column(Integer, nullable=False, index=True, comment="邀请人 alt_auth_users.id")
+    as_captain = Column(Boolean, default=False, nullable=False, comment="同意后是否以队长身份入队")
+    status = Column(String(20), default=TeamInviteStatus.PENDING, nullable=False, index=True)
+    created_at = Column(DateTime, default=utc_now)
+    responded_at = Column(DateTime, nullable=True)
+
+    team = relationship("Team", backref="invites")
+
+
 class TeamMember(Base):
     __tablename__ = "team_members"
     __table_args__ = (

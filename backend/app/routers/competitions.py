@@ -38,6 +38,8 @@ from app.models.competition import (
     TeamMember,
     TeamJoinRequest,
     TeamJoinRequestStatus,
+    TeamInvite,
+    TeamInviteStatus,
     TeamStatus,
     Submission,
     SubmissionStatus,
@@ -69,6 +71,8 @@ from app.schemas import (
     TeamMemberResponse,
     TeamJoinRequestResponse,
     TeamJoinRequestReview,
+    TeamInviteResponse,
+    TeamInviteAction,
     IndividualParticipantItem,
     TeamParticipantDetailResponse,
     TeamMemberWithUserResponse,
@@ -1671,9 +1675,96 @@ def _team_has_formal_submitted_answers(db: Session, competition_id: int, team_id
     return row is not None
 
 
+def _team_has_zip_submission(db: Session, competition_id: int, team_id: int) -> bool:
+    row = (
+        db.query(Submission.id)
+        .filter(
+            Submission.competition_id == competition_id,
+            Submission.team_id == team_id,
+        )
+        .first()
+    )
+    return row is not None
+
+
+def _team_has_submitted_work(db: Session, competition_id: int, team_id: int) -> bool:
+    """队伍是否已正式提交作品（分题答案或压缩包任一即可）。"""
+    return _team_has_formal_submitted_answers(db, competition_id, team_id) or _team_has_zip_submission(
+        db, competition_id, team_id
+    )
+
+
 def _assert_team_answers_not_locked(db: Session, competition_id: int, team_id: int) -> None:
     if _team_has_formal_submitted_answers(db, competition_id, team_id):
         raise HTTPException(status_code=400, detail="作品已正式提交，无法再上传或删除题目文件")
+
+
+def _assert_team_roster_mutable(db: Session, competition_id: int, team_id: int) -> None:
+    if _team_has_submitted_work(db, competition_id, team_id):
+        raise HTTPException(
+            status_code=400,
+            detail="作品已提交，无法再变更队伍成员（邀请、移除、转让或退队）",
+        )
+
+
+def _build_team_invite_response(
+    inv: TeamInvite,
+    *,
+    team: Optional[Team] = None,
+    competition: Optional[Competition] = None,
+    inviter: Optional[AltAuthUserRecord] = None,
+) -> TeamInviteResponse:
+    inviter_name = None
+    if inviter is not None:
+        inviter_name = (inviter.full_name or inviter.username or "").strip() or None
+    return TeamInviteResponse(
+        id=inv.id,
+        team_id=inv.team_id,
+        competition_id=inv.competition_id,
+        competition_name=(competition.name if competition else None),
+        team_name=(team.name if team else None),
+        invitee_id=inv.invitee_id,
+        inviter_id=inv.inviter_id,
+        inviter_name=inviter_name,
+        as_captain=bool(inv.as_captain),
+        status=inv.status,
+        created_at=inv.created_at,
+        responded_at=inv.responded_at,
+    )
+
+
+def _create_pending_team_invite(
+    db: Session,
+    *,
+    team: Team,
+    competition: Competition,
+    invitee_id: int,
+    inviter_id: int,
+    as_captain: bool = False,
+) -> TeamInvite:
+    existing = (
+        db.query(TeamInvite)
+        .filter(
+            TeamInvite.team_id == team.id,
+            TeamInvite.invitee_id == invitee_id,
+            TeamInvite.status == TeamInviteStatus.PENDING,
+        )
+        .first()
+    )
+    if existing:
+        existing.as_captain = bool(as_captain)
+        existing.inviter_id = inviter_id
+        return existing
+    inv = TeamInvite(
+        team_id=team.id,
+        competition_id=competition.id,
+        invitee_id=invitee_id,
+        inviter_id=inviter_id,
+        as_captain=bool(as_captain),
+        status=TeamInviteStatus.PENDING,
+    )
+    db.add(inv)
+    return inv
 
 
 def _build_question_answers_board(
@@ -5704,30 +5795,16 @@ async def create_team(
         db.add(team)
         db.flush()
 
+        # 队长与队员均需同意邀请后才正式入队（不直接写 TeamMember）
         for sid in ordered_ids:
-            ic = sid == captain_id
-            db.add(TeamMember(team_id=team.id, user_id=sid, is_captain=ic))
-            row_any = _get_enrollment_by_scope(
-                db, competition.id, sid, CompetitionEnrollmentScope.TEAM
+            _create_pending_team_invite(
+                db,
+                team=team,
+                competition=competition,
+                invitee_id=sid,
+                inviter_id=identity.id,
+                as_captain=(sid == captain_id),
             )
-            if row_any and row_any.status == CompetitionEnrollmentStatus.WITHDRAWN:
-                row_any.team_id = team.id
-                row_any.enrollment_scope = CompetitionEnrollmentScope.TEAM
-                row_any.is_captain = ic
-                row_any.status = CompetitionEnrollmentStatus.ENROLLED
-                row_any.division = team_division
-            else:
-                enrollment = CompetitionEnrollment(
-                    competition_id=competition.id,
-                    student_id=sid,
-                    team_id=team.id,
-                    enrollment_scope=CompetitionEnrollmentScope.TEAM,
-                    division=team_division,
-                    work_track=team_work_track,
-                    is_captain=ic,
-                    status=CompetitionEnrollmentStatus.ENROLLED,
-                )
-                db.add(enrollment)
 
     elif role_eff == "student":
         if _has_active_enrollment_in_scope(
@@ -5915,7 +5992,7 @@ async def patch_team(
     return team
 
 
-@router.post("/teams/{team_id}/invite", response_model=TeamMemberResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/teams/{team_id}/invite", response_model=TeamInviteResponse, status_code=status.HTTP_201_CREATED)
 async def invite_team_member(
     team_id: int,
     body: TeamInviteMember,
@@ -5923,6 +6000,7 @@ async def invite_team_member(
     adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
+    """队长或建队指导老师邀请学生入队：仅发出邀请，须对方同意后才正式入队。"""
     body = TeamInviteMember.model_validate(body)
     require_permission(identity.role, Permission.MANAGE_TEAMS)
 
@@ -5938,6 +6016,7 @@ async def invite_team_member(
     if competition.status != "published":
         raise HTTPException(status_code=400, detail="Competition not published")
     _assert_final_stage_roster_frozen(competition)
+    _assert_team_roster_mutable(db, competition.id, team.id)
 
     if not _can_manage_team_composition(team, identity):
         raise HTTPException(status_code=403, detail="Only captain or advising teacher may invite")
@@ -5950,8 +6029,8 @@ async def invite_team_member(
     else:
         raise HTTPException(status_code=400, detail="请填写学生姓名或用户 ID")
 
-    if sid == team.captain_id:
-        raise HTTPException(status_code=400, detail="Captain is already on the team")
+    if sid == identity.id and _effective_alt_role(identity.role) == "student":
+        raise HTTPException(status_code=400, detail="不能邀请自己")
 
     _ensure_alt_principal_is_student(adb, sid)
 
@@ -5964,15 +6043,164 @@ async def invite_team_member(
             detail="Student already enrolled in the team track for this competition",
         )
 
-    member = _add_student_to_team(db, competition, team, sid, is_captain=False)
+    as_captain = int(sid) == int(team.captain_id) and not db.query(TeamMember).filter(
+        TeamMember.team_id == team.id, TeamMember.is_captain.is_(True)
+    ).first()
+
+    inv = _create_pending_team_invite(
+        db,
+        team=team,
+        competition=competition,
+        invitee_id=sid,
+        inviter_id=identity.id,
+        as_captain=as_captain,
+    )
 
     try:
         db.commit()
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Invite failed: {str(e)}")
-    db.refresh(member)
-    return member
+    db.refresh(inv)
+    return _build_team_invite_response(
+        inv,
+        team=team,
+        competition=competition,
+        inviter=identity,
+    )
+
+
+@router.get("/team-invites/me", response_model=List[TeamInviteResponse])
+async def list_my_team_invites(
+    status_filter: Optional[str] = Query("pending", alias="status"),
+    db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """当前学生查看发给自己的入队邀请。"""
+    require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+    if _effective_alt_role(identity.role) != "student":
+        raise HTTPException(status_code=403, detail="Only students can view team invites")
+
+    st = (status_filter or "pending").strip().lower()
+    if st not in {
+        TeamInviteStatus.PENDING,
+        TeamInviteStatus.ACCEPTED,
+        TeamInviteStatus.REJECTED,
+        TeamInviteStatus.CANCELLED,
+        "all",
+    }:
+        raise HTTPException(status_code=400, detail="Invalid invite status")
+
+    q = db.query(TeamInvite).filter(TeamInvite.invitee_id == identity.id)
+    if st != "all":
+        q = q.filter(TeamInvite.status == st)
+    rows = q.order_by(TeamInvite.created_at.desc(), TeamInvite.id.desc()).all()
+
+    team_ids = {r.team_id for r in rows}
+    comp_ids = {r.competition_id for r in rows}
+    inviter_ids = {r.inviter_id for r in rows}
+    teams = {t.id: t for t in db.query(Team).filter(Team.id.in_(list(team_ids))).all()} if team_ids else {}
+    comps = (
+        {c.id: c for c in db.query(Competition).filter(Competition.id.in_(list(comp_ids))).all()}
+        if comp_ids
+        else {}
+    )
+    inviters = _alt_users_by_id(adb, inviter_ids) if inviter_ids else {}
+    return [
+        _build_team_invite_response(
+            r,
+            team=teams.get(r.team_id),
+            competition=comps.get(r.competition_id),
+            inviter=inviters.get(r.inviter_id),
+        )
+        for r in rows
+    ]
+
+
+@router.post("/team-invites/{invite_id}/respond", response_model=TeamInviteResponse)
+async def respond_team_invite(
+    invite_id: int,
+    body: TeamInviteAction,
+    db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """被邀请学生同意或拒绝入队邀请。"""
+    body = TeamInviteAction.model_validate(body)
+    require_permission(identity.role, Permission.MANAGE_TEAMS)
+    if _effective_alt_role(identity.role) != "student":
+        raise HTTPException(status_code=403, detail="Only students can respond to team invites")
+
+    inv = db.query(TeamInvite).filter(TeamInvite.id == invite_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    if int(inv.invitee_id) != int(identity.id):
+        raise HTTPException(status_code=403, detail="Not your invite")
+    if inv.status != TeamInviteStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Invite already responded")
+
+    team = (
+        db.query(Team)
+        .filter(Team.id == inv.team_id, Team.status.in_(_team_composition_open_statuses()))
+        .first()
+    )
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    competition = team.competition or _get_competition(db, inv.competition_id)
+
+    if body.action == "reject":
+        inv.status = TeamInviteStatus.REJECTED
+        inv.responded_at = utc_now()
+        db.commit()
+        db.refresh(inv)
+        return _build_team_invite_response(inv, team=team, competition=competition)
+
+    _ensure_enrollment_open(competition)
+    if competition.status != "published":
+        raise HTTPException(status_code=400, detail="Competition not published")
+    _assert_final_stage_roster_frozen(competition)
+    _assert_team_roster_mutable(db, competition.id, team.id)
+
+    if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == identity.id).first():
+        inv.status = TeamInviteStatus.ACCEPTED
+        inv.responded_at = utc_now()
+        db.commit()
+        db.refresh(inv)
+        return _build_team_invite_response(inv, team=team, competition=competition)
+
+    if _has_active_enrollment_in_scope(
+        db, competition.id, identity.id, CompetitionEnrollmentScope.TEAM
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Already enrolled in the team track for this competition",
+        )
+
+    want_captain = bool(inv.as_captain) or int(team.captain_id) == int(identity.id)
+    if want_captain:
+        existing_captain = (
+            db.query(TeamMember)
+            .filter(TeamMember.team_id == team.id, TeamMember.is_captain.is_(True))
+            .first()
+        )
+        if existing_captain and int(existing_captain.user_id) != int(identity.id):
+            want_captain = False
+
+    _add_student_to_team(db, competition, team, identity.id, is_captain=want_captain)
+    if want_captain:
+        team.captain_id = identity.id
+
+    inv.status = TeamInviteStatus.ACCEPTED
+    inv.responded_at = utc_now()
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Accept invite failed: {str(e)}")
+    db.refresh(inv)
+    return _build_team_invite_response(inv, team=team, competition=competition)
 
 
 @router.delete("/teams/{team_id}/members/{user_id}", status_code=status.HTTP_200_OK)
@@ -5992,6 +6220,7 @@ async def kick_team_member(
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     competition = team.competition
+    _assert_team_roster_mutable(db, competition.id, team.id)
 
     if not _can_manage_team_composition(team, identity):
         raise HTTPException(status_code=403, detail="Only captain or advising teacher may remove members")
@@ -6165,6 +6394,7 @@ async def review_team_join_request(
         users_by_id = _alt_users_by_id(adb, {req.user_id})
         return _build_team_join_request_response(req, users_by_id)
 
+    _assert_team_roster_mutable(db, competition.id, team.id)
     _ensure_alt_principal_is_student(adb, req.user_id)
     if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == req.user_id).first():
         raise HTTPException(status_code=400, detail="Already a team member")
@@ -6215,6 +6445,8 @@ async def transfer_captain(
 
     if team.captain_id != identity.id:
         raise HTTPException(status_code=403, detail="Only current captain can transfer")
+
+    _assert_team_roster_mutable(db, team.competition_id, team.id)
 
     new_captain_ref = (payload.new_captain or "").strip() if getattr(payload, "new_captain", None) else ""
     if new_captain_ref:
@@ -6299,6 +6531,8 @@ async def leave_team(
     )
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
+
+    _assert_team_roster_mutable(db, team.competition_id, team.id)
 
     member = db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == identity.id).first()
     if not member:

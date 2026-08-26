@@ -939,6 +939,28 @@ class TeamJoinRequestReview(BaseModel):
     action: Literal["approve", "reject"]
 
 
+class TeamInviteResponse(BaseModel):
+    id: int
+    team_id: int
+    competition_id: int
+    competition_name: Optional[str] = None
+    team_name: Optional[str] = None
+    invitee_id: int
+    inviter_id: int
+    inviter_name: Optional[str] = None
+    as_captain: bool = False
+    status: str
+    created_at: UtcDatetime
+    responded_at: Optional[UtcDatetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TeamInviteAction(BaseModel):
+    action: Literal["accept", "reject"]
+
+
 class TeamDetailResponse(BaseModel):
     """队伍详情（含成员列表），用于查看竞赛下所有队伍"""
     id: int

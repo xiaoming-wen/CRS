@@ -451,7 +451,7 @@ export function patchCompetitionTeam (teamId, payload) {
   })
 }
 
-// 8.12.2 邀请队员（队长或建队指导老师）；可传 student_id 或 student（姓名/用户名/8位ID）
+// 8.12.2 邀请队员（队长或建队指导老师）；发出邀请，须对方同意后入队
 export function inviteCompetitionTeamMember (teamId, studentOrPayload) {
   let data
   if (studentOrPayload != null && typeof studentOrPayload === 'object' && !Array.isArray(studentOrPayload)) {
@@ -465,6 +465,29 @@ export function inviteCompetitionTeamMember (teamId, studentOrPayload) {
     url: `/v1/competitions/teams/${teamId}/invite`,
     method: 'post',
     data,
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+// 8.12.2b 当前学生：待处理入队邀请
+export function listMyTeamInvites (options = {}) {
+  const params = {}
+  if (options.status) params.status = options.status
+  return axios({
+    url: '/v1/competitions/team-invites/me',
+    method: 'get',
+    params
+  })
+}
+
+// 8.12.2c 同意 / 拒绝入队邀请
+export function respondTeamInvite (inviteId, action) {
+  return axios({
+    url: `/v1/competitions/team-invites/${encodeURIComponent(inviteId)}/respond`,
+    method: 'post',
+    data: { action },
     headers: {
       'Content-Type': 'application/json'
     }

@@ -170,6 +170,13 @@ async def startup_event():
         logging.getLogger(__name__).warning("Team join request migration skipped: %s", e)
 
     try:
+        from app.competition_team_invite_migrate import migrate_competition_team_invites
+
+        migrate_competition_team_invites(user_engine)
+    except Exception as e:
+        logging.getLogger(__name__).warning("Team invite migration skipped: %s", e)
+
+    try:
         from app.competition_stage_migrate import migrate_competition_stage
 
         migrate_competition_stage(user_engine)

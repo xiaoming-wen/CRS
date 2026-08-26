@@ -526,17 +526,18 @@
               <a-form layout="vertical">
                 <a-form-item label="队长转让（可选）">
                   <div class="row">
-                    <a-input-number v-model="transferTeamId" :min="eightDigitIdMin" :max="eightDigitIdMax" placeholder="8 位队伍ID" style="width: 180px" />
+                    <a-input-number v-model="transferTeamId" :min="eightDigitIdMin" :max="eightDigitIdMax" placeholder="8 位队伍ID" style="width: 180px" :disabled="competitionTeamRosterLocked" />
                     <a-input
                       v-model="newCaptainRef"
                       placeholder="新队长姓名或用户 ID"
                       style="width: 200px"
                       allow-clear
+                      :disabled="competitionTeamRosterLocked"
                     />
                     <a-button
                       :loading="teamLoading"
                       @click="handleTransferCaptain"
-                      :disabled="!transferTeamId || !(newCaptainRef && String(newCaptainRef).trim())"
+                      :disabled="competitionTeamRosterLocked || !transferTeamId || !(newCaptainRef && String(newCaptainRef).trim())"
                     >
                       转让
                     </a-button>
@@ -544,12 +545,12 @@
                 </a-form-item>
                 <a-form-item label="队长退队（可选，强制先转让）">
                   <div class="row">
-                    <a-input-number v-model="leaveTeamId" :min="eightDigitIdMin" :max="eightDigitIdMax" placeholder="8 位队伍ID" style="width: 180px" />
+                    <a-input-number v-model="leaveTeamId" :min="eightDigitIdMin" :max="eightDigitIdMax" placeholder="8 位队伍ID" style="width: 180px" :disabled="competitionTeamRosterLocked" />
                     <a-button
                       danger
                       :loading="teamLoading"
                       @click="handleLeaveTeam"
-                      :disabled="!leaveTeamId"
+                      :disabled="competitionTeamRosterLocked || !leaveTeamId"
                     >
                       退队
                     </a-button>
@@ -658,7 +659,10 @@
               >
                 提交作品
               </a-button>
-              <p v-if="!canSubmitZipPackage && !competitionSubmissionBlocked && !teamSchoolReviewSubmissionBlocked" class="muted" style="margin-top: 8px; font-size: 13px">
+              <p v-if="enrollModalSubmissionLocked" class="muted" style="margin-top: 8px; font-size: 13px; color: #389e0d">
+                已提交作品
+              </p>
+              <p v-else-if="!canSubmitZipPackage && !competitionSubmissionBlocked && !teamSchoolReviewSubmissionBlocked" class="muted" style="margin-top: 8px; font-size: 13px">
                 仅队长可提交队伍作品压缩包。
               </p>
             </a-form>
@@ -1591,6 +1595,55 @@
           您已完成队伍报名且为队员，无需重复报名；创建队伍、加入队伍等操作已由队长负责。
         </p>
 
+        <a-alert
+          v-if="competitionTeamRosterLocked"
+          type="warning"
+          show-icon
+          message="作品已提交"
+          :description="competitionTeamRosterLockedMessage"
+          style="margin-top: 12px"
+        />
+
+        <div v-if="showPendingTeamInvitesInEnrollModal" style="margin-top: 12px">
+          <a-divider orientation="left">入队邀请</a-divider>
+          <a-spin :spinning="pendingTeamInvitesLoading">
+            <div
+              v-for="inv in pendingTeamInvitesForActiveCompetition"
+              :key="'invite-' + inv.id"
+              class="row"
+              style="justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; padding: 8px 0; border-bottom: 1px solid #f0f0f0"
+            >
+              <div>
+                <div>
+                  队伍
+                  <strong>{{ inv.team_name || ('#' + inv.team_id) }}</strong>
+                  <span v-if="inv.as_captain" class="muted">（队长身份）</span>
+                </div>
+                <div class="muted" style="font-size: 12px; margin-top: 2px">
+                  邀请人：{{ inv.inviter_name || ('#' + inv.inviter_id) }}
+                </div>
+              </div>
+              <div class="row" style="gap: 8px">
+                <a-button
+                  type="primary"
+                  size="small"
+                  :loading="teamInviteRespondingId === inv.id"
+                  @click="handleRespondTeamInvite(inv, 'accept')"
+                >
+                  同意入队
+                </a-button>
+                <a-button
+                  size="small"
+                  :loading="teamInviteRespondingId === inv.id"
+                  @click="handleRespondTeamInvite(inv, 'reject')"
+                >
+                  拒绝
+                </a-button>
+              </div>
+            </div>
+          </a-spin>
+        </div>
+
         <div style="margin-top: 12px">
           <a-form layout="vertical">
             <a-form-item label="我的队伍ID（创建或加入成功后自动填入）">
@@ -1733,17 +1786,25 @@
           <a-form layout="vertical">
             <a-form-item label="队长转让（可选）">
               <div class="row">
-                <a-input-number v-model="transferTeamId" :min="eightDigitIdMin" :max="eightDigitIdMax" placeholder="8 位队伍ID" style="width: 180px" />
+                <a-input-number
+                  v-model="transferTeamId"
+                  :min="eightDigitIdMin"
+                  :max="eightDigitIdMax"
+                  placeholder="8 位队伍ID"
+                  style="width: 180px"
+                  :disabled="competitionTeamRosterLocked"
+                />
                 <a-input
                   v-model="newCaptainRef"
                   placeholder="新队长姓名或用户 ID"
                   style="width: 200px"
                   allow-clear
+                  :disabled="competitionTeamRosterLocked"
                 />
                 <a-button
                   :loading="teamLoading"
                   @click="handleTransferCaptain"
-                  :disabled="!transferTeamId || !(newCaptainRef && String(newCaptainRef).trim())"
+                  :disabled="competitionTeamRosterLocked || !transferTeamId || !(newCaptainRef && String(newCaptainRef).trim())"
                 >
                   转让
                 </a-button>
@@ -1768,6 +1829,7 @@
                     邀请队员
                   </a-button>
                 </div>
+                <p class="muted" style="margin: 6px 0 0; font-size: 12px">发出邀请后，对方须在报名弹窗中同意才会入队。</p>
               </a-form-item>
               <a-form-item label="移除队员">
                 <div class="row">
@@ -1790,6 +1852,25 @@
               </a-form-item>
             </template>
           </a-form>
+          </template>
+
+          <template v-if="showMemberLeaveTeamInEnrollModal">
+            <a-divider />
+            <a-form layout="vertical">
+              <a-form-item label="退出队伍">
+                <a-button
+                  danger
+                  :loading="teamLoading"
+                  :disabled="competitionTeamRosterLocked"
+                  @click="handleMemberLeaveTeam"
+                >
+                  退队
+                </a-button>
+                <p v-if="competitionTeamRosterLocked" class="muted" style="margin: 6px 0 0; font-size: 12px">
+                  {{ competitionTeamRosterLockedMessage }}
+                </p>
+              </a-form-item>
+            </a-form>
           </template>
         </div>
 
@@ -1943,8 +2024,11 @@
             >
               提交作品
             </a-button>
+            <p v-if="enrollModalSubmissionLocked" class="muted" style="margin-top: 8px; font-size: 13px; color: #389e0d">
+              已提交作品
+            </p>
             <p
-              v-if="!canSubmitZipPackage && !competitionSubmissionBlocked && !teamSchoolReviewSubmissionBlocked"
+              v-else-if="!canSubmitZipPackage && !competitionSubmissionBlocked && !teamSchoolReviewSubmissionBlocked"
               class="muted"
               style="margin-top: 8px; font-size: 13px"
             >
@@ -2878,6 +2962,8 @@ import {
   createCompetitionTeam,
   patchCompetitionTeam,
   inviteCompetitionTeamMember,
+  listMyTeamInvites,
+  respondTeamInvite,
   removeCompetitionTeamMember,
   addTeamMember,
   listTeamJoinRequests,
@@ -3050,6 +3136,9 @@ export default {
       transferTeamId: null,
       newCaptainRef: '',
       leaveTeamId: null,
+      pendingTeamInvites: [],
+      pendingTeamInvitesLoading: false,
+      teamInviteRespondingId: null,
 
       enrollLoading: false,
       teamLoading: false,
@@ -4520,11 +4609,38 @@ export default {
       }
       return false
     },
-    /** 仅限制建队、邀请入队（含未发布、已停止报名） */
+    /** 队伍已正式提交作品后，禁止转让/邀请/移除/退队 */
+    competitionTeamRosterLocked () {
+      if (this.hasFormalSubmittedQuestionAnswers) return true
+      if (this.enrollModalSubmissionLocked) return true
+      return false
+    },
+    competitionTeamRosterLockedMessage () {
+      return '作品已提交，无法再变更队伍成员（转让、邀请、移除或退队）'
+    },
+    pendingTeamInvitesForActiveCompetition () {
+      const cid = Number(this.activeCompetitionId)
+      if (!Number.isFinite(cid)) return this.pendingTeamInvites || []
+      return (this.pendingTeamInvites || []).filter(inv => Number(inv.competition_id) === cid)
+    },
+    showPendingTeamInvitesInEnrollModal () {
+      return this.isStudent && this.pendingTeamInvitesForActiveCompetition.length > 0
+    },
+    /** 队员（非队长）可退队 */
+    showMemberLeaveTeamInEnrollModal () {
+      if (!this.isStudent || this.enrollMode !== 'team') return false
+      if (!this.myEnrolledTeam || !this.myTeamId) return false
+      if (this.isCurrentTeamCaptain) return false
+      return true
+    },
+    /** 仅限制建队、邀请入队（含未发布、已停止报名、已提交作品） */
     competitionTeamCreateInviteBlocked () {
-      return this.competitionEnrollPublishBlocked || this.competitionEnrollmentClosed
+      return this.competitionEnrollPublishBlocked || this.competitionEnrollmentClosed || this.competitionTeamRosterLocked
     },
     competitionTeamCreateInviteBlockedDescription () {
+      if (this.competitionTeamRosterLocked) {
+        return this.competitionTeamRosterLockedMessage
+      }
       if (this.competitionEnrollPublishBlocked) {
         return '竞赛尚未发布，暂无法建队或邀请队员；已发布且报名开放后可操作。'
       }
@@ -4534,15 +4650,19 @@ export default {
       return ''
     },
     competitionTeamCreateInviteBlockedTitle () {
+      if (this.competitionTeamRosterLocked) return '作品已提交'
       if (this.competitionEnrollPublishBlocked) return '竞赛尚未发布'
       if (this.competitionEnrollmentClosed) return '当前竞赛已停止报名'
       return '当前不可新建队伍或邀请队员'
     },
-    /** 已停止报名或未发布时不可移除队员 */
+    /** 已停止报名、未发布或已提交作品时不可移除队员 */
     competitionTeamRemoveMemberBlocked () {
-      return this.competitionEnrollPublishBlocked || this.competitionEnrollmentClosed
+      return this.competitionEnrollPublishBlocked || this.competitionEnrollmentClosed || this.competitionTeamRosterLocked
     },
     competitionTeamRemoveMemberBlockedMessage () {
+      if (this.competitionTeamRosterLocked) {
+        return this.competitionTeamRosterLockedMessage
+      }
       if (this.competitionEnrollPublishBlocked) {
         return '竞赛尚未发布，暂无法移除队员'
       }
@@ -5848,6 +5968,7 @@ export default {
       }
       try {
         await this.refreshActiveCompetitionMyEnrollKind()
+        await this.refreshPendingTeamInvites()
         this.applyStoredWithdrawSubmissionCutoff()
         await this.refreshMySubmissions()
         if (this.activeCompetitionMyEnrollKind) this.syncIgnoreSubmissionsAfterEnrollRefresh()
@@ -7194,6 +7315,10 @@ export default {
 
     async handleTransferCaptain () {
       if (!this.transferTeamId) return
+      if (this.competitionTeamRosterLocked) {
+        this.$message.warning(this.competitionTeamRosterLockedMessage)
+        return
+      }
       const captainRef = String(this.newCaptainRef || '').trim()
       if (!captainRef) {
         this.$message.warning('请填写新队长姓名或用户 ID')
@@ -7224,6 +7349,10 @@ export default {
 
     async handleLeaveTeam () {
       if (!this.leaveTeamId) return
+      if (this.competitionTeamRosterLocked) {
+        this.$message.warning(this.competitionTeamRosterLockedMessage)
+        return
+      }
       this.teamLoading = true
       try {
         await leaveTeam(this.leaveTeamId)
@@ -7234,8 +7363,8 @@ export default {
           this.myTeamAdvisorName = null
           this.myTeamStatus = null
           this.myTeamWorkTrack = null
-      this.myTeamWorkTrack = null
         }
+        await this.refreshActiveCompetitionMyEnrollKind()
         await this.refreshMySubmissions()
         await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
       } catch (e) {
@@ -7245,9 +7374,73 @@ export default {
       }
     },
 
+    async handleMemberLeaveTeam () {
+      if (!this.myTeamId) return
+      if (this.competitionTeamRosterLocked) {
+        this.$message.warning(this.competitionTeamRosterLockedMessage)
+        return
+      }
+      try {
+        await this.$confirm({
+          title: '确认退队',
+          content: '退出后将取消本队组队报名，需重新接受邀请或申请入队。是否继续？',
+          okText: '退队',
+          cancelText: '取消',
+          okType: 'danger'
+        })
+      } catch (_) {
+        return
+      }
+      this.leaveTeamId = this.myTeamId
+      await this.handleLeaveTeam()
+    },
+
+    async refreshPendingTeamInvites () {
+      if (!this.isStudent || !getStoredAltToken()) {
+        this.pendingTeamInvites = []
+        return
+      }
+      this.pendingTeamInvitesLoading = true
+      try {
+        const res = await listMyTeamInvites({ status: 'pending' })
+        this.pendingTeamInvites = Array.isArray(res)
+          ? res
+          : (res && Array.isArray(res.items) ? res.items : [])
+      } catch (_) {
+        this.pendingTeamInvites = []
+      } finally {
+        this.pendingTeamInvitesLoading = false
+      }
+    },
+
+    async handleRespondTeamInvite (inv, action) {
+      if (!inv || inv.id == null) return
+      const act = action === 'accept' ? 'accept' : 'reject'
+      this.teamInviteRespondingId = inv.id
+      try {
+        await respondTeamInvite(inv.id, act)
+        this.$message.success(act === 'accept' ? '已同意入队' : '已拒绝邀请')
+        await this.refreshPendingTeamInvites()
+        await this.refreshActiveCompetitionMyEnrollKind()
+        await this.refreshMyTeamMembers()
+        await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
+      } catch (e) {
+        this.$message.error(
+          (act === 'accept' ? '同意入队失败：' : '拒绝邀请失败：') +
+            this.getApiErrorMessage(e, '未知错误')
+        )
+      } finally {
+        this.teamInviteRespondingId = null
+      }
+    },
+
     async handleStudentTeamInviteMember () {
       if (!this.isCurrentTeamCaptain) {
         this.$message.warning('仅队长可邀请队员')
+        return
+      }
+      if (this.competitionTeamRosterLocked) {
+        this.$message.warning(this.competitionTeamRosterLockedMessage)
         return
       }
       if (!this.myTeamId) {
@@ -7271,11 +7464,12 @@ export default {
           ? { student_id: Number(studentRef) }
           : { student: studentRef }
         await inviteCompetitionTeamMember(this.myTeamId, invitePayload)
-        this.$message.success('邀请成功，学生已入队')
+        this.$message.success('邀请已发送，对方同意后才会入队')
         this.studentTeamInviteRef = ''
         this.studentDivisionIndexCompetitionId = null
         await this.refreshActiveCompetitionMyEnrollKind()
         await this.refreshMyTeamMembers()
+        await this.refreshPendingTeamInvites()
       } catch (e) {
         const mapped = this.mapTeamInviteDetailToUserMessage(this.getEnrollDetailRaw(e))
         this.$message.error(mapped || ('邀请失败：' + this.getApiErrorMessage(e, '未知错误')))
@@ -7494,7 +7688,7 @@ export default {
           }
         }
         this.$message.success(
-          '队伍创建成功，当前为「待校审」，须本校校管理员审核通过后队员方可上传题目答案' +
+          '队伍已创建并已向队长/队员发出入队邀请；对方同意后才会正式入队，队伍当前为「待校审」' +
             (teamId ? `（队伍 ID：${teamId}）` : '')
         )
         this.advisorCreateForm = {
@@ -7534,6 +7728,10 @@ export default {
     async handleAdvisorInviteMember () {
       const team = this.advisorSelectedTeam
       if (!team || !this.canOperateAdvisorSelectedTeam) return
+      if (this.competitionTeamRosterLocked) {
+        this.$message.warning(this.competitionTeamRosterLockedMessage)
+        return
+      }
       if (!this.assertEnrollDivisionContext()) return
       if (!this.assertAdvisorNotBlockedByOtherDivision()) return
       if (!this.assertSelectedAdvisorTeamMatchesView()) return
@@ -7552,7 +7750,7 @@ export default {
           ? { student_id: Number(studentRef) }
           : { student: studentRef }
         await inviteCompetitionTeamMember(team.id, invitePayload)
-        this.$message.success('邀请成功，学生已入队并完成报名')
+        this.$message.success('邀请已发送，学生同意后才会入队并完成报名')
         this.advisorInviteStudent = ''
         this.studentDivisionIndexCompetitionId = null
         await this.refreshAdvisorTeams()
@@ -7567,6 +7765,10 @@ export default {
 
     async handleAdvisorRemoveMember (teamId, userId) {
       if (!teamId || userId == null) return
+      if (this.competitionTeamRosterLocked) {
+        this.$message.warning(this.competitionTeamRosterLockedMessage)
+        return
+      }
       if (this.competitionTeamRemoveMemberBlocked) {
         this.$message.warning(this.competitionTeamRemoveMemberBlockedMessage || '当前不可移除队员')
         return
@@ -9400,6 +9602,52 @@ export default {
       this.gradeForm.feedback = ''
     },
 
+    /** ant-design-vue 1.x：$confirm 不返回 Promise，且须高于评分弹窗 zIndex(3200) */
+    confirmGradeEditSave (content) {
+      return new Promise((resolve) => {
+        this.$confirm({
+          title: '修改评分',
+          content: content || '确定保存评分修改吗？',
+          okText: '确定',
+          cancelText: '取消',
+          zIndex: 4000,
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false)
+        })
+      })
+    },
+
+    /** 保存后即时更新分题列表总分，并同步作品赛道压缩包列表分数 */
+    applyTeamQuestionGradeToAdminRows (teamId, gradePayload, totalScore) {
+      const tid = Number(teamId)
+      if (!Number.isFinite(tid)) return
+      const idx = (this.adminQuestionAnswerRows || []).findIndex(r => Number(r.team_id) === tid)
+      if (idx >= 0) {
+        const row = this.adminQuestionAnswerRows[idx]
+        this.$set(this.adminQuestionAnswerRows, idx, {
+          ...row,
+          score_q1: gradePayload.score_q1,
+          score_q2: gradePayload.score_q2,
+          score_q3: gradePayload.score_q3,
+          score_q4: gradePayload.score_q4,
+          score_q5: gradePayload.score_q5,
+          total_score: totalScore,
+          feedback: gradePayload.feedback || '',
+          graded: true
+        })
+      }
+      const scoreNum = totalScore != null && totalScore !== '' ? Number(totalScore) : NaN
+      if (!Number.isFinite(scoreNum)) return
+      ;(this.adminSubmissions || []).forEach((s) => {
+        if (!s || Number(s.team_id) !== tid || s.id == null) return
+        this.applyReviewGradeToAdminSubmission(s.id, {
+          score: scoreNum,
+          feedback: gradePayload.feedback || '',
+          reviewed_at: new Date().toISOString()
+        })
+      })
+    },
+
     async handleReviewGrade () {
       if (!this.canReviewSubmissions) return
       if (this.gradeForm.team_id) {
@@ -9419,16 +9667,8 @@ export default {
 
       const isEdit = this.gradeFormIsEdit
       if (isEdit) {
-        try {
-          await this.$confirm({
-            title: '修改评分',
-            content: '确定保存对该作品评分的修改吗？',
-            okText: '确定',
-            cancelText: '取消'
-          })
-        } catch {
-          return
-        }
+        const ok = await this.confirmGradeEditSave('确定保存对该作品评分的修改吗？')
+        if (!ok) return
       }
 
       this.gradeLoading = true
@@ -9482,16 +9722,8 @@ export default {
       if (!scores) return
       const isEdit = !!this.gradeForm.questionGradeExists
       if (isEdit) {
-        try {
-          await this.$confirm({
-            title: '修改评分',
-            content: '确定保存对该队伍五题评分的修改吗？总分将自动重新合计。',
-            okText: '确定',
-            cancelText: '取消'
-          })
-        } catch {
-          return
-        }
+        const ok = await this.confirmGradeEditSave('确定保存对该队伍评分的修改吗？总分将自动重新合计。')
+        if (!ok) return
       }
       this.gradeLoading = true
       try {
@@ -9499,15 +9731,21 @@ export default {
           ...scores,
           feedback: this.gradeForm.feedback || ''
         }
+        let gradeRes = null
         if (isEdit) {
-          await patchTeamQuestionGrade(competitionId, teamId, payload)
+          gradeRes = await patchTeamQuestionGrade(competitionId, teamId, payload)
           this.$message.success('评分已更新，总分已自动合计')
         } else {
-          await putTeamQuestionGrade(competitionId, teamId, payload)
+          gradeRes = await putTeamQuestionGrade(competitionId, teamId, payload)
           this.$message.success('评分提交成功，总分已自动合计')
         }
+        const totalScore = gradeRes && gradeRes.total_score != null
+          ? gradeRes.total_score
+          : this.gradeFormAutoTotal
+        this.applyTeamQuestionGradeToAdminRows(teamId, payload, totalScore)
         this.cancelGradeAudit()
         await this.refreshAdminSubmissions()
+        this.applyTeamQuestionGradeToAdminRows(teamId, payload, totalScore)
       } catch (e) {
         const status = e && e.response && e.response.status
         const msg = (e && e.message) ? e.message : '未知错误'
@@ -9536,16 +9774,8 @@ export default {
       const scoreValue = Math.round(total * 100) / 100
       const isEdit = this.gradeFormIsEdit
       if (isEdit) {
-        try {
-          await this.$confirm({
-            title: '修改评分',
-            content: '确定保存对该作品分题评分的修改吗？总分将自动合计。',
-            okText: '确定',
-            cancelText: '取消'
-          })
-        } catch {
-          return
-        }
+        const ok = await this.confirmGradeEditSave('确定保存对该作品分题评分的修改吗？总分将自动合计。')
+        if (!ok) return
       }
       this.gradeLoading = true
       const gradedSubmissionId = this.gradeForm.submission_id
