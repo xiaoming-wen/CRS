@@ -1737,6 +1737,56 @@ def _team_has_submitted_work(db: Session, competition_id: int, team_id: int) -> 
     )
 
 
+def _purge_prior_zip_submissions(
+    db: Session,
+    competition_id: int,
+    *,
+    team_id: Optional[int] = None,
+    student_id: Optional[int] = None,
+) -> None:
+    """同一队伍（或同一学生个人赛道）再次上传压缩包时，删除旧提交，仅保留即将写入的最新记录。"""
+    q = db.query(Submission).filter(Submission.competition_id == int(competition_id))
+    if team_id is not None:
+        q = q.filter(Submission.team_id == int(team_id))
+    else:
+        if student_id is None:
+            return
+        q = q.filter(Submission.team_id.is_(None), Submission.student_id == int(student_id))
+    old_rows = q.all()
+    if not old_rows:
+        return
+    old_ids = [int(s.id) for s in old_rows]
+    db.query(Review).filter(Review.submission_id.in_(old_ids)).delete(synchronize_session=False)
+    for s in old_rows:
+        db.delete(s)
+    db.flush()
+
+
+def _keep_latest_submissions_only(rows: List[Submission]) -> List[Submission]:
+    """列表去重：有 team_id 的按队伍保留最新一条；个人提交按 student_id 保留最新一条。"""
+    if not rows:
+        return []
+
+    def _recency(s: Submission):
+        ts = ensure_utc(s.submitted_at) if getattr(s, "submitted_at", None) else None
+        epoch = ts.timestamp() if ts is not None else 0.0
+        return (epoch, int(getattr(s, "id", 0) or 0))
+
+    ordered = sorted(rows, key=_recency, reverse=True)
+    seen: set = set()
+    out: List[Submission] = []
+    for s in ordered:
+        if s.team_id is not None:
+            key = f"team:{int(s.team_id)}"
+        else:
+            key = f"student:{int(s.student_id)}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+    return out
+
+
 def _assert_team_answers_not_locked(db: Session, competition_id: int, team_id: int) -> None:
     if _team_has_formal_submitted_answers(db, competition_id, team_id):
         raise HTTPException(status_code=400, detail="作品已正式提交，无法再上传或删除题目文件")
@@ -7171,6 +7221,13 @@ async def create_submission(
     file_id = payload.file_id
     content_text = payload.content_text
 
+    _purge_prior_zip_submissions(
+        db,
+        competition.id,
+        team_id=team_id,
+        student_id=student_id if team_id is None else None,
+    )
+
     submission = Submission(
         competition_id=competition.id,
         team_id=payload.team_id,
@@ -7263,6 +7320,13 @@ async def create_submission_upload(
         db.flush()
         file_id = file_record.id
 
+    _purge_prior_zip_submissions(
+        db,
+        competition.id,
+        team_id=team_id,
+        student_id=student_id if team_id is None else None,
+    )
+
     submission = Submission(
         competition_id=competition.id,
         team_id=team_id,
@@ -7295,13 +7359,19 @@ async def list_submissions(
     _get_competition(db, competition_id)
 
     if _can_view_all_competition_submissions(db, competition_id, identity):
-        return db.query(Submission).filter(Submission.competition_id == competition_id).order_by(Submission.submitted_at.desc()).all()
+        rows = (
+            db.query(Submission)
+            .filter(Submission.competition_id == competition_id)
+            .order_by(Submission.submitted_at.desc())
+            .all()
+        )
+        return _keep_latest_submissions_only(rows)
 
     if _is_competition_assigned_expert(db, competition_id, identity):
         team_ids = _assigned_team_ids_for_expert(db, competition_id, identity.id)
         if not team_ids:
             return []
-        return (
+        rows = (
             db.query(Submission)
             .filter(
                 Submission.competition_id == competition_id,
@@ -7310,6 +7380,7 @@ async def list_submissions(
             .order_by(Submission.submitted_at.desc())
             .all()
         )
+        return _keep_latest_submissions_only(rows)
 
     if _effective_alt_role(identity.role) != "student":
         raise HTTPException(
@@ -7326,7 +7397,8 @@ async def list_submissions(
     q = db.query(Submission).filter(Submission.competition_id == competition_id).filter(
         (Submission.student_id == identity.id) | (Submission.team_id.in_(team_ids) if team_ids else False)  # noqa: E712
     )
-    return q.order_by(Submission.submitted_at.desc()).all()
+    rows = q.order_by(Submission.submitted_at.desc()).all()
+    return _keep_latest_submissions_only(rows)
 
 
 @router.get("/submissions/{submission_id}", response_model=SubmissionResponse)
@@ -7881,7 +7953,7 @@ async def my_scores(
             | (Submission.team_id.in_(team_ids) if team_ids else False)  # noqa: E712
         )
     )
-    submissions = q.order_by(Submission.submitted_at.desc()).all()
+    submissions = _keep_latest_submissions_only(q.order_by(Submission.submitted_at.desc()).all())
     items: List[SubmissionForStudentScoreResponse] = []
     for s in submissions:
         base = SubmissionResponse.model_validate(s)

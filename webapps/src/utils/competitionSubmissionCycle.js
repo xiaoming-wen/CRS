@@ -484,6 +484,37 @@ export function filterAdminSubmissionsByActiveEnrollments (submissions, index) {
   return arr.filter(s => isSubmissionVisibleInAdminList(s, index))
 }
 
+/**
+ * 同一队伍只保留最新一条提交；个人提交（无 team_id）按 student_id 去重。
+ * 列表应按 submitted_at 倒序传入，或本函数会按时间排序后再去重。
+ */
+export function keepLatestSubmissionPerTeam (list) {
+  const arr = Array.isArray(list) ? list.slice() : []
+  arr.sort((a, b) => {
+    const ta = parseTimeMs(a && (a.submitted_at || a.created_at)) || 0
+    const tb = parseTimeMs(b && (b.submitted_at || b.created_at)) || 0
+    if (tb !== ta) return tb - ta
+    return Number((b && b.id) || 0) - Number((a && a.id) || 0)
+  })
+  const seen = new Set()
+  const out = []
+  for (const s of arr) {
+    if (!s || typeof s !== 'object') continue
+    let key
+    if (s.team_id != null && s.team_id !== '') {
+      key = `team:${Number(s.team_id)}`
+    } else {
+      const sid = s.student_id != null ? s.student_id : s.submitter_id
+      if (sid == null) continue
+      key = `student:${Number(sid)}`
+    }
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(s)
+  }
+  return out
+}
+
 function hasTeamIdOnSubmission (sub) {
   return sub.team_id !== null && sub.team_id !== undefined && sub.team_id !== ''
 }

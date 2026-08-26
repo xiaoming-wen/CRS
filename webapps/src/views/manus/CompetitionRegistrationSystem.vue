@@ -3025,6 +3025,7 @@ import {
   splitEnrollmentsByTrack,
   filterAdminSubmissionsByActiveEnrollments,
   filterSubmissionsForEnrollmentTrack,
+  keepLatestSubmissionPerTeam,
   filterSubmissionsByViewDivision,
   normalizeCompetitionApiList,
   saveSubmissionReviewGradeCache,
@@ -3907,8 +3908,8 @@ export default {
       return this.isExpertAssignedToActiveCompetition
     },
     adminWorksSubmissions () {
-      // 压缩包提交仅作品赛道可产生，列表即作品赛道内容
-      return this.adminSubmissions || []
+      // 压缩包提交仅作品赛道可产生；同一队伍只展示最新一条
+      return keepLatestSubmissionPerTeam(this.adminSubmissions || [])
     },
     activeCompetitionStageLabel () {
       const s = this.activeCompetitionStage
@@ -4329,7 +4330,7 @@ export default {
     mySubmissionsForCurrentEnrollment () {
       const ctx = this.currentSubmissionTrackContext
       if (!ctx) return []
-      return filterSubmissionsForEnrollmentTrack(this.mySubmissions, ctx)
+      return keepLatestSubmissionPerTeam(filterSubmissionsForEnrollmentTrack(this.mySubmissions, ctx))
     },
     /** 报名弹窗：当前提交类型（个人/队伍）在本报名周期已有作品则禁止再次提交 */
     enrollModalSubmissionLocked () {
@@ -8071,7 +8072,7 @@ export default {
           this.activeCompetitionId,
           this.buildCompetitionDivisionQueryOptions()
         )
-        this.mySubmissions = this.normalizeSubmissionsListResponse(res)
+        this.mySubmissions = keepLatestSubmissionPerTeam(this.normalizeSubmissionsListResponse(res))
       } catch (e) {
         this.mySubmissions = []
         this.$message.error('获取作品列表失败：' + (e && e.message ? e.message : '未知错误'))
@@ -9940,9 +9941,11 @@ export default {
           } else {
             this.adminSubmissionsHiddenByWithdrawCount = 0
           }
-          this.adminSubmissions = visible
+          this.adminSubmissions = keepLatestSubmissionPerTeam(visible)
           const total = Number(subRes && subRes.total)
-          this.adminSubmissionsTotal = Number.isFinite(total) && total >= 0 ? total : visible.length
+          this.adminSubmissionsTotal = Number.isFinite(total) && total >= 0
+            ? Math.min(total, this.adminSubmissions.length)
+            : this.adminSubmissions.length
           await this.enrichAdminSubmissionsScores()
         } else {
           this.adminSubmissions = []
