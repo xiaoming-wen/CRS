@@ -59,6 +59,18 @@ def _normalize_stored_role(value: Optional[str]) -> str:
     return (value or UserRole.STUDENT.value).strip()
 
 
+def _is_rejected_expert(row: Optional[AltAuthUserRecord]) -> bool:
+    """专家核验未通过（停用且未核验）：允许同用户名/手机号重新注册。"""
+    if row is None:
+        return False
+    role = _normalize_stored_role(getattr(row, "role", None))
+    return (
+        role == UserRole.EXPERT.value
+        and not bool(getattr(row, "expert_verified", False))
+        and not bool(getattr(row, "is_active", True))
+    )
+
+
 def _assigned_competition_ids_for_expert(main_db: Session, expert_user_id: int) -> List[int]:
     from app.models.competition import CompetitionExpertAssignment
 
@@ -150,13 +162,14 @@ async def alt_identity_send_sms_code(
         .first()
     )
     if purpose == "register":
-        if existing_user is not None:
+        # 专家核验未通过：视为可重新注册，仍可发注册验证码
+        if existing_user is not None and not _is_rejected_expert(existing_user):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="该手机号已被注册",
             )
     elif purpose == "reset_password":
-        if existing_user is None:
+        if existing_user is None or _is_rejected_expert(existing_user):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="该手机号未注册",
@@ -291,7 +304,7 @@ async def alt_identity_register(
     phone = body.phone
 
     try:
-        existing = (
+        conflicts = (
             db.query(AltAuthUserRecord)
             .filter(
                 or_(
@@ -299,9 +312,13 @@ async def alt_identity_register(
                     AltAuthUserRecord.phone == phone,
                 )
             )
-            .first()
+            .all()
         )
-        if existing:
+        for existing in conflicts:
+            # 专家核验未通过：删除旧记录，允许同用户名/手机号重新注册
+            if _is_rejected_expert(existing):
+                db.delete(existing)
+                continue
             if (existing.username or "") == username:
                 detail = "该用户名已被注册"
             else:
@@ -310,6 +327,8 @@ async def alt_identity_register(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=detail,
             )
+        if conflicts:
+            db.flush()
 
         _consume_sms_code(db, phone, "register", body.sms_code)
 
@@ -327,6 +346,7 @@ async def alt_identity_register(
             hashed_password=hashed,
             role=role_str,
             expert_verified=False,
+            expert_review_feedback=None,
             school_admin_verified=False,
             is_active=True,
             school=body.school,
@@ -404,12 +424,6 @@ async def alt_identity_login(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        if not row.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User account is inactive",
-            )
-
         if not verify_password_plain(body.password, row.hashed_password):
             record_login_failure(username=uname)
             raise HTTPException(
@@ -419,7 +433,24 @@ async def alt_identity_login(
             )
 
         role_out = _normalize_stored_role(row.role)
-        if role_out == UserRole.EXPERT.value and not bool(getattr(row, "expert_verified", False)):
+        expert_verified = bool(getattr(row, "expert_verified", False))
+        is_active = bool(getattr(row, "is_active", True))
+
+        # 专家核验未通过：提示驳回原因，并引导重新注册
+        if role_out == UserRole.EXPERT.value and (not expert_verified) and (not is_active):
+            reason = str(getattr(row, "expert_review_feedback", None) or "").strip() or "未说明"
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"账号核验未通过，原因是（{reason}）。请重新注册。",
+            )
+
+        if not is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User account is inactive",
+            )
+
+        if role_out == UserRole.EXPERT.value and not expert_verified:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Expert account pending verification; please wait for administrator approval",

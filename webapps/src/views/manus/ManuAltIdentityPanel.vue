@@ -275,6 +275,9 @@ export default {
 
     formatAltLoginError (e) {
       const msg = (e && e.message) ? String(e.message) : '登录失败'
+      if (/账号核验未通过/.test(msg)) {
+        return msg
+      }
       if (/pending verification|待.*核验|expert_verified/i.test(msg)) {
         return '专家账号待管理员核验，核验并指派竞赛后方可登录。注册后请将用户 ID 告知管理员。'
       }

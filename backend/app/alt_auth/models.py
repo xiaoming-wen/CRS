@@ -28,6 +28,7 @@ class AltAuthUserRecord(Base):
 
     # 竞赛专家：须由管理员设为 true 后才可担任评委
     expert_verified = Column(Boolean, nullable=False, default=False)
+    expert_review_feedback = Column(String(2000), nullable=True, comment="专家核验未通过原因")
 
     # 校管理员：注册后可登录；提交资料并经 super_admin 审核通过后方可组队校审
     school_admin_verified = Column(Boolean, nullable=False, default=False)

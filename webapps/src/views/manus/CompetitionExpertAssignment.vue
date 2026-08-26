@@ -10,7 +10,7 @@
         <template slot="description">
           <ol class="expert-assignment-desc-list">
             <li>用户可在注册页选择 <strong>专家</strong> 自助注册，此时，<strong>无法登录</strong>。</li>
-            <li>通过加载全部专家；待审核者点击 <strong>确定专家身份</strong>。</li>
+            <li>通过加载全部专家；可按<strong>姓名</strong>与<strong>状态</strong>筛选，对<strong>待核验</strong>执行通过或未通过。</li>
             <li>已核验专家点击 <strong>指派</strong> → 选择竞赛，按<strong>组别</strong>与<strong>赛道</strong>筛选并勾选队伍（可全选当前筛选）→ 可对某一支队伍点击 <strong>取消指派</strong>。</li>
           </ol>
         </template>
@@ -30,28 +30,89 @@
           style="margin-bottom: 12px"
           :message="`注册专家用户 ID：${routeExpertUserIdHint}`"
         >
-          <template slot="description">可在下方待审核列表中查找并核验。</template>
+          <template slot="description">可在下方列表中按姓名/状态查找并核验。</template>
         </a-alert>
+
+        <div class="expert-verify-filters" style="margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+          <a-input-search
+            v-model="expertNameKeyword"
+            allow-clear
+            placeholder="按姓名 / 用户名搜索"
+            style="width: 240px"
+            @search="() => {}"
+          />
+          <a-select
+            v-model="expertStatusFilter"
+            style="width: 140px"
+            placeholder="状态"
+          >
+            <a-select-option value="all">全部状态</a-select-option>
+            <a-select-option value="pending">待核验</a-select-option>
+            <a-select-option value="approved">已通过</a-select-option>
+            <a-select-option value="rejected">未通过</a-select-option>
+          </a-select>
+          <span class="muted">共 {{ allExpertsFilteredTableData.length }} 人</span>
+        </div>
 
         <a-table
           row-key="expert_user_id"
           size="small"
           bordered
           :loading="registryLoading"
-          :columns="pendingExpertsColumns"
-          :data-source="pendingExpertsTableData"
-          :pagination="pendingExpertsTableData.length > 8 ? { pageSize: 8 } : false"
-          :locale="{ emptyText: '当前无待审核专家' }"
+          :columns="allExpertsColumns"
+          :data-source="allExpertsFilteredTableData"
+          :pagination="{ pageSize: 10, showSizeChanger: true }"
+          :scroll="{ x: 1100 }"
+          :locale="{ emptyText: '暂无专家账号' }"
         >
-          <template slot="pendingActions" slot-scope="text, record">
-            <a-button
-              type="primary"
-              size="small"
-              :loading="verifyLoadingId === record.expert_user_id"
-              @click="handleVerifyExpertRow(record)"
-            >
-              确定专家身份
-            </a-button>
+          <template slot="phone" slot-scope="text">
+            {{ text || '—' }}
+          </template>
+          <template slot="school" slot-scope="text">
+            {{ text || '—' }}
+          </template>
+          <template slot="expertStatus" slot-scope="text, record">
+            <div class="expert-status-cell">
+              <a-tag :color="expertStatusMeta(record).color">{{ expertStatusMeta(record).text }}</a-tag>
+              <div
+                v-if="expertReviewStatus(record) === 'rejected' && record.expert_review_feedback"
+                class="expert-reject-reason"
+                :title="record.expert_review_feedback"
+              >
+                原因：{{ record.expert_review_feedback }}
+              </div>
+            </div>
+          </template>
+          <template slot="allExpertActions" slot-scope="text, record">
+            <template v-if="expertReviewStatus(record) === 'pending'">
+              <a-button
+                type="primary"
+                size="small"
+                :loading="verifyLoadingId === record.expert_user_id && verifyAction === 'approve'"
+                @click="handleVerifyExpertRow(record)"
+              >
+                确定专家身份
+              </a-button>
+              <a-button
+                type="danger"
+                size="small"
+                style="margin-left: 8px"
+                :loading="verifyLoadingId === record.expert_user_id && verifyAction === 'reject'"
+                @click="openRejectExpertModal(record)"
+              >
+                未通过
+              </a-button>
+            </template>
+            <template v-else-if="expertReviewStatus(record) === 'rejected'">
+              <a-button
+                size="small"
+                :loading="verifyLoadingId === record.expert_user_id && verifyAction === 'restore'"
+                @click="handleRestorePendingExpert(record)"
+              >
+                恢复待审
+              </a-button>
+            </template>
+            <span v-else class="muted">已通过，可在下方指派</span>
           </template>
         </a-table>
       </a-card>
@@ -263,6 +324,32 @@
       </p>
       <p class="muted" style="margin: 8px 0 0">仅取消该队伍，不影响同竞赛下其他已指派队伍。</p>
     </a-modal>
+    <a-modal
+      :visible="rejectExpertModalVisible"
+      title="专家核验未通过"
+      :confirm-loading="rejectExpertModalLoading"
+      ok-text="确认未通过"
+      ok-type="danger"
+      cancel-text="返回"
+      destroy-on-close
+      @ok="submitRejectExpertModal"
+      @cancel="closeRejectExpertModal"
+    >
+      <p v-if="rejectExpertModalRecord">
+        确定将专家
+        <strong>#{{ rejectExpertModalRecord.expert_user_id }}</strong>
+        （{{ rejectExpertModalRecord.username }}）
+        标记为<strong>未通过</strong>吗？该用户登录时将看到下方原因，并需重新注册。
+      </p>
+      <a-form-item label="未通过原因" required style="margin-top: 12px; margin-bottom: 0">
+        <a-textarea
+          v-model="rejectExpertFeedback"
+          :rows="3"
+          :max-length="500"
+          placeholder="请填写未通过原因（用户登录时可见）"
+        />
+      </a-form-item>
+    </a-modal>
   </div>
 </template>
 
@@ -287,7 +374,16 @@ export default {
       registryLoading: false,
       pendingExpertItems: [],
       verifiedExpertItems: [],
+      rejectedExpertItems: [],
+      allExpertItems: [],
+      expertNameKeyword: '',
+      expertStatusFilter: 'all',
       verifyLoadingId: null,
+      verifyAction: null,
+      rejectExpertModalVisible: false,
+      rejectExpertModalLoading: false,
+      rejectExpertModalRecord: null,
+      rejectExpertFeedback: '',
       revokeLoadingKey: null,
       revokeModalVisible: false,
       revokeModalLoading: false,
@@ -302,11 +398,14 @@ export default {
       assignModalDivisionFilter: 'undergraduate',
       assignModalTrackFilter: 'all',
       assignModalCompetitionIsDual: false,
-      pendingExpertsColumns: [
+      allExpertsColumns: [
         { title: '用户 ID', dataIndex: 'expert_user_id', key: 'expert_user_id', width: 88 },
-        { title: '用户名', dataIndex: 'username', key: 'username', width: 140, ellipsis: true },
-        { title: '姓名', dataIndex: 'full_name', key: 'full_name', width: 140, ellipsis: true },
-        { title: '操作', key: 'pendingActions', width: 140, scopedSlots: { customRender: 'pendingActions' } }
+        { title: '用户名', dataIndex: 'username', key: 'username', width: 120, ellipsis: true },
+        { title: '姓名', dataIndex: 'full_name', key: 'full_name', width: 100, ellipsis: true },
+        { title: '手机号', dataIndex: 'phone', key: 'phone', width: 120, scopedSlots: { customRender: 'phone' } },
+        { title: '学校', dataIndex: 'school', key: 'school', width: 160, ellipsis: true, scopedSlots: { customRender: 'school' } },
+        { title: '状态', key: 'expertStatus', width: 96, scopedSlots: { customRender: 'expertStatus' } },
+        { title: '操作', key: 'allExpertActions', width: 240, fixed: 'right', scopedSlots: { customRender: 'allExpertActions' } }
       ],
       verifiedExpertsColumns: [
         { title: '用户 ID', dataIndex: 'expert_user_id', key: 'expert_user_id', width: 88 },
@@ -329,6 +428,24 @@ export default {
         ...row,
         key: `verified-${row.expert_user_id}`
       }))
+    },
+    allExpertsFilteredTableData () {
+      const kw = String(this.expertNameKeyword || '').trim().toLowerCase()
+      const status = this.expertStatusFilter || 'all'
+      return (this.allExpertItems || [])
+        .filter((row) => {
+          if (!row) return false
+          const st = this.expertReviewStatus(row)
+          if (status !== 'all' && st !== status) return false
+          if (!kw) return true
+          const name = String(row.full_name || '').toLowerCase()
+          const username = String(row.username || '').toLowerCase()
+          return name.includes(kw) || username.includes(kw)
+        })
+        .map(row => ({
+          ...row,
+          key: `all-${row.expert_user_id}`
+        }))
     },
     routeExpertUserIdHint () {
       const q = this.$route && this.$route.query
@@ -581,9 +698,15 @@ export default {
         expert_user_id: expertUserId,
         username: row.username != null ? String(row.username) : '—',
         email: row.email != null ? String(row.email) : '',
+        phone: row.phone != null && String(row.phone).trim() !== '' ? String(row.phone) : '',
         full_name: row.full_name != null && String(row.full_name).trim() !== '' ? String(row.full_name) : '—',
         school: row.school != null && String(row.school).trim() !== '' ? String(row.school) : '—',
         expert_verified: row.expert_verified === true,
+        is_active: row.is_active !== false,
+        expert_review_feedback:
+          row.expert_review_feedback != null && String(row.expert_review_feedback).trim() !== ''
+            ? String(row.expert_review_feedback).trim()
+            : '',
         assigned_competition_ids: assignedIds.map(id => Number(id)).filter(n => Number.isFinite(n)),
         assigned_teams: Array.isArray(row.assigned_teams) ? row.assigned_teams : [],
         assignments: this.buildAssignmentsFromExpertRow(row)
@@ -611,27 +734,47 @@ export default {
       try {
         const res = await getAllCompetitionExperts()
         const all = this.parseGlobalExpertsList(res)
-        this.pendingExpertItems = all.filter(row => !row.expert_verified)
+        this.allExpertItems = all
+        // 待审：未核验且仍启用；已通过：已核验；未通过：停用且未核验
+        this.pendingExpertItems = all.filter(row => !row.expert_verified && row.is_active !== false)
         this.verifiedExpertItems = all.filter(row => row.expert_verified)
+        this.rejectedExpertItems = all.filter(row => !row.expert_verified && row.is_active === false)
       } catch (e) {
+        this.allExpertItems = []
         this.pendingExpertItems = []
         this.verifiedExpertItems = []
+        this.rejectedExpertItems = []
         this.$message.error('加载专家列表失败：' + this.getApiErrorMessage(e))
       } finally {
         this.registryLoading = false
       }
     },
+    expertReviewStatus (record) {
+      if (!record) return 'pending'
+      if (record.expert_verified) return 'approved'
+      if (record.is_active === false) return 'rejected'
+      return 'pending'
+    },
+    expertStatusMeta (record) {
+      const st = this.expertReviewStatus(record)
+      if (st === 'approved') return { text: '已通过', color: 'green' }
+      if (st === 'rejected') return { text: '未通过', color: 'red' }
+      return { text: '待核验', color: 'orange' }
+    },
     async patchExpertVerified (targetId) {
-      const res = await patchCompetitionAltUser(targetId, {
-        role: 'expert',
-        expert_verified: true
-      })
+      const res =         await patchCompetitionAltUser(targetId, {
+          role: 'expert',
+          expert_verified: true,
+          is_active: true,
+          expert_review_feedback: ''
+        })
       return this.normalizeVerifiedExpert(res, targetId)
     },
     async handleVerifyExpertRow (record) {
       if (!record || record.expert_user_id == null) return
       const targetId = Number(record.expert_user_id)
       this.verifyLoadingId = targetId
+      this.verifyAction = 'approve'
       try {
         await this.patchExpertVerified(targetId)
         this.$message.success(`用户 #${targetId} 专家身份已确认，可进行竞赛与队伍指派`)
@@ -640,6 +783,71 @@ export default {
         this.$message.error('核验失败：' + this.getApiErrorMessage(e))
       } finally {
         this.verifyLoadingId = null
+        this.verifyAction = null
+      }
+    },
+    openRejectExpertModal (record) {
+      if (!record || record.expert_user_id == null) return
+      this.rejectExpertModalRecord = record
+      this.rejectExpertFeedback = ''
+      this.rejectExpertModalVisible = true
+    },
+    closeRejectExpertModal () {
+      this.rejectExpertModalVisible = false
+      this.rejectExpertModalLoading = false
+      this.rejectExpertModalRecord = null
+      this.rejectExpertFeedback = ''
+    },
+    async submitRejectExpertModal () {
+      const record = this.rejectExpertModalRecord
+      if (!record || record.expert_user_id == null) return Promise.reject(new Error('cancelled'))
+      const reason = String(this.rejectExpertFeedback || '').trim()
+      if (!reason) {
+        this.$message.warning('请填写未通过原因')
+        return Promise.reject(new Error('cancelled'))
+      }
+      const targetId = Number(record.expert_user_id)
+      this.rejectExpertModalLoading = true
+      this.verifyLoadingId = targetId
+      this.verifyAction = 'reject'
+      try {
+        await patchCompetitionAltUser(targetId, {
+          role: 'expert',
+          expert_verified: false,
+          is_active: false,
+          expert_review_feedback: reason
+        })
+        this.$message.success(`用户 #${targetId} 已标记为未通过`)
+        this.closeRejectExpertModal()
+        await this.loadExpertRegistry()
+      } catch (e) {
+        this.$message.error('操作失败：' + this.getApiErrorMessage(e))
+        return Promise.reject(e)
+      } finally {
+        this.rejectExpertModalLoading = false
+        this.verifyLoadingId = null
+        this.verifyAction = null
+      }
+    },
+    async handleRestorePendingExpert (record) {
+      if (!record || record.expert_user_id == null) return
+      const targetId = Number(record.expert_user_id)
+      this.verifyLoadingId = targetId
+      this.verifyAction = 'restore'
+      try {
+        await patchCompetitionAltUser(targetId, {
+          role: 'expert',
+          expert_verified: false,
+          is_active: true,
+          expert_review_feedback: ''
+        })
+        this.$message.success(`用户 #${targetId} 已恢复为待核验`)
+        await this.loadExpertRegistry()
+      } catch (e) {
+        this.$message.error('恢复失败：' + this.getApiErrorMessage(e))
+      } finally {
+        this.verifyLoadingId = null
+        this.verifyAction = null
       }
     },
     openAssignModal (record) {
@@ -783,6 +991,25 @@ export default {
 
 .muted {
   color: rgba(0, 0, 0, 0.45);
+}
+
+.expert-status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.expert-reject-reason {
+  max-width: 220px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .assignment-list {

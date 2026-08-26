@@ -1027,9 +1027,12 @@ class CompetitionExpertListItem(BaseModel):
     expert_user_id: int
     username: str = ""
     email: Optional[str] = None
+    phone: Optional[str] = None
     full_name: Optional[str] = None
     school: Optional[str] = None
     expert_verified: bool = False
+    expert_review_feedback: Optional[str] = None
+    is_active: bool = True
     assigned_competition_ids: List[int] = Field(
         default_factory=list,
         description="该专家已被指派的竞赛 id 列表（可多场；空列表表示尚未指派任何竞赛）",
@@ -1263,7 +1266,16 @@ class AltUserAdminPatch(BaseModel):
 
     role: Optional[UserRole] = None
     expert_verified: Optional[bool] = None
+    expert_review_feedback: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="专家核验未通过原因；通过或恢复待审时可传空串清空",
+    )
     school_admin_verified: Optional[bool] = None
+    is_active: Optional[bool] = Field(
+        None,
+        description="停用/启用账号；专家核验「未通过」时置 false",
+    )
 
 
 class AltUserAdminUpdateResult(BaseModel):
@@ -1271,6 +1283,7 @@ class AltUserAdminUpdateResult(BaseModel):
     role: str
     expert_verified: bool
     school_admin_verified: bool = False
+    is_active: bool = True
 
 
 class TeamMemberCreate(BaseModel):

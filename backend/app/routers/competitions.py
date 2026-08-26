@@ -2760,9 +2760,12 @@ async def list_all_experts(
                 expert_user_id=u.id,
                 username=u.username or "",
                 email=u.email,
+                phone=getattr(u, "phone", None),
                 full_name=u.full_name,
                 school=u.school,
                 expert_verified=bool(getattr(u, "expert_verified", False)),
+                expert_review_feedback=getattr(u, "expert_review_feedback", None),
+                is_active=bool(getattr(u, "is_active", True)),
                 assigned_competition_ids=cids,
                 assigned_teams=assigned_teams,
             )
@@ -3113,6 +3116,21 @@ async def competition_admin_patch_alt_user(
         if body.expert_verified and _effective_alt_role(row.role) != "expert":
             raise HTTPException(status_code=400, detail="expert_verified only applies to expert role")
         row.expert_verified = bool(body.expert_verified)
+        # 通过核验时确保账号可用，并清空未通过原因
+        if row.expert_verified:
+            row.is_active = True
+            row.expert_review_feedback = None
+    if body.expert_review_feedback is not None:
+        fb = str(body.expert_review_feedback).strip()
+        row.expert_review_feedback = fb[:2000] if fb else None
+    if body.is_active is not None:
+        row.is_active = bool(body.is_active)
+        if not row.is_active and _effective_alt_role(row.role) == "expert":
+            row.expert_verified = False
+        if row.is_active and not bool(getattr(row, "expert_verified", False)):
+            # 恢复待审：清空未通过原因
+            if body.expert_review_feedback is None:
+                row.expert_review_feedback = None
     if body.school_admin_verified is not None:
         if body.school_admin_verified and _effective_alt_role(row.role) != "school_admin":
             raise HTTPException(status_code=400, detail="school_admin_verified only applies to school_admin role")
@@ -3128,6 +3146,7 @@ async def competition_admin_patch_alt_user(
         role=_effective_alt_role(row.role),
         expert_verified=bool(getattr(row, "expert_verified", False)),
         school_admin_verified=bool(getattr(row, "school_admin_verified", False)),
+        is_active=bool(getattr(row, "is_active", True)),
     )
 
 

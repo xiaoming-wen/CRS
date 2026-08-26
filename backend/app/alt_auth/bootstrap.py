@@ -84,6 +84,7 @@ def setup_alt_auth_database(log: Optional[logging.Logger] = None) -> None:
         "ALTER TABLE alt_auth_users ADD COLUMN student_id VARCHAR(50)",
         "ALTER TABLE alt_auth_users ADD COLUMN teacher_id VARCHAR(50)",
         "ALTER TABLE alt_auth_users ADD COLUMN expert_verified BOOLEAN DEFAULT 0",
+        "ALTER TABLE alt_auth_users ADD COLUMN expert_review_feedback VARCHAR(2000)",
         "ALTER TABLE alt_auth_users ADD COLUMN school_admin_verified BOOLEAN DEFAULT 0",
         "ALTER TABLE alt_auth_users ADD COLUMN school_admin_photo_path VARCHAR(512)",
         "ALTER TABLE alt_auth_users ADD COLUMN school_admin_application_status VARCHAR(30)",
