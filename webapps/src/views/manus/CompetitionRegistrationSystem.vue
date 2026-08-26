@@ -1749,19 +1749,6 @@
                 </a-button>
               </div>
             </a-form-item>
-            <a-form-item label="队长退队（可选，强制先转让）">
-              <div class="row">
-                <a-input-number v-model="leaveTeamId" :min="eightDigitIdMin" :max="eightDigitIdMax" placeholder="8 位队伍ID" style="width: 180px" />
-                <a-button
-                  danger
-                  :loading="teamLoading"
-                  @click="handleLeaveTeam"
-                  :disabled="!leaveTeamId"
-                >
-                  退队
-                </a-button>
-              </div>
-            </a-form-item>
             <template v-if="isCurrentTeamCaptain">
               <a-form-item label="邀请队员">
                 <div class="row">
@@ -3029,6 +3016,7 @@ export default {
       myTeamAdvisorName: null,
       /** 当前队伍校审状态：pending_school_review | active | rejected */
       myTeamStatus: null,
+      myTeamWorkTrack: null,
       joinTeamName: '',
       showStudentCreateTeamModal: false,
       studentCreateTeamModalLoading: false,
@@ -3867,8 +3855,8 @@ export default {
         if (t) return t
       }
       // 兼容：报名接口未带回 work_track 时，从队伍详情回退
-      const teamStatusTrack = normalize(this.myTeamStatus && this.myTeamStatus.work_track)
-      if (teamStatusTrack) return teamStatusTrack
+      const teamDetailTrack = normalize(this.myTeamWorkTrack)
+      if (teamDetailTrack) return teamDetailTrack
       return ''
     },
     /** 提交作品弹窗空态说明 */
@@ -4827,6 +4815,7 @@ export default {
       this.myTeamName = null
       this.myTeamAdvisorName = null
       this.myTeamStatus = null
+      this.myTeamWorkTrack = null
       this.joinTeamId = null
       this.joinTeamName = ''
       this.teamJoinRequests = []
@@ -6608,6 +6597,8 @@ export default {
           this.myTeamName = null
           this.myTeamAdvisorName = null
           this.myTeamStatus = null
+          this.myTeamWorkTrack = null
+      this.myTeamWorkTrack = null
           this.submissionTeamId = null
         }
         this.applyEnrollmentContextFromRows()
@@ -6702,6 +6693,8 @@ export default {
           await this.refreshMyTeamStatus()
         } else {
           this.myTeamStatus = null
+          this.myTeamWorkTrack = null
+      this.myTeamWorkTrack = null
         }
         // 须在 myEnrolled* 更新后再通知父页，否则「提交作品」会按旧状态隐藏
         this.notifyEnrollBlockChanged()
@@ -6713,6 +6706,7 @@ export default {
         this.activeCompetitionEnrollmentRows = { individual: null, team: null }
         this.activeCompetitionEnrolledDivision = null
         this.myTeamStatus = null
+      this.myTeamWorkTrack = null
         this.notifyEnrollBlockChanged()
       }
     },
@@ -7218,6 +7212,7 @@ export default {
         await transferTeamCaptain(this.transferTeamId, payload)
         this.$message.success('队长转让成功')
         this.newCaptainRef = ''
+        await this.refreshActiveCompetitionMyEnrollKind()
         await this.refreshMyScores(false)
         await this.refreshMyTeamMembers()
       } catch (e) {
@@ -7238,6 +7233,8 @@ export default {
           this.myTeamName = null
           this.myTeamAdvisorName = null
           this.myTeamStatus = null
+          this.myTeamWorkTrack = null
+      this.myTeamWorkTrack = null
         }
         await this.refreshMySubmissions()
         await this.refreshMyScores(false, { skipSubmissionsRefresh: true })
@@ -9908,6 +9905,10 @@ export default {
 
     applyMyTeamInfoFromTeam (team, fallbackName) {
       this.applyMyTeamStatusFromTeam(team)
+      const rawTrack = team && team.work_track != null ? String(team.work_track).trim().toLowerCase() : ''
+      this.myTeamWorkTrack = (rawTrack === 'works' || rawTrack === 'software' || rawTrack === 'hardware')
+        ? rawTrack
+        : null
       const fromTeam = team && team.name != null ? String(team.name).trim() : ''
       const fromFallback = fallbackName != null ? String(fallbackName).trim() : ''
       const name = fromTeam || fromFallback
@@ -9922,6 +9923,7 @@ export default {
     async refreshMyTeamStatus () {
       if (!this.myTeamId) {
         this.myTeamStatus = null
+      this.myTeamWorkTrack = null
         this.myTeamName = null
         this.myTeamAdvisorName = null
         this.myTeamMembers = []
@@ -9930,6 +9932,7 @@ export default {
       const tid = Number(this.myTeamId)
       if (!Number.isFinite(tid) || tid <= 0) {
         this.myTeamStatus = null
+      this.myTeamWorkTrack = null
         this.myTeamName = null
         this.myTeamAdvisorName = null
         this.myTeamMembers = []

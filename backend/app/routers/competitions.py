@@ -497,6 +497,8 @@ def _add_student_to_team(
 ) -> TeamMember:
     member = TeamMember(team_id=team.id, user_id=student_id, is_captain=is_captain)
     db.add(member)
+    team_division = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).lower()
+    team_work_track = _normalize_optional_work_track(getattr(team, "work_track", None))
     row_any = _get_enrollment_by_scope(
         db, competition.id, student_id, CompetitionEnrollmentScope.TEAM
     )
@@ -505,6 +507,9 @@ def _add_student_to_team(
         row_any.enrollment_scope = CompetitionEnrollmentScope.TEAM
         row_any.is_captain = is_captain
         row_any.status = CompetitionEnrollmentStatus.ENROLLED
+        row_any.division = team_division
+        if team_work_track:
+            row_any.work_track = team_work_track
     else:
         db.add(
             CompetitionEnrollment(
@@ -512,6 +517,8 @@ def _add_student_to_team(
                 student_id=student_id,
                 team_id=team.id,
                 enrollment_scope=CompetitionEnrollmentScope.TEAM,
+                division=team_division,
+                work_track=team_work_track,
                 is_captain=is_captain,
                 status=CompetitionEnrollmentStatus.ENROLLED,
             )
@@ -6244,6 +6251,25 @@ async def transfer_captain(
         CompetitionEnrollment.team_id == team.id,
         CompetitionEnrollment.student_id == new_captain_id,
     ).update({"is_captain": True})
+
+    # 新队长报名记录可能缺 division/work_track（入队时旧逻辑未写入），从队伍同步
+    team_division = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).lower()
+    team_work_track = _normalize_optional_work_track(getattr(team, "work_track", None))
+    new_captain_enroll = (
+        db.query(CompetitionEnrollment)
+        .filter(
+            CompetitionEnrollment.competition_id == team.competition_id,
+            CompetitionEnrollment.team_id == team.id,
+            CompetitionEnrollment.student_id == new_captain_id,
+            CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
+        )
+        .first()
+    )
+    if new_captain_enroll:
+        if not str(getattr(new_captain_enroll, "division", None) or "").strip():
+            new_captain_enroll.division = team_division
+        if not _normalize_optional_work_track(getattr(new_captain_enroll, "work_track", None)) and team_work_track:
+            new_captain_enroll.work_track = team_work_track
 
     db.commit()
     db.refresh(team)
