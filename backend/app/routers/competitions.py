@@ -1439,20 +1439,14 @@ def _build_exam_papers_meta(competition: Competition) -> CompetitionExamPapers:
         for track in WORK_TRACKS:
             path = None
             name = None
+            # 严格按「组别 + 赛道」取值，禁止把其它赛道/旧组别槽位串到本赛道
             if div in track_map and track in track_map[div]:
                 path = track_map[div][track].get("path")
                 name = track_map[div][track].get("filename")
-            if not path:
-                legacy_path, legacy_name = _exam_paper_path_and_filename(competition, div)
-                if legacy_path:
-                    path, name = legacy_path, legacy_name
             by_track[div][track] = _exam_paper_slot(cid, path, name, div, track)
 
     def _legacy_slot(div: str) -> CompetitionExamPaperSlot:
-        for t in ("software", "hardware", "works"):
-            slot = by_track.get(div, {}).get(t)
-            if slot and slot.published:
-                return slot
+        # 顶层 undergraduate/vocational 仅表示旧「按组别、不分赛道」槽位，不再取某赛道文件冒充
         path, name = _exam_paper_path_and_filename(competition, div)
         return _exam_paper_slot(cid, path, name, div)
 
@@ -3525,8 +3519,7 @@ async def publish_competition_exam_paper(
     track = _resolve_work_track(work_track)
     rel, original = await _save_exam_paper_upload(file, competition_id, div, track)
     old_path = set_exam_paper_track_file(competition, div, track, rel, original)
-    # 同步写入旧字段，兼容尚未传 work_track 的客户端
-    _set_exam_paper_path_and_filename(competition, div, rel, original)
+    # 不再同步写入旧「按组别」字段，避免本科作品试卷被其它赛道回退误读
     competition.updated_at = utc_now()
     db.commit()
     db.refresh(competition)
@@ -3628,12 +3621,13 @@ async def download_competition_exam_paper(
             ),
         )
     path, filename = get_exam_paper_track_file(competition, div, track)
-    if not path:
-        path, filename = _exam_paper_path_and_filename(competition, div)
-    # 兼容旧「不分学历组别」default 槽位
+    # 兼容旧「不分学历组别」default 槽位（同一赛道）
     if not path:
         path, filename = get_exam_paper_track_file(competition, "default", track)
-    if not path:
+    # 仅当未指定赛道时，才允许回退到旧「按组别」槽位；有赛道时禁止串用其它赛道文件
+    if not path and not track:
+        path, filename = _exam_paper_path_and_filename(competition, div)
+    if not path and not track:
         path, filename = _exam_paper_path_and_filename(competition, "default")
     if not path:
         raise HTTPException(

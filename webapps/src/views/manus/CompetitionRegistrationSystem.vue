@@ -3795,13 +3795,11 @@ export default {
       const byTrack = meta.by_track || {}
       const trackSlot = byTrack[div] && byTrack[div][track]
       if (trackSlot && trackSlot.published) {
-        // ok
+        // ok：本组别本赛道已发布
       } else {
+        // 仅允许同一赛道的 default 槽位回退，禁止用本科「作品」试卷冒充软件/硬件
         const legacyDefault = byTrack.default && byTrack.default[track]
-        const slot = div === 'undergraduate'
-          ? meta.undergraduate
-          : meta.vocational
-        if (!(slot && slot.published) && !(legacyDefault && legacyDefault.published)) return false
+        if (!(legacyDefault && legacyDefault.published)) return false
       }
 
       if (this.isStudent) {
@@ -5979,13 +5977,10 @@ export default {
         const blob = await downloadCompetitionExamPaper(id, { division: div, work_track: track })
         const meta = this.examPapersForDetail
         const byTrack = meta && meta.by_track
-        const trackSlot = byTrack && byTrack[div] && byTrack[div][track]
-        const slot = trackSlot || (
-          div === 'undergraduate'
-            ? (meta && meta.undergraduate)
-            : (div === 'vocational' ? (meta && meta.vocational) : (meta && meta.default))
-        )
-        const filename = (slot && slot.filename) || `exam_paper_${id}_${div}_${track}.bin`
+        const trackSlot = (byTrack && byTrack[div] && byTrack[div][track])
+          || (byTrack && byTrack.default && byTrack.default[track])
+          || null
+        const filename = (trackSlot && trackSlot.filename) || `exam_paper_${id}_${div}_${track}.bin`
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
