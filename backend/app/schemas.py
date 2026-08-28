@@ -1208,15 +1208,23 @@ class SchoolAdminSetTeamAdvisorResult(BaseModel):
 
 
 class TeamSetSecondAdvisorRequest(BaseModel):
-    """指导老师在队务管理中添加/更换第二指导老师。"""
+    """指导老师在队务管理中添加/更换「另一位」指导老师（第一或第二）。"""
 
-    second_advisor_id: Optional[EightDigitAltUserId] = None
+    second_advisor_id: Optional[EightDigitAltUserId] = Field(
+        None, description="目标指导老师用户 ID（字段名历史兼容）"
+    )
     second_advisor_name: Optional[str] = Field(None, max_length=100)
-    clear: bool = Field(False, description="清空第二指导老师")
+    clear: bool = Field(False, description="清空目标职位上的指导老师")
+    target_role: Literal["first", "second"] = Field(
+        "second",
+        description="要设置的职位：first=第一指导老师，second=第二指导老师",
+    )
 
 
 class TeamSetSecondAdvisorResult(BaseModel):
     team_id: int
+    advisor_id: Optional[int] = None
+    advisor_name: Optional[str] = None
     second_advisor_id: Optional[int] = None
     second_advisor_name: Optional[str] = None
 

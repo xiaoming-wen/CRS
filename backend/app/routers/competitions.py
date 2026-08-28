@@ -4578,10 +4578,10 @@ async def set_team_second_advisor(
     adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
-    """第一/第二指导老师可为队伍添加或更换第二指导老师。"""
+    """本队指导老师可添加/更换另一职位的指导老师（第一或第二）。"""
     role = _effective_alt_role(identity.role)
     if role not in {"advisor", "teacher", "school_admin", "super_admin"}:
-        raise HTTPException(status_code=403, detail="Only advisor/teacher or admin can set second advisor")
+        raise HTTPException(status_code=403, detail="Only advisor/teacher or admin can set peer advisor")
 
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
@@ -4591,7 +4591,7 @@ async def set_team_second_advisor(
 
     if role in {"advisor", "teacher"}:
         if not _team_advisor_managed(team, identity.id):
-            raise HTTPException(status_code=403, detail="Only this team's advisors may set second advisor")
+            raise HTTPException(status_code=403, detail="Only this team's advisors may set peer advisor")
     elif role == "school_admin":
         _require_school_admin_identity(identity)
         admin_school = _normalize_school_name(identity.school)
@@ -4602,28 +4602,53 @@ async def set_team_second_advisor(
 
     _assert_team_school_meta_mutable(db, team.competition_id, team.id)
 
+    target = str(getattr(body, "target_role", None) or "second").strip().lower()
+    if target not in ("first", "second"):
+        raise HTTPException(status_code=400, detail="target_role must be first or second")
+    target_label = "第一指导老师" if target == "first" else "第二指导老师"
+
     if body.clear:
-        team.second_advisor_id = None
-        team.second_advisor_name = None
+        if target == "first":
+            team.created_by_advisor_id = None
+            team.advisor_name = None
+        else:
+            team.second_advisor_id = None
+            team.second_advisor_name = None
         db.commit()
         db.refresh(team)
         return TeamSetSecondAdvisorResult(
             team_id=team.id,
-            second_advisor_id=None,
-            second_advisor_name=None,
+            advisor_id=team.created_by_advisor_id,
+            advisor_name=team.advisor_name,
+            second_advisor_id=team.second_advisor_id,
+            second_advisor_name=team.second_advisor_name,
         )
 
     adv_row = _resolve_advisor_row_from_refs(
         adb,
         advisor_id=body.second_advisor_id,
         advisor_name=body.second_advisor_name,
-        label="第二指导老师",
+        label=target_label,
     )
     if adv_row is None:
-        raise HTTPException(status_code=400, detail="请填写第二指导老师姓名或用户 ID")
+        raise HTTPException(status_code=400, detail=f"请填写{target_label}姓名或用户 ID")
 
-    if team.created_by_advisor_id is not None and int(team.created_by_advisor_id) == int(adv_row.id):
-        raise HTTPException(status_code=400, detail="第二指导老师不能与第一指导老师相同")
+    new_id = int(adv_row.id)
+    new_name = _display_user_name(adv_row, adv_row.id)
+    if target == "first":
+        other_id = getattr(team, "second_advisor_id", None)
+        if other_id is not None and int(other_id) == new_id:
+            raise HTTPException(status_code=400, detail="第一与第二指导老师不能为同一人")
+        first_id, second_id = new_id, (
+            int(other_id) if other_id is not None else None
+        )
+    else:
+        other_id = team.created_by_advisor_id
+        if other_id is not None and int(other_id) == new_id:
+            raise HTTPException(status_code=400, detail="第二指导老师不能与第一指导老师相同")
+        first_id, second_id = (
+            int(other_id) if other_id is not None else None
+        ), new_id
 
     division = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).lower()
     work_track = _normalize_optional_work_track(getattr(team, "work_track", None))
@@ -4634,17 +4659,23 @@ async def set_team_second_advisor(
         competition_id=team.competition_id,
         division=division,
         work_track=work_track,
-        first_advisor_id=team.created_by_advisor_id,
-        second_advisor_id=int(adv_row.id),
+        first_advisor_id=first_id,
+        second_advisor_id=second_id,
         exclude_team_id=team.id,
     )
 
-    team.second_advisor_id = int(adv_row.id)
-    team.second_advisor_name = _display_user_name(adv_row, adv_row.id)
+    if target == "first":
+        team.created_by_advisor_id = new_id
+        team.advisor_name = new_name
+    else:
+        team.second_advisor_id = new_id
+        team.second_advisor_name = new_name
     db.commit()
     db.refresh(team)
     return TeamSetSecondAdvisorResult(
         team_id=team.id,
+        advisor_id=team.created_by_advisor_id,
+        advisor_name=team.advisor_name,
         second_advisor_id=team.second_advisor_id,
         second_advisor_name=team.second_advisor_name,
     )

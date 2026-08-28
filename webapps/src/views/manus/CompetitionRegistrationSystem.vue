@@ -1034,13 +1034,14 @@
                 <a-descriptions-item label="队名">{{ advisorSelectedTeam.name || '（未设置）' }}</a-descriptions-item>
                 <a-descriptions-item label="队长">{{ advisorSelectedTeamCaptainLabel }}</a-descriptions-item>
                 <a-descriptions-item label="状态">{{ participantTeamStatusText(advisorSelectedTeam.status) }}</a-descriptions-item>
+                <a-descriptions-item label="我的身份">{{ advisorSelectedTeamMyRoleLabel }}</a-descriptions-item>
                 <a-descriptions-item label="第一指导老师">{{ advisorSelectedTeamAdvisorLabel }}</a-descriptions-item>
-                <a-descriptions-item label="第二指导老师" :span="2">{{ advisorSelectedTeamSecondAdvisorLabel }}</a-descriptions-item>
+                <a-descriptions-item label="第二指导老师">{{ advisorSelectedTeamSecondAdvisorLabel }}</a-descriptions-item>
               </a-descriptions>
 
               <div class="advisor-manage-team-ops">
                 <a-form layout="inline" style="margin-top: 12px">
-                  <a-form-item label="第二指导老师">
+                  <a-form-item :label="advisorPeerAdvisorFormLabel">
                     <a-input
                       v-model="advisorSecondAdvisorRef"
                       placeholder="姓名或 8 位用户 ID"
@@ -1055,7 +1056,7 @@
                       size="small"
                       :loading="advisorTeamOpLoading"
                       :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled || !(advisorSecondAdvisorRef && String(advisorSecondAdvisorRef).trim())"
-                      @click="handleAdvisorSetSecondAdvisor"
+                      @click="handleAdvisorSetPeerAdvisor"
                     >
                       添加/更换
                     </a-button>
@@ -1063,15 +1064,15 @@
                       size="small"
                       style="margin-left: 8px"
                       :loading="advisorTeamOpLoading"
-                      :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled || !advisorSelectedTeamHasSecondAdvisor"
-                      @click="handleAdvisorClearSecondAdvisor"
+                      :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled || !advisorSelectedTeamHasPeerAdvisor"
+                      @click="handleAdvisorClearPeerAdvisor"
                     >
                       清除
                     </a-button>
                   </a-form-item>
                 </a-form>
                 <div class="muted" style="margin: 4px 0 8px; font-size: 12px">
-                  同一组别+赛道：每位老师指导总数不超过 4 支，其中作为第一指导老师不超过 2 支。
+                  您当前为{{ advisorSelectedTeamMyRoleLabel }}，此处管理另一位指导老师。同一组别+赛道：每位老师指导总数不超过 4 支，其中作为第一指导老师不超过 2 支。
                 </div>
                 <a-form layout="inline" style="margin-top: 12px">
                   <a-form-item label="新队名">
@@ -3412,6 +3413,8 @@ export default {
       advisorSecondAdvisorRef: '',
       /** 本会话内由当前老师创建的队伍 ID（列表未带 created_by_advisor_id 时仍可管理） */
       advisorCreatedTeamIds: [],
+      /** 本会话建队时选择的身份：teamId -> 'first' | 'second' */
+      advisorCreatedTeamRoleById: {},
       /** 本竞赛下当前老师已组班所属的学历组别（dual 时跨组禁止再建队/邀请） */
       activeCompetitionAdvisorTeamDivision: null,
       /** 参赛者 user_id → division（邀请队员时校验同组别） */
@@ -5060,11 +5063,11 @@ export default {
     },
     advisorSelectedTeamAdvisorLabel () {
       const t = this.advisorSelectedTeam
-      if (!t) return '-'
+      if (!t) return '—'
       const name = t.advisor_name != null ? String(t.advisor_name).trim() : ''
       if (name) return name
       if (t.created_by_advisor_id != null) return String(t.created_by_advisor_id)
-      return this.altCurrentUserDisplayName || '-'
+      return '—'
     },
     advisorSelectedTeamSecondAdvisorLabel () {
       const t = this.advisorSelectedTeam
@@ -5074,9 +5077,41 @@ export default {
       if (t.second_advisor_id != null) return String(t.second_advisor_id)
       return '—'
     },
-    advisorSelectedTeamHasSecondAdvisor () {
+    /** 当前登录老师在本队是第一还是第二（用于表格「我的身份」与下方管理另一位） */
+    advisorSelectedTeamMyRole () {
+      const t = this.advisorSelectedTeam
+      if (!t) return null
+      const myId = this.altCurrentUserId
+      if (myId == null) return null
+      const isFirst = t.created_by_advisor_id != null && Number(t.created_by_advisor_id) === Number(myId)
+      const isSecond = t.second_advisor_id != null && Number(t.second_advisor_id) === Number(myId)
+      if (isSecond && !isFirst) return 'second'
+      if (isFirst) return 'first'
+      // 会话内刚创建、接口尚未带回本人 id 时：按建队时选择推断
+      const tid = t.id != null ? t.id : t.team_id
+      const remembered = this.advisorCreatedTeamRoleById && this.advisorCreatedTeamRoleById[Number(tid)]
+      if (remembered === 'second' || remembered === 'first') return remembered
+      return null
+    },
+    advisorSelectedTeamMyRoleLabel () {
+      const role = this.advisorSelectedTeamMyRole
+      if (role === 'first') return '第一指导老师'
+      if (role === 'second') return '第二指导老师'
+      return '—'
+    },
+    /** 下方表单管理的是「另一位」：我是第一则管第二，我是第二则管第一 */
+    advisorPeerAdvisorTargetRole () {
+      return this.advisorSelectedTeamMyRole === 'second' ? 'first' : 'second'
+    },
+    advisorPeerAdvisorFormLabel () {
+      return this.advisorPeerAdvisorTargetRole === 'first' ? '第一指导老师' : '第二指导老师'
+    },
+    advisorSelectedTeamHasPeerAdvisor () {
       const t = this.advisorSelectedTeam
       if (!t) return false
+      if (this.advisorPeerAdvisorTargetRole === 'first') {
+        return !!(t.created_by_advisor_id || (t.advisor_name && String(t.advisor_name).trim()))
+      }
       return !!(t.second_advisor_id || (t.second_advisor_name && String(t.second_advisor_name).trim()))
     },
     advisorSelectedTeamMembers () {
@@ -5312,6 +5347,7 @@ export default {
     },
     activeCompetitionId (newId) {
       this.advisorCreatedTeamIds = []
+      this.advisorCreatedTeamRoleById = {}
       this.studentCreatedTeamInCurrentCompetition = false
       this.teamEnrollmentEligible = false
       this.myTeamId = null
@@ -8211,7 +8247,7 @@ export default {
       this.advisorSecondAdvisorRef = ''
     },
 
-    async handleAdvisorSetSecondAdvisor () {
+    async handleAdvisorSetPeerAdvisor () {
       const t = this.advisorSelectedTeam
       if (!t || t.id == null) return
       if (!this.canOperateAdvisorSelectedTeam) {
@@ -8219,17 +8255,19 @@ export default {
         return
       }
       const ref = String(this.advisorSecondAdvisorRef || '').trim()
+      const targetRole = this.advisorPeerAdvisorTargetRole
+      const label = targetRole === 'first' ? '第一指导老师' : '第二指导老师'
       if (!ref) {
-        this.$message.warning('请填写第二指导老师')
+        this.$message.warning(`请填写${label}`)
         return
       }
-      const payload = {}
+      const payload = { target_role: targetRole }
       if (isEightDigitId(ref)) payload.second_advisor_id = Number(ref)
       else payload.second_advisor_name = ref
       this.advisorTeamOpLoading = true
       try {
         await setTeamSecondAdvisor(t.id, payload)
-        this.$message.success('第二指导老师已更新')
+        this.$message.success(`${label}已更新`)
         this.advisorSecondAdvisorRef = ''
         await this.refreshAdvisorTeams()
       } catch (e) {
@@ -8239,13 +8277,15 @@ export default {
       }
     },
 
-    async handleAdvisorClearSecondAdvisor () {
+    async handleAdvisorClearPeerAdvisor () {
       const t = this.advisorSelectedTeam
       if (!t || t.id == null) return
+      const targetRole = this.advisorPeerAdvisorTargetRole
+      const label = targetRole === 'first' ? '第一指导老师' : '第二指导老师'
       this.advisorTeamOpLoading = true
       try {
-        await setTeamSecondAdvisor(t.id, { clear: true })
-        this.$message.success('已清除第二指导老师')
+        await setTeamSecondAdvisor(t.id, { clear: true, target_role: targetRole })
+        this.$message.success(`已清除${label}`)
         this.advisorSecondAdvisorRef = ''
         await this.refreshAdvisorTeams()
       } catch (e) {
@@ -8322,6 +8362,14 @@ export default {
           const tid = Number(teamId)
           if (Number.isFinite(tid) && !this.advisorCreatedTeamIds.includes(tid)) {
             this.advisorCreatedTeamIds.push(tid)
+          }
+          if (Number.isFinite(tid)) {
+            this.$set
+              ? this.$set(this.advisorCreatedTeamRoleById, tid, myRole)
+              : (this.advisorCreatedTeamRoleById = {
+                ...this.advisorCreatedTeamRoleById,
+                [tid]: myRole
+              })
           }
           const div =
             resolveTeamDivision(team) ||
