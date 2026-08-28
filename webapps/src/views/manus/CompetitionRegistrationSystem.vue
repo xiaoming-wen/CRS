@@ -1177,7 +1177,9 @@
                   :bordered="false"
                 >
                   <div class="submission-title-row">
-                    <div class="submission-title">{{ s.title || '-' }}</div>
+                    <div class="submission-title">
+                      {{ s.team_name || (s.team_id != null ? ('队伍' + s.team_id) : (s.title || '-')) }}
+                    </div>
                     <a-tag :color="getSubmissionStatusColor(s.status)">
                       {{ getSubmissionStatusText(s.status) }}
                     </a-tag>
@@ -1189,16 +1191,15 @@
                     >
                       {{ submissionDivisionLabel(s) }}
                     </a-tag>
-                    <span :style="submissionDivisionLabel(s) ? 'margin-left: 12px' : ''">队伍ID：{{ s.team_id != null ? s.team_id : '-' }}</span>
-                    <span style="margin-left: 12px">学生ID：{{ s.student_id != null ? s.student_id : '-' }}</span>
-                    <span style="margin-left: 12px">提交人ID：{{ s.submitter_id != null ? s.submitter_id : '-' }}</span>
-                    <span style="margin-left: 12px">提交时间：{{ formatDateTime(s.submitted_at) }}</span>
+                    <span :style="submissionDivisionLabel(s) ? 'margin-left: 12px' : ''">
+                      队伍ID：{{ s.team_id != null ? s.team_id : '-' }}
+                    </span>
+                    <span style="margin-left: 12px">
+                      队伍名：{{ s.team_name || (s.team_id != null ? ('队伍' + s.team_id) : '-') }}
+                    </span>
                   </div>
                   <div v-if="isSubmissionGraded(s)" class="muted" style="margin-top: 4px; font-size: 12px">
                     分数：{{ formatScoreCell(s) }}
-                  </div>
-                  <div v-if="s.content_text" class="muted" style="margin-top: 4px; font-size: 12px; max-height: 60px; overflow: hidden; text-overflow: ellipsis">
-                    文本内容：{{ s.content_text }}
                   </div>
                   <div class="row" style="margin-top: 10px">
                     <template v-if="canReviewSubmissions">
@@ -1220,7 +1221,12 @@
                         修改评分
                       </a-button>
                     </template>
-                    <a-button size="small" style="margin-left: 8px" :disabled="!s.file_id" @click="downloadSubmission(s.id)">
+                    <a-button
+                      size="small"
+                      style="margin-left: 8px"
+                      :disabled="!s.file_id"
+                      @click="downloadSubmission(s.id, s)"
+                    >
                       下载文件
                     </a-button>
                   </div>
@@ -8406,14 +8412,20 @@ export default {
       }
     },
 
-    async downloadSubmission (submissionId) {
+    async downloadSubmission (submissionId, row) {
       if (!submissionId) return
       try {
         const result = await downloadCompetitionSubmissionFile(submissionId)
         const blob = result && result.blob != null ? result.blob : result
-        const filename =
-          (result && result.filename) ||
-          `submission_${submissionId}.zip`
+        let filename = (result && result.filename) || ''
+        // 兜底：优先用队伍名命名压缩包
+        if (!filename || /\.bin$/i.test(filename) || /^submission_/i.test(filename)) {
+          const teamName = row && (row.team_name || (row.team_id != null ? `队伍${row.team_id}` : ''))
+          const safeName = String(teamName || '')
+            .replace(/[<>:"/\\|?*\x00-\x1f]+/g, '_')
+            .trim()
+          filename = safeName ? `${safeName}.zip` : `submission_${submissionId}.zip`
+        }
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url

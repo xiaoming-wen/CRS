@@ -1359,6 +1359,7 @@ class SubmissionResponse(BaseModel):
     id: int
     competition_id: int
     team_id: Optional[int] = None
+    team_name: Optional[str] = Field(None, description="队伍名称（有 team_id 时填充）")
     division: CompetitionDivision = Field(
         CompetitionDivision.DEFAULT,
         description="学历组别，与 POST 提交作品时传入并落库的 division 一致",

@@ -1886,6 +1886,51 @@ def _keep_latest_submissions_only(rows: List[Submission]) -> List[Submission]:
     return out
 
 
+def _team_names_by_ids(db: Session, team_ids: set) -> dict:
+    ids = {int(x) for x in team_ids if x is not None}
+    if not ids:
+        return {}
+    rows = db.query(Team.id, Team.name).filter(Team.id.in_(ids)).all()
+    return {int(tid): (name or "").strip() or f"队伍{tid}" for tid, name in rows}
+
+
+def _submission_to_response(
+    submission: Submission,
+    team_names: Optional[dict] = None,
+) -> SubmissionResponse:
+    base = SubmissionResponse.model_validate(submission)
+    team_name = None
+    if submission.team_id is not None:
+        tid = int(submission.team_id)
+        if team_names and tid in team_names:
+            team_name = team_names[tid]
+        else:
+            team_name = f"队伍{tid}"
+    return base.model_copy(update={"team_name": team_name})
+
+
+def _submissions_to_responses(db: Session, rows: List[Submission]) -> List[SubmissionResponse]:
+    team_ids = {int(s.team_id) for s in rows if s.team_id is not None}
+    names = _team_names_by_ids(db, team_ids)
+    return [_submission_to_response(s, names) for s in rows]
+
+
+def _submission_download_filename(db: Session, submission: Submission, file_record: FileModel) -> str:
+    """下载文件名：队伍提交优先用队伍名；保留原扩展名。"""
+    original = (file_record.filename or "").strip() or os.path.basename(file_record.file_path or "") or "submission.zip"
+    _root, ext = os.path.splitext(os.path.basename(original))
+    if not ext:
+        ext = ".zip"
+    if submission.team_id is not None:
+        team = db.query(Team).filter(Team.id == int(submission.team_id)).first()
+        label = _team_export_label(team) if team is not None else f"队伍{int(submission.team_id)}"
+        return f"{label}{ext}"
+    safe = _safe_export_filename(original, fallback=f"submission_{submission.id}{ext}")
+    if not os.path.splitext(safe)[1]:
+        return f"{safe}{ext}"
+    return safe
+
+
 def _assert_team_answers_not_locked(db: Session, competition_id: int, team_id: int) -> None:
     if _team_has_formal_submitted_answers(db, competition_id, team_id):
         raise HTTPException(status_code=400, detail="作品已正式提交，无法再上传或删除题目文件")
@@ -7751,7 +7796,7 @@ async def list_submissions(
             .order_by(Submission.submitted_at.desc())
             .all()
         )
-        return _keep_latest_submissions_only(rows)
+        return _submissions_to_responses(db, _keep_latest_submissions_only(rows))
 
     if _is_competition_assigned_expert(db, competition_id, identity):
         team_ids = _assigned_team_ids_for_expert(db, competition_id, identity.id)
@@ -7766,7 +7811,7 @@ async def list_submissions(
             .order_by(Submission.submitted_at.desc())
             .all()
         )
-        return _keep_latest_submissions_only(rows)
+        return _submissions_to_responses(db, _keep_latest_submissions_only(rows))
 
     if _effective_alt_role(identity.role) != "student":
         raise HTTPException(
@@ -7784,7 +7829,7 @@ async def list_submissions(
         (Submission.student_id == identity.id) | (Submission.team_id.in_(team_ids) if team_ids else False)  # noqa: E712
     )
     rows = q.order_by(Submission.submitted_at.desc()).all()
-    return _keep_latest_submissions_only(rows)
+    return _submissions_to_responses(db, _keep_latest_submissions_only(rows))
 
 
 @router.get("/submissions/{submission_id}", response_model=SubmissionResponse)
@@ -7798,7 +7843,10 @@ async def get_submission(
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
     _ensure_submission_access(db, submission, identity)
-    return submission
+    return _submission_to_response(
+        submission,
+        _team_names_by_ids(db, {int(submission.team_id)} if submission.team_id is not None else set()),
+    )
 
 
 @router.get("/submissions/{submission_id}/download")
@@ -7822,9 +7870,10 @@ async def download_submission_file(
     if not file_record.file_path or not os.path.exists(file_record.file_path):
         raise HTTPException(status_code=404, detail="File missing on server")
 
+    download_name = _submission_download_filename(db, submission, file_record)
     return FileResponse(
         path=file_record.file_path,
-        filename=file_record.filename,
+        filename=download_name,
         media_type=file_record.mime_type or "application/octet-stream",
     )
 
@@ -8340,9 +8389,12 @@ async def my_scores(
         )
     )
     submissions = _keep_latest_submissions_only(q.order_by(Submission.submitted_at.desc()).all())
+    team_names = _team_names_by_ids(
+        db, {int(s.team_id) for s in submissions if s.team_id is not None}
+    )
     items: List[SubmissionForStudentScoreResponse] = []
     for s in submissions:
-        base = SubmissionResponse.model_validate(s)
+        base = _submission_to_response(s, team_names)
         rev = s.review
         items.append(
             SubmissionForStudentScoreResponse(
