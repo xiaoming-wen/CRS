@@ -1938,6 +1938,33 @@ def _create_pending_team_invite(
     return inv
 
 
+def _cancel_pending_team_side_effects(db: Session, team: Team, *, now=None) -> None:
+    """队伍驳回时关闭待处理入队邀请与入队申请，避免学生端卡住。"""
+    ts = now or utc_now()
+    pending_invites = (
+        db.query(TeamInvite)
+        .filter(
+            TeamInvite.team_id == team.id,
+            TeamInvite.status == TeamInviteStatus.PENDING,
+        )
+        .all()
+    )
+    for inv in pending_invites:
+        inv.status = TeamInviteStatus.CANCELLED
+        inv.responded_at = ts
+    pending_joins = (
+        db.query(TeamJoinRequest)
+        .filter(
+            TeamJoinRequest.team_id == team.id,
+            TeamJoinRequest.status == TeamJoinRequestStatus.PENDING,
+        )
+        .all()
+    )
+    for req in pending_joins:
+        req.status = TeamJoinRequestStatus.REJECTED
+        req.reviewed_at = ts
+
+
 def _build_question_answers_board(
     db: Session, competition_id: int, team_id: int
 ) -> CompetitionQuestionAnswersBoard:
@@ -3985,6 +4012,7 @@ async def school_review_team(
         )
         for enr in enrollments:
             enr.status = CompetitionEnrollmentStatus.WITHDRAWN
+        _cancel_pending_team_side_effects(db, team, now=now)
     elif action == "reset_pending":
         if not is_super:
             raise HTTPException(status_code=403, detail="Only super_admin can reset team to pending")
@@ -6472,6 +6500,28 @@ async def list_my_team_invites(
         q = q.filter(TeamInvite.status == st)
     rows = q.order_by(TeamInvite.created_at.desc(), TeamInvite.id.desc()).all()
 
+    # 自愈：队伍已驳回但邀请仍 pending 时自动取消，避免学生端一直卡着
+    if st in {TeamInviteStatus.PENDING, "all"}:
+        pending_rows = [r for r in rows if r.status == TeamInviteStatus.PENDING]
+        if pending_rows:
+            team_map = {
+                t.id: t
+                for t in db.query(Team)
+                .filter(Team.id.in_({r.team_id for r in pending_rows}))
+                .all()
+            }
+            now = utc_now()
+            healed = False
+            for r in pending_rows:
+                team = team_map.get(r.team_id)
+                if team is None or team.status == TeamStatus.REJECTED:
+                    r.status = TeamInviteStatus.CANCELLED
+                    r.responded_at = now
+                    healed = True
+            if healed:
+                db.commit()
+                rows = [r for r in rows if r.status == st] if st != "all" else rows
+
     team_ids = {r.team_id for r in rows}
     comp_ids = {r.competition_id for r in rows}
     inviter_ids = {r.inviter_id for r in rows}
@@ -6515,21 +6565,25 @@ async def respond_team_invite(
     if inv.status != TeamInviteStatus.PENDING:
         raise HTTPException(status_code=400, detail="Invite already responded")
 
-    team = (
-        db.query(Team)
-        .filter(Team.id == inv.team_id, Team.status.in_(_team_composition_open_statuses()))
-        .first()
-    )
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-    competition = team.competition or _get_competition(db, inv.competition_id)
+    team_any = db.query(Team).filter(Team.id == inv.team_id).first()
+    competition = None
+    if team_any is not None:
+        competition = team_any.competition or _get_competition(db, inv.competition_id)
+    elif inv.competition_id:
+        competition = _get_competition(db, inv.competition_id)
 
     if body.action == "reject":
+        # 队伍已驳回/解散时仍允许学生关闭邀请，避免列表卡住
         inv.status = TeamInviteStatus.REJECTED
         inv.responded_at = utc_now()
         db.commit()
         db.refresh(inv)
-        return _build_team_invite_response(inv, team=team, competition=competition)
+        return _build_team_invite_response(inv, team=team_any, competition=competition)
+
+    team = team_any if team_any is not None and team_any.status in _team_composition_open_statuses() else None
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    competition = team.competition or competition or _get_competition(db, inv.competition_id)
 
     _ensure_enrollment_open(competition)
     if competition.status != "published":

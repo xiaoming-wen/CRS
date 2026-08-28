@@ -1280,7 +1280,7 @@
                 size="small"
                 bordered
                 :pagination="{ pageSize: 10, showSizeChanger: true }"
-                :columns="adminQuestionAnswerTableColumnsEffective"
+                :columns="adminQuestionAnswerTableColumnsForTrack(trackKey)"
                 :data-source="adminQuestionAnswerRowsForTrack(trackKey)"
                 :row-key="(r) => trackKey + '-' + r.team_id"
               >
@@ -2982,7 +2982,7 @@
                 :sm="8"
                 :md="4"
               >
-                <a-form-item :label="'第' + q.no + '题' + (q.name && q.name !== ('第' + q.no + '题') ? ('（' + q.name + '）') : '')" required>
+                <a-form-item :label="formatQuestionDisplayName(q)" required>
                   <a-input
                     :value="gradeForm['score_q' + q.no]"
                     :placeholder="gradeQuestionPlaceholder(q)"
@@ -3546,18 +3546,6 @@ export default {
       adminTeamWorkTrackById: {},
       /** student_id -> works|software|hardware（个人报名） */
       adminIndividualWorkTrackById: {},
-      adminQuestionAnswerTableColumns: [
-        { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 100 },
-        { title: '队名', dataIndex: 'team_name', key: 'team_name', ellipsis: true, width: 140 },
-        { title: '第1题', key: 'q1', scopedSlots: { customRender: 'q1' }, width: 150 },
-        { title: '第2题', key: 'q2', scopedSlots: { customRender: 'q2' }, width: 150 },
-        { title: '第3题', key: 'q3', scopedSlots: { customRender: 'q3' }, width: 150 },
-        { title: '第4题', key: 'q4', scopedSlots: { customRender: 'q4' }, width: 150 },
-        { title: '第5题', key: 'q5', scopedSlots: { customRender: 'q5' }, width: 150 },
-        { title: '上传', key: 'progress', scopedSlots: { customRender: 'progress' }, width: 72 },
-        { title: '总分', key: 'totalScore', scopedSlots: { customRender: 'totalScore' }, width: 80 },
-        { title: '操作', key: 'gradeActions', scopedSlots: { customRender: 'gradeActions' }, width: 100 }
-      ],
       adminSubmissionsPage: 1,
       adminSubmissionsPageSize: 20,
       adminSubmissionsTotal: 0,
@@ -3575,20 +3563,6 @@ export default {
       scoresRankings: null,
       showScoresRankingsModal: false,
 
-      rankingsTableColumns: [
-        { title: '排名', dataIndex: 'rowIndex', key: 'rowIndex', width: 72 },
-        { title: '队伍名称', dataIndex: 'team_name', key: 'team_name', ellipsis: true, width: 140 },
-        { title: '学校', dataIndex: 'school', key: 'school', ellipsis: true, width: 140 },
-        { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', ellipsis: true, width: 100 },
-        { title: '队长', dataIndex: 'captain_name', key: 'captain_name', ellipsis: true, width: 100 },
-        { title: '队员', dataIndex: 'members', key: 'members', ellipsis: true, width: 180 },
-        { title: '第1题', dataIndex: 'score_q1', key: 'score_q1', width: 72 },
-        { title: '第2题', dataIndex: 'score_q2', key: 'score_q2', width: 72 },
-        { title: '第3题', dataIndex: 'score_q3', key: 'score_q3', width: 72 },
-        { title: '第4题', dataIndex: 'score_q4', key: 'score_q4', width: 72 },
-        { title: '第5题', dataIndex: 'score_q5', key: 'score_q5', width: 72 },
-        { title: '总分', dataIndex: 'best_score', key: 'best_score', width: 80 }
-      ],
       myScoresTableColumns: [
         { title: '竞赛ID', dataIndex: 'competition_id', key: 'competition_id', width: 80 },
         { title: '作品标题', dataIndex: 'title', key: 'title', ellipsis: true, width: 220 },
@@ -3596,15 +3570,6 @@ export default {
         { title: '成绩', dataIndex: 'score', key: 'score', width: 88 },
         { title: '提交人ID', dataIndex: 'submitter_id', key: 'submitter_id', width: 96 },
         { title: '提交时间', dataIndex: 'submitted_at', key: 'submitted_at', width: 168 }
-      ],
-      myTeamGradesTableColumns: [
-        { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 100 },
-        { title: '第1题', dataIndex: 'score_q1', key: 'score_q1', width: 80 },
-        { title: '第2题', dataIndex: 'score_q2', key: 'score_q2', width: 80 },
-        { title: '第3题', dataIndex: 'score_q3', key: 'score_q3', width: 80 },
-        { title: '第4题', dataIndex: 'score_q4', key: 'score_q4', width: 80 },
-        { title: '第5题', dataIndex: 'score_q5', key: 'score_q5', width: 80 },
-        { title: '总分', dataIndex: 'total_score', key: 'total_score', width: 88 }
       ],
       advisorTeamsTableColumns: [
         { title: '队伍ID', dataIndex: 'id', key: 'id', width: 88 },
@@ -3971,14 +3936,33 @@ export default {
         ? this.participantsTeamsTableColumnsAnon
         : this.participantsTeamsTableColumns
     },
-    adminQuestionAnswerTableColumnsEffective () {
-      if (!this.expertAnonymizedView) return this.adminQuestionAnswerTableColumns
-      return (this.adminQuestionAnswerTableColumns || []).map(col => {
-        if (col && col.key === 'team_name') {
-          return { ...col, title: '匿名编号' }
-        }
-        return col
+    rankingsTableColumns () {
+      const qCols = this.buildQuestionScoreColumns(null, {
+        dataIndexPrefix: 'score_q',
+        width: 88
       })
+      return [
+        { title: '排名', dataIndex: 'rowIndex', key: 'rowIndex', width: 72 },
+        { title: '队伍名称', dataIndex: 'team_name', key: 'team_name', ellipsis: true, width: 140 },
+        { title: '学校', dataIndex: 'school', key: 'school', ellipsis: true, width: 140 },
+        { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', ellipsis: true, width: 100 },
+        { title: '队长', dataIndex: 'captain_name', key: 'captain_name', ellipsis: true, width: 100 },
+        { title: '队员', dataIndex: 'members', key: 'members', ellipsis: true, width: 180 },
+        ...qCols,
+        { title: '总分', dataIndex: 'best_score', key: 'best_score', width: 80 }
+      ]
+    },
+    myTeamGradesTableColumns () {
+      const track = this.activeEnrollmentWorkTrack || 'software'
+      const qCols = this.buildQuestionScoreColumns(track, {
+        dataIndexPrefix: 'score_q',
+        width: 80
+      })
+      return [
+        { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 100 },
+        ...qCols,
+        { title: '总分', dataIndex: 'total_score', key: 'total_score', width: 88 }
+      ]
     },
     adminQuestionAnswerTrackKeys () {
       const all = ['software', 'hardware']
@@ -5015,17 +4999,18 @@ export default {
       return this.isSuperAdmin
     },
     summaryScoreTableColumns () {
+      const qCols = this.buildQuestionScoreColumns(null, {
+        dataIndexPrefix: 'score_q',
+        width: 100,
+        useScopedSlots: true
+      })
       const cols = [
         { title: '队伍名称', dataIndex: 'team_name', key: 'team_name', ellipsis: true, width: 140 },
         { title: '学校', dataIndex: 'school', key: 'school', ellipsis: true, width: 140 },
         { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', ellipsis: true, width: 100 },
         { title: '队长', dataIndex: 'captain_name', key: 'captain_name', ellipsis: true, width: 100 },
         { title: '队员', dataIndex: 'members', key: 'members', ellipsis: true, width: 180 },
-        { title: '第1题', dataIndex: 'score_q1', key: 'score_q1', width: 88, scopedSlots: { customRender: 'score_q1' } },
-        { title: '第2题', dataIndex: 'score_q2', key: 'score_q2', width: 88, scopedSlots: { customRender: 'score_q2' } },
-        { title: '第3题', dataIndex: 'score_q3', key: 'score_q3', width: 88, scopedSlots: { customRender: 'score_q3' } },
-        { title: '第4题', dataIndex: 'score_q4', key: 'score_q4', width: 88, scopedSlots: { customRender: 'score_q4' } },
-        { title: '第5题', dataIndex: 'score_q5', key: 'score_q5', width: 88, scopedSlots: { customRender: 'score_q5' } },
+        ...qCols,
         { title: '总分', dataIndex: 'total_score', key: 'total_score', width: 80, scopedSlots: { customRender: 'total_score' } }
       ]
       if (this.canEditSummaryScores) {
@@ -5071,17 +5056,7 @@ export default {
       return ''
     },
     gradeFormQuestionItems () {
-      const cfg = this.getQuestionConfigForTrack(this.gradeForm.work_track)
-      const qs = (cfg && Array.isArray(cfg.questions)) ? cfg.questions : []
-      const n = Number(cfg && cfg.question_count)
-      const count = Number.isFinite(n) && n >= 1 && n <= 5 ? n : (qs.length || 5)
-      if (qs.length) return qs.slice(0, count)
-      return Array.from({ length: count }, (_, i) => ({
-        no: i + 1,
-        name: `第${i + 1}题`,
-        min_score: 0,
-        max_score: 100
-      }))
+      return this.getQuestionItemsForTrack(this.gradeForm.work_track)
     },
     myTeamGradesTableData () {
       const payload = this.myScores
@@ -7488,17 +7463,9 @@ export default {
     async validateJoinTeamBelongsToActiveCompetition (teamId) {
       const targetId = teamId != null ? Number(teamId) : Number(this.joinTeamId)
       if (!this.activeCompetitionId || !Number.isFinite(targetId) || targetId <= 0) return true
-      try {
-        const team = await getCompetitionTeam(targetId)
-        if (team && Number(team.competition_id) === Number(this.activeCompetitionId)) {
-          return true
-        }
-        const currentName = (this.activeCompetition && this.activeCompetition.name) ? this.activeCompetition.name : '-'
-        this.$message.warning(`队伍ID ${targetId} 不属于当前竞赛（${this.activeCompetitionId} - ${currentName}），请确认后再加入`)
-        return false
-      } catch {
-        return true
-      }
+      // 申请入队者尚非队员：getCompetitionTeam 会 403，全局拦截器会误弹「权限不足」，
+      // 且 catch 后仍放行，校验无实际作用。竞赛归属由入队接口校验。
+      return true
     },
 
     async handleJoinTeam () {
@@ -7707,17 +7674,19 @@ export default {
         this.$message.warning(this.competitionTeamRosterLockedMessage)
         return
       }
-      try {
-        await this.$confirm({
+      // ant-design-vue 1.x 的 $confirm 不返回 Promise，必须用 onOk/onCancel 等待用户确认
+      const confirmed = await new Promise((resolve) => {
+        this.$confirm({
           title: '确认退队',
           content: '退出后将取消本队组队报名，需重新接受邀请或申请入队。是否继续？',
           okText: '退队',
           cancelText: '取消',
-          okType: 'danger'
+          okType: 'danger',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false)
         })
-      } catch (_) {
-        return
-      }
+      })
+      if (!confirmed) return
       this.leaveTeamId = this.myTeamId
       await this.handleLeaveTeam()
     },
@@ -9746,6 +9715,105 @@ export default {
       return `${mn}～${mx}`
     },
 
+    /** 发布试卷配置中的题目展示名（专家打分 / 表头共用） */
+    formatQuestionDisplayName (q) {
+      if (!q) return ''
+      const no = q.no != null ? Number(q.no) : null
+      const name = q.name != null ? String(q.name).trim() : ''
+      if (name) return name
+      return no != null && Number.isFinite(no) ? `第${no}题` : '题目'
+    },
+
+    getQuestionItemsForTrack (trackKey) {
+      const cfg = this.getQuestionConfigForTrack(trackKey)
+      const qs = (cfg && Array.isArray(cfg.questions)) ? cfg.questions : []
+      const n = Number(cfg && cfg.question_count)
+      const count = Number.isFinite(n) && n >= 1 && n <= 5 ? n : (qs.length || 5)
+      if (qs.length) {
+        return qs.slice(0, count).map((q, i) => ({
+          no: q && q.no != null ? Number(q.no) : (i + 1),
+          name: (q && q.name) || `第${i + 1}题`,
+          min_score: q && q.min_score != null ? q.min_score : 0,
+          max_score: q && q.max_score != null ? q.max_score : 100
+        }))
+      }
+      return Array.from({ length: count }, (_, i) => ({
+        no: i + 1,
+        name: `第${i + 1}题`,
+        min_score: 0,
+        max_score: 100
+      }))
+    },
+
+    /** 汇总/排行等多赛道混排时：取各赛道最大题数，题名优先用非默认名 */
+    getMergedQuestionItemsForDisplay () {
+      const tracks = ['works', 'software', 'hardware']
+      let maxCount = 1
+      const nameByNo = {}
+      tracks.forEach((track) => {
+        const items = this.getQuestionItemsForTrack(track)
+        if (items.length > maxCount) maxCount = items.length
+        items.forEach((q) => {
+          const no = Number(q.no)
+          if (!Number.isFinite(no)) return
+          const name = String(q.name || '').trim()
+          const fallback = `第${no}题`
+          if (!nameByNo[no] || (name && name !== fallback && nameByNo[no] === fallback)) {
+            nameByNo[no] = name || fallback
+          }
+        })
+      })
+      return Array.from({ length: maxCount }, (_, i) => {
+        const no = i + 1
+        return {
+          no,
+          name: nameByNo[no] || `第${no}题`,
+          min_score: 0,
+          max_score: 100
+        }
+      })
+    },
+
+    buildQuestionScoreColumns (trackKey, options = {}) {
+      const items = trackKey
+        ? this.getQuestionItemsForTrack(trackKey)
+        : this.getMergedQuestionItemsForDisplay()
+      const prefix = options.dataIndexPrefix || 'score_q'
+      const width = options.width != null ? options.width : 88
+      const useScopedSlots = !!options.useScopedSlots
+      return items.map((q) => {
+        const key = `${prefix}${q.no}`
+        const col = {
+          title: this.formatQuestionDisplayName(q),
+          dataIndex: key,
+          key,
+          width
+        }
+        if (useScopedSlots) {
+          col.scopedSlots = { customRender: key }
+        }
+        return col
+      })
+    },
+
+    adminQuestionAnswerTableColumnsForTrack (trackKey) {
+      const teamNameTitle = this.expertAnonymizedView ? '匿名编号' : '队名'
+      const qCols = this.getQuestionItemsForTrack(trackKey).map((q) => ({
+        title: this.formatQuestionDisplayName(q),
+        key: 'q' + q.no,
+        scopedSlots: { customRender: 'q' + q.no },
+        width: 150
+      }))
+      return [
+        { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 100 },
+        { title: teamNameTitle, dataIndex: 'team_name', key: 'team_name', ellipsis: true, width: 140 },
+        ...qCols,
+        { title: '上传', key: 'progress', scopedSlots: { customRender: 'progress' }, width: 72 },
+        { title: '总分', key: 'totalScore', scopedSlots: { customRender: 'totalScore' }, width: 80 },
+        { title: '操作', key: 'gradeActions', scopedSlots: { customRender: 'gradeActions' }, width: 100 }
+      ]
+    },
+
     onGradeQuestionScoreInput (no, e) {
       const key = 'score_q' + no
       if (!Object.prototype.hasOwnProperty.call(this.gradeForm, key)) return
@@ -9808,13 +9876,19 @@ export default {
       return scores
     },
 
-    fillTeamQuestionGradeForm (record, isEdit = false) {
+    async fillTeamQuestionGradeForm (record, isEdit = false) {
       if (!this.canReviewSubmissions || !record) return
-      this.gradeFormLoading = false
+      this.gradeFormLoading = true
       this.gradeForm.submission_id = null
       this.gradeForm.team_id = record.team_id
-      const track = record.work_track != null ? String(record.work_track).trim().toLowerCase() : ''
-      this.gradeForm.work_track = (track === 'hardware' || track === 'software') ? track : 'software'
+      let track = record.work_track != null ? String(record.work_track).trim().toLowerCase() : ''
+      if (track !== 'hardware' && track !== 'software' && track !== 'works' && record.team_id != null) {
+        const mapped = (this.adminTeamWorkTrackById || {})[Number(record.team_id)]
+        if (mapped) track = String(mapped).trim().toLowerCase()
+      }
+      this.gradeForm.work_track = (track === 'hardware' || track === 'software' || track === 'works')
+        ? track
+        : 'software'
       this.gradeForm.questionGradeExists = !!isEdit
       this.gradeFormIsEdit = !!isEdit
       this.gradeForm.score = ''
@@ -9830,7 +9904,11 @@ export default {
         this.gradeForm.feedback = ''
       }
       this.openGradeAuditModal()
-      void this.refreshActiveSubmissionQuestionConfig()
+      try {
+        await this.refreshActiveSubmissionQuestionConfig()
+      } finally {
+        this.gradeFormLoading = false
+      }
     },
 
     getGradeAuditModalContainer () {
@@ -9858,7 +9936,7 @@ export default {
       // 先弹出评分窗，再异步回填已有分数，避免接口等待时用户感觉“没反应”
       this.openGradeAuditModal()
       this.gradeFormLoading = true
-      void this.refreshActiveSubmissionQuestionConfig()
+      await this.refreshActiveSubmissionQuestionConfig()
 
       try {
         // 首次评分无需查询：后端对「未评分」固定返回 404，会在 Network 里造成误导
@@ -10157,7 +10235,7 @@ export default {
       if (!this.assertCompetitionDivisionQueryContext()) return
       this.adminSubmissionsLoading = true
       try {
-        void this.refreshActiveSubmissionQuestionConfig()
+        await this.refreshActiveSubmissionQuestionConfig()
         const loadQa = this.usesQuestionAnswerSubmission
         const loadZip = this.usesZipPackageSubmission
         // 管理端两者皆 true：同时拉取；学生端仅一种
@@ -10171,13 +10249,15 @@ export default {
               if (s && s.question_no != null) byQ[Number(s.question_no)] = s
             })
             const trackRaw = item.work_track != null ? String(item.work_track).trim().toLowerCase() : ''
+            const workTrack = trackRaw === 'hardware' ? 'hardware' : (trackRaw === 'software' ? 'software' : trackRaw || '')
+            const cfgCount = this.getQuestionItemsForTrack(workTrack || 'software').length
             const row = {
               team_id: item.team_id,
               team_name: item.team_name || `队伍${item.team_id}`,
               captain_id: item.captain_id,
-              work_track: trackRaw === 'hardware' ? 'hardware' : (trackRaw === 'software' ? 'software' : trackRaw || ''),
+              work_track: workTrack,
               uploaded_count: item.uploaded_count != null ? item.uploaded_count : 0,
-              question_count: item.question_count != null ? item.question_count : 5,
+              question_count: cfgCount || (item.question_count != null ? item.question_count : 5),
               graded: !!item.graded,
               score_q1: item.score_q1,
               score_q2: item.score_q2,
@@ -10345,19 +10425,27 @@ export default {
 
     summaryRowAutoTotal (record) {
       if (!record) return '—'
-      const nums = [1, 2, 3, 4, 5].map(n => parseFloat(record['edit_q' + n]))
-      if (nums.some(v => Number.isNaN(v))) return '—'
+      const items = this.getMergedQuestionItemsForDisplay()
+      const nums = items.map(q => parseFloat(record['edit_q' + q.no]))
+      if (!nums.length || nums.some(v => Number.isNaN(v))) return '—'
       const sum = nums.reduce((a, b) => a + b, 0)
       return String(Math.round(sum * 100) / 100)
     },
 
     async saveSummaryTeamGrade (record) {
       if (!this.canEditSummaryScores || !record || !this.activeCompetitionId) return
-      const scores = {}
-      for (const n of [1, 2, 3, 4, 5]) {
-        const parsed = this.parseTeamQuestionScoreInput(record['edit_q' + n], `第${n}题`)
+      const items = this.getMergedQuestionItemsForDisplay()
+      const scores = { score_q1: 0, score_q2: 0, score_q3: 0, score_q4: 0, score_q5: 0 }
+      for (let i = 0; i < items.length; i++) {
+        const q = items[i]
+        const parsed = this.parseTeamQuestionScoreInput(
+          record['edit_q' + q.no],
+          this.formatQuestionDisplayName(q),
+          q.min_score,
+          q.max_score
+        )
         if (parsed == null) return
-        scores['score_q' + n] = parsed
+        scores['score_q' + q.no] = parsed
       }
       const payload = {
         ...scores,
