@@ -3522,6 +3522,8 @@ export default {
       examPaperDownloadLoading: false,
       showExamPaperDownloadModal: false,
       examPaperDownloadTrackKey: null,
+      /** 学生下载试卷：报名关联队伍的校审状态 teamId -> status */
+      examPaperTeamStatusById: {},
       /** 当前竞赛分题配置（学生提交用） */
       activeSubmissionQuestionConfig: null,
 
@@ -3930,10 +3932,16 @@ export default {
           : (rows.team ? [rows.team] : [])
         const allRows = [...teamList]
         if (rows.individual) allRows.push(rows.individual)
+        const statusMap = this.examPaperTeamStatusById || {}
         allRows.forEach((row) => {
           if (!row) return
           const track = row.work_track != null ? String(row.work_track).trim().toLowerCase() : ''
           if (!order.includes(track)) return
+          // 组队报名：仅校审通过的队伍才展示对应赛道试卷
+          if (row.team_id != null) {
+            const st = String(statusMap[Number(row.team_id)] || '').trim().toLowerCase()
+            if (st !== 'active') return
+          }
           const div = this.normalizeViewDivision(row.division)
             || this.normalizeViewDivision(this.activeCompetitionEnrolledDivision)
             || this.normalizeViewDivision(this.activeViewDivision)
@@ -3951,7 +3959,9 @@ export default {
           })
         })
       } else if (this.isAdvisorOrTeacher) {
-        const list = this.advisorTeams || []
+        const list = (this.advisorTeams || []).filter(
+          t => t && String(t.status || '').trim().toLowerCase() === 'active'
+        )
         list.forEach((t) => {
           if (!t) return
           const track = t.work_track != null ? String(t.work_track).trim().toLowerCase() : ''
@@ -3995,10 +4005,27 @@ export default {
         return false
       }
       if (!(this.isStudent || this.isAdvisorOrTeacher)) return false
-      if (this.isStudent && !this.hasAnyEnrollment) return false
-      if (this.isAdvisorOrTeacher && !(this.advisorTeams && this.advisorTeams.length)) return false
-      // 有对应赛道且至少一份已发布试卷时显示入口（弹窗内再按赛道下载）
-      return this.examPaperDownloadOptionsPublished.length > 0
+      if (this.isAdvisorOrTeacher) {
+        const hasActiveTeam = (this.advisorTeams || []).some(
+          t => t && String(t.status || '').trim().toLowerCase() === 'active'
+        )
+        if (!hasActiveTeam) return false
+        return this.examPaperDownloadOptionsPublished.length > 0
+      }
+      if (this.isStudent) {
+        if (!this.hasAnyEnrollment) return false
+        // 已拉到队伍校审状态时，严格按「通过队伍对应赛道」判断
+        if (Object.keys(this.examPaperTeamStatusById || {}).length > 0) {
+          return this.examPaperDownloadOptionsPublished.length > 0
+        }
+        // 状态尚未加载：只要有报名且存在已发布试卷元数据，先显示入口（打开弹窗时再过滤）
+        const byTrack = (this.examPapersForDetail && this.examPapersForDetail.by_track) || {}
+        return ['undergraduate', 'vocational', 'default'].some((div) => {
+          const m = byTrack[div] || {}
+          return ['works', 'software', 'hardware'].some(t => m[t] && m[t].published)
+        })
+      }
+      return false
     },
     createCompetitionNeedsSharedQr () {
       const mode = this.createCompetitionForm.division_mode || 'single'
@@ -6210,6 +6237,32 @@ export default {
       return this.openExamPaperDownloadModal()
     },
 
+    async refreshExamPaperTeamStatusesForStudent () {
+      if (!this.isStudent) {
+        this.examPaperTeamStatusById = {}
+        return
+      }
+      const rows = this.activeCompetitionEnrollmentRows || {}
+      const teamList = (Array.isArray(rows.teams) && rows.teams.length)
+        ? rows.teams
+        : (rows.team ? [rows.team] : [])
+      const ids = [...new Set(
+        teamList
+          .map(r => (r && r.team_id != null ? Number(r.team_id) : null))
+          .filter(id => Number.isFinite(id) && id > 0)
+      )]
+      const map = {}
+      await Promise.all(ids.map(async (tid) => {
+        try {
+          const team = await getCompetitionTeam(tid)
+          map[tid] = team && team.status != null ? String(team.status).trim().toLowerCase() : ''
+        } catch (e) {
+          map[tid] = ''
+        }
+      }))
+      this.examPaperTeamStatusById = map
+    },
+
     async openExamPaperDownloadModal () {
       if (!this.activeCompetitionId) {
         this.$message.warning('请先选择竞赛')
@@ -6219,18 +6272,21 @@ export default {
         if (!this.examPapersForDetail) {
           await this.refreshExamPapersForDetail()
         }
+        if (this.isStudent) {
+          await this.refreshExamPaperTeamStatusesForStudent()
+        }
       } catch (e) { /* refresh 内部已处理 */ }
       const opts = this.examPaperDownloadOptions || []
       if (!opts.length) {
         this.$message.warning(
           this.isAdvisorOrTeacher
-            ? '请先创建队伍并选择赛道后，再下载对应试卷'
-            : '请先完成报名并选择赛道后，再下载对应试卷'
+            ? '请先创建队伍，且队伍校审通过后，方可下载对应赛道试卷'
+            : '请先完成报名，且组队校审通过后，方可下载对应赛道试卷'
         )
         return
       }
       if (!this.examPaperDownloadOptionsPublished.length) {
-        this.$message.warning('您相关赛道的试卷尚未发布')
+        this.$message.warning('您相关赛道的试卷尚未发布（或队伍尚未校审通过）')
         return
       }
       this.showExamPaperDownloadModal = true
@@ -7419,6 +7475,7 @@ export default {
           this.myTeamStatus = null
           this.myTeamWorkTrack = null
         }
+        void this.refreshExamPaperTeamStatusesForStudent()
         // 须在 myEnrolled* 更新后再通知父页，否则「提交作品」会按旧状态隐藏
         this.notifyEnrollBlockChanged()
       } catch {

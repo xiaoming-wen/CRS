@@ -1719,10 +1719,21 @@ def _can_download_exam_paper(
             q = q.filter(CompetitionEnrollment.division == division)
         if track:
             q = q.filter(CompetitionEnrollment.work_track == track)
-        return q.first() is not None
+        rows = q.all()
+        if not rows:
+            return False
+        # 组队报名：仅队伍校审通过（active）可下载；个人报名无队伍则可下
+        for row in rows:
+            if row.team_id is None:
+                return True
+            team = db.query(Team).filter(Team.id == row.team_id).first()
+            if team is not None and team.status == TeamStatus.ACTIVE:
+                return True
+        return False
     if role in {"advisor", "teacher"}:
         q = db.query(Team).filter(
             Team.competition_id == cid,
+            Team.status == TeamStatus.ACTIVE,
             or_(
                 Team.created_by_advisor_id == identity.id,
                 Team.second_advisor_id == identity.id,
@@ -1760,9 +1771,10 @@ def _resolve_identity_work_track_for_paper(
         track = str(getattr(row, "work_track", None) or "").strip().lower() if row else ""
         if track in ("works", "software", "hardware"):
             return track
-    if role in {"advisor", "teacher"}:
+      if (role in {"advisor", "teacher"}:
         q = db.query(Team).filter(
             Team.competition_id == competition.id,
+            Team.status == TeamStatus.ACTIVE,
             or_(
                 Team.created_by_advisor_id == identity.id,
                 Team.second_advisor_id == identity.id,
@@ -3875,8 +3887,8 @@ async def download_competition_exam_paper(
         raise HTTPException(
             status_code=403,
             detail=(
-                "无权下载试卷：学生须先在本赛道完成有效报名；"
-                "指导老师须已在本赛道创建过关联队伍。"
+                "无权下载试卷：学生须在本赛道有效报名且组队已校审通过；"
+                "指导老师须有本赛道已通过校审的关联队伍。"
                 "请确认当前详情页组别与报名组别、赛道一致。"
             ),
         )
