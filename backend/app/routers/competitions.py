@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, StreamingResponse, Response
 from openpyxl import Workbook, load_workbook
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from sqlalchemy import func, and_, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional, Tuple, Union
 from app.datetime_utils import utc_now, ensure_utc
@@ -4146,6 +4147,8 @@ async def school_review_team(
         )
         for enr in enrollments:
             enr.status = CompetitionEnrollmentStatus.WITHDRAWN
+            # 释放 uq_competition_student_work_track，否则后续其他队伍无法改到同赛道
+            enr.work_track = None
         _cancel_pending_team_side_effects(db, team, now=now)
     elif action == "reset_pending":
         if not is_super:
@@ -4231,6 +4234,61 @@ async def set_team_advisor(
     )
 
 
+def _free_stale_work_track_enrollment(
+    db: Session,
+    *,
+    competition_id: int,
+    student_id: int,
+    work_track: str,
+    keep_enrollment_id: int,
+) -> None:
+    """
+    释放同竞赛+学生+赛道上已失效的报名槽位（撤回/驳回队），
+    避免 uq_competition_student_work_track 阻止改赛道。
+    """
+    track = _normalize_optional_work_track(work_track)
+    if not track:
+        return
+    rows = (
+        db.query(CompetitionEnrollment)
+        .filter(
+            CompetitionEnrollment.competition_id == competition_id,
+            CompetitionEnrollment.student_id == student_id,
+            CompetitionEnrollment.work_track == track,
+            CompetitionEnrollment.id != keep_enrollment_id,
+        )
+        .all()
+    )
+    for other in rows:
+        if other.status == CompetitionEnrollmentStatus.WITHDRAWN:
+            db.delete(other)
+            continue
+        if other.status != CompetitionEnrollmentStatus.ENROLLED:
+            db.delete(other)
+            continue
+        other_team = (
+            db.query(Team).filter(Team.id == other.team_id).first()
+            if other.team_id is not None
+            else None
+        )
+        if other_team is not None and other_team.status in (
+            TeamStatus.REJECTED,
+            TeamStatus.DISBANDED,
+        ):
+            other.status = CompetitionEnrollmentStatus.WITHDRAWN
+            other.work_track = None
+            continue
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"队员 {student_id} 已在赛道 {track} 有有效报名"
+                + (f"（队伍 {other.team_id}）" if other.team_id else "")
+                + "，无法将本队改到该赛道"
+            ),
+        )
+    db.flush()
+
+
 def _sync_team_division_and_work_track(
     db: Session, team: Team, division: str, work_track: str
 ) -> None:
@@ -4243,6 +4301,15 @@ def _sync_team_division_and_work_track(
     )
     for row in enrollments:
         row.division = division
+        old_track = _normalize_optional_work_track(row.work_track)
+        if old_track != work_track:
+            _free_stale_work_track_enrollment(
+                db,
+                competition_id=team.competition_id,
+                student_id=row.student_id,
+                work_track=work_track,
+                keep_enrollment_id=row.id,
+            )
         row.work_track = work_track
     submissions = db.query(Submission).filter(Submission.team_id == team.id).all()
     for row in submissions:
@@ -4285,8 +4352,18 @@ async def set_team_division_track(
     competition = _get_competition(db, team.competition_id)
     division = _resolve_enrollment_division(competition, body.division)
     work_track = _resolve_work_track(body.work_track)
-    _sync_team_division_and_work_track(db, team, division, work_track)
-    db.commit()
+    try:
+        _sync_team_division_and_work_track(db, team, division, work_track)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="赛道修改冲突：队员在目标赛道仍有占用记录，请刷新后重试",
+        ) from e
     db.refresh(team)
     return SchoolAdminSetTeamDivisionTrackResult(
         team_id=team.id,
