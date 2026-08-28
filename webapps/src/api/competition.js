@@ -305,7 +305,7 @@ export function submitCompetitionQuestionAnswers (competitionId, teamId) {
 /**
  * 赛后导出答案 zip（按赛道）：
  * work_track=works|software|hardware
- * mode=by_team → 外层含「队伍ID.zip」；by_question → 外层含「第N题.zip」（作品赛道仅支持 by_team）
+ * mode=by_team → 外层含「队伍名.zip」；by_question → 外层含「题目名.zip」，内层文件夹为队伍名（作品赛道仅支持 by_team）
  * 下载文件名以后端 Content-Disposition 为准（赛道名称.zip）
  */
 export function exportCompetitionQuestionAnswers (competitionId, mode, workTrack) {

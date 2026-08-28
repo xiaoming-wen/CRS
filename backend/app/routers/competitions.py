@@ -1647,6 +1647,41 @@ def _safe_export_filename(name: str, fallback: str = "answer") -> str:
     return base or fallback
 
 
+def _team_export_label(team: Team) -> str:
+    """导出压缩包内文件夹/文件名：优先队伍名；空名时回退「队伍{id}」。"""
+    raw = (getattr(team, "name", None) or "").strip()
+    if raw:
+        return _safe_export_filename(raw, fallback=f"队伍{team.id}")
+    return _safe_export_filename(f"队伍{team.id}", fallback=f"队伍{team.id}")
+
+
+def _unique_team_export_labels(teams: list) -> dict:
+    """
+    为导出生成唯一队伍标签：同名队伍在队名后追加 _队伍ID，避免 zip 内重名覆盖。
+    返回 {team_id: label}。
+    """
+    counts: dict[str, int] = {}
+    for team in teams:
+        label = _team_export_label(team)
+        counts[label] = counts.get(label, 0) + 1
+    used: dict[str, int] = {}
+    out: dict = {}
+    for team in teams:
+        base = _team_export_label(team)
+        if counts.get(base, 0) <= 1:
+            out[int(team.id)] = base
+            continue
+        # 重名：队名_队伍ID
+        unique = _safe_export_filename(f"{base}_{team.id}", fallback=f"队伍{team.id}")
+        # 极端情况下仍冲突再追加序号
+        n = used.get(unique, 0)
+        used[unique] = n + 1
+        if n > 0:
+            unique = _safe_export_filename(f"{unique}_{n + 1}", fallback=f"队伍{team.id}")
+        out[int(team.id)] = unique
+    return out
+
+
 def _question_folder_name(
     question_no: int,
     competition: Optional[Competition] = None,
@@ -2140,6 +2175,7 @@ def _build_answers_export_zip(
     answers_map: dict[tuple[int, int], CompetitionQuestionAnswer] = {
         (a.team_id, a.question_no): a for a in answers
     }
+    team_labels = _unique_team_export_labels(teams)
 
     outer = BytesIO()
     with zipfile.ZipFile(outer, "w", compression=zipfile.ZIP_DEFLATED) as outer_zf:
@@ -2157,13 +2193,14 @@ def _build_answers_export_zip(
                         else:
                             inner_zf.writestr(folder + "/", "")
                 inner_buf.seek(0)
-                outer_zf.writestr(f"{team.id}.zip", inner_buf.read())
+                team_label = team_labels.get(int(team.id)) or _team_export_label(team)
+                outer_zf.writestr(f"{team_label}.zip", inner_buf.read())
         elif mode == "by_question":
             for q in range(1, q_count + 1):
                 inner_buf = BytesIO()
                 with zipfile.ZipFile(inner_buf, "w", compression=zipfile.ZIP_DEFLATED) as inner_zf:
                     for team in teams:
-                        folder = str(team.id)
+                        folder = team_labels.get(int(team.id)) or _team_export_label(team)
                         ans = answers_map.get((team.id, q))
                         if ans:
                             _write_answer_file_into_zip(
@@ -2188,7 +2225,7 @@ def _build_works_submissions_export_zip(
     competition: Competition,
     allowed_team_ids: Optional[set] = None,
 ) -> BytesIO:
-    """作品赛道：按队伍导出压缩包作品，外层 zip 内含「队伍ID.zip」。"""
+    """作品赛道：按队伍导出压缩包作品，外层 zip 内含「队伍名.zip」。"""
     teams = (
         db.query(Team)
         .filter(Team.competition_id == competition.id, Team.status == TeamStatus.ACTIVE)
@@ -2199,6 +2236,9 @@ def _build_works_submissions_export_zip(
     works_team_ids = {t.id for t in works_teams}
     if allowed_team_ids is not None:
         works_team_ids = {tid for tid in works_team_ids if int(tid) in allowed_team_ids}
+        works_teams = [t for t in works_teams if int(t.id) in works_team_ids]
+    teams_by_id = {int(t.id): t for t in works_teams}
+    team_labels = _unique_team_export_labels(works_teams)
 
     submissions = (
         db.query(Submission)
@@ -2252,7 +2292,12 @@ def _build_works_submissions_export_zip(
                 )
             inner_buf.seek(0)
             if sub.team_id is not None:
-                arc = f"{int(sub.team_id)}.zip"
+                tid = int(sub.team_id)
+                label = team_labels.get(tid)
+                if not label:
+                    team = teams_by_id.get(tid)
+                    label = _team_export_label(team) if team else f"队伍{tid}"
+                arc = f"{label}.zip"
             else:
                 arc = f"student_{int(sub.student_id)}.zip"
             outer_zf.writestr(arc, inner_buf.read())
@@ -7372,9 +7417,9 @@ async def export_question_answers_zip(
 ):
     """
     赛后一键导出答案压缩包（按赛道）：
-    - works + by_team：作品赛道队伍压缩包作品
-    - software/hardware + by_team：外层含「队伍ID.zip」
-    - software/hardware + by_question：外层含「第N题.zip」
+    - works + by_team：作品赛道队伍压缩包作品（外层「队伍名.zip」）
+    - software/hardware + by_team：外层含「队伍名.zip」
+    - software/hardware + by_question：外层含「题目名.zip」，内层文件夹为队伍名
     总压缩包文件名：作品赛道.zip / 软件赛道.zip / 硬件赛道.zip
     """
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
