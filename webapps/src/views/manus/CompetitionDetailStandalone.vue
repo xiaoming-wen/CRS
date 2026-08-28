@@ -273,7 +273,12 @@ export default {
     },
     onToolbarDownloadExamPaper () {
       const c = this.$refs.registrationSys
-      if (!c || typeof c.downloadActiveExamPaper !== 'function') return
+      if (!c) return
+      if (typeof c.openExamPaperDownloadModal === 'function') {
+        c.openExamPaperDownloadModal()
+        return
+      }
+      if (typeof c.downloadActiveExamPaper !== 'function') return
       this.examPaperToolbarLoading = true
       Promise.resolve(c.downloadActiveExamPaper())
         .catch(() => {})
