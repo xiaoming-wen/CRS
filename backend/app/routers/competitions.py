@@ -1771,7 +1771,7 @@ def _resolve_identity_work_track_for_paper(
         track = str(getattr(row, "work_track", None) or "").strip().lower() if row else ""
         if track in ("works", "software", "hardware"):
             return track
-      if (role in {"advisor", "teacher"}:
+    if role in {"advisor", "teacher"}:
         q = db.query(Team).filter(
             Team.competition_id == competition.id,
             Team.status == TeamStatus.ACTIVE,
