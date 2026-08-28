@@ -3515,7 +3515,7 @@ export default {
       participantsTeamsTableColumnsAnon: [
         { title: '队伍序号', dataIndex: 'sequence_no', key: 'sequence_no', width: 100 },
         { title: '队伍ID', dataIndex: 'team_id', key: 'team_id', width: 120 },
-        { title: '匿名队名', dataIndex: 'team_name_anon', key: 'team_name_anon', width: 140 },
+        { title: '队名', dataIndex: 'team_name_anon', key: 'team_name_anon', width: 140 },
         { title: '成员ID', dataIndex: 'member_ids_summary', key: 'member_ids_summary', ellipsis: true },
         { title: '队伍状态', dataIndex: 'status_text', key: 'status_text', width: 110 },
         { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 180 }
@@ -9840,7 +9840,7 @@ export default {
     },
 
     adminQuestionAnswerTableColumnsForTrack (trackKey) {
-      const teamNameTitle = this.expertAnonymizedView ? '匿名编号' : '队名'
+      const teamNameTitle = '队名'
       const qCols = this.getQuestionItemsForTrack(trackKey).map((q) => ({
         title: this.formatQuestionDisplayName(q),
         key: 'q' + q.no,

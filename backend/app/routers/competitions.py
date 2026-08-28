@@ -2517,7 +2517,7 @@ def _display_user_name(u: Optional[AltAuthUserRecord], fallback_id: Optional[int
 def _is_expert_anonymized_viewer(
     db: Session, competition_id: int, identity: AltAuthUserRecord
 ) -> bool:
-    """专家阅卷视图：隐藏姓名/学校/队名等，仅保留 ID。超管不受限。"""
+    """专家阅卷视图：隐藏队员姓名/学校/指导老师等，保留真实队名。超管不受限。"""
     if _effective_alt_role(identity.role) == "super_admin":
         return False
     return _is_competition_assigned_expert(db, competition_id, identity)
@@ -2582,7 +2582,7 @@ def _team_detail_response(
         return TeamDetailResponse(
             id=team.id,
             competition_id=team.competition_id,
-            name=f"队伍{team.id}",
+            name=team.name,
             captain_id=team.captain_id,
             created_by_advisor_id=None,
             advisor_name=None,
@@ -6147,7 +6147,7 @@ async def list_team_participants(
                 sequence_no=seq,
                 id=team.id,
                 competition_id=team.competition_id,
-                name=f"队伍{team.id}" if anonymize else team.name,
+                name=team.name,
                 captain_id=team.captain_id,
                 status=team.status,
                 created_at=team.created_at,
@@ -7161,7 +7161,7 @@ async def list_question_answers_overview(
         items.append(
             CompetitionQuestionAnswersTeamOverview(
                 team_id=team.id,
-                team_name=f"队伍{team.id}" if anonymize else team.name,
+                team_name=team.name,
                 captain_id=None if anonymize else team.captain_id,
                 status=team.status,
                 work_track=team_track,
