@@ -118,6 +118,7 @@ class AltAuthRegisterPayload(BaseModel):
         s = str(v).strip()
         if not s:
             raise ValueError("用户名不能为空")
+        # 保留原始大小写：注册/登录均区分大小写（Abc 与 abc 为不同用户名）
         return s
 
     @field_validator("phone")

@@ -884,10 +884,11 @@
             <a-form layout="vertical" style="max-width: 720px">
               <a-row :gutter="12">
                 <a-col :xs="24" :sm="12">
-                  <a-form-item label="队名（选填）">
+                  <a-form-item label="队名" required>
                     <a-input
                       v-model="advisorCreateForm.name"
-                      placeholder="如：一班代表队"
+                      placeholder="同竞赛内队名不可重复"
+                      :maxLength="200"
                       :disabled="advisorTeamActionsDisabled || !allowTeam"
                     />
                   </a-form-item>
@@ -1943,7 +1944,7 @@
         <a-form-item label="队名" required>
           <a-input
             v-model="studentCreateTeamForm.name"
-            placeholder="请输入队伍名称"
+            placeholder="请输入队伍名称（同竞赛内不可重复）"
             :maxLength="200"
             @pressEnter="submitStudentCreateTeamModal"
           />
@@ -6512,6 +6513,10 @@ export default {
         return tail ? `创建队伍失败：${tail}` : '创建队伍失败，请稍后重试'
       }
 
+      if (/队名已存在|team name already exists|duplicate.*team.?name/i.test(text)) {
+        return '队名已存在，请更换其他队名'
+      }
+
       if (/already enrolled in the individual track/i.test(text)) {
         return '个人赛道已报名，无需重复报名（可与队伍赛道并存）'
       }
@@ -6567,6 +6572,24 @@ export default {
       }
 
       return text || fallback
+    },
+
+    isDuplicateTeamNameError (errorOrText) {
+      const text = typeof errorOrText === 'string'
+        ? errorOrText
+        : this.getApiErrorMessage(errorOrText, '')
+      return /队名已存在|team name already exists|duplicate.*team.?name/i.test(String(text || ''))
+    },
+
+    showDuplicateTeamNameModal (errorOrText) {
+      const content = this.isDuplicateTeamNameError(errorOrText)
+        ? '队名已存在，请更换其他队名'
+        : this.getApiErrorMessage(errorOrText, '队名已存在，请更换其他队名')
+      this.$warning({
+        title: '队名重复',
+        content,
+        okText: '知道了'
+      })
     },
 
     /** §8.8 退赛：优先按当前作品赛道 work_track */
@@ -7348,7 +7371,11 @@ export default {
         if (e && (e.message === 'empty team name' || e.message === 'missing division' || e.message === 'missing work_track')) {
           return Promise.reject(e)
         }
-        this.$message.error('创建队伍失败：' + this.getApiErrorMessage(e, '未知错误'))
+        if (this.isDuplicateTeamNameError(e)) {
+          this.showDuplicateTeamNameModal(e)
+        } else {
+          this.$message.error('创建队伍失败：' + this.getApiErrorMessage(e, '未知错误'))
+        }
         return Promise.reject(e)
       } finally {
         this.studentCreateTeamModalLoading = false
@@ -7954,15 +7981,23 @@ export default {
         this.$message.warning('请选择赛道：作品、软件或硬件')
         return
       }
+      const teamName = (this.advisorCreateForm.name || '').trim()
+      if (!teamName) {
+        this.$warning({
+          title: '请填写队名',
+          content: '创建队伍须填写队名，且同竞赛内队名不可重复。',
+          okText: '知道了'
+        })
+        return
+      }
       const payload = {
         competition_id: Number(this.activeCompetitionId),
         division,
-        work_track: workTrack
+        work_track: workTrack,
+        name: teamName
       }
       if (captainRef) payload.captain_student = captainRef
       if (memberRefs.length) payload.initial_members = memberRefs
-      const teamName = (this.advisorCreateForm.name || '').trim()
-      if (teamName) payload.name = teamName
 
       this.advisorCreateLoading = true
       try {
@@ -7997,8 +8032,12 @@ export default {
         await this.refreshAdvisorTeams()
         if (teamId) this.selectAdvisorTeam(teamId)
       } catch (e) {
-        const mapped = this.mapTeamInviteDetailToUserMessage(this.getEnrollDetailRaw(e))
-        this.$message.error(mapped || ('创建队伍失败：' + this.getApiErrorMessage(e, '未知错误')))
+        if (this.isDuplicateTeamNameError(e)) {
+          this.showDuplicateTeamNameModal(e)
+        } else {
+          const mapped = this.mapTeamInviteDetailToUserMessage(this.getEnrollDetailRaw(e))
+          this.$message.error(mapped || ('创建队伍失败：' + this.getApiErrorMessage(e, '未知错误')))
+        }
       } finally {
         this.advisorCreateLoading = false
       }
@@ -8015,7 +8054,11 @@ export default {
         await this.refreshAdvisorTeams()
         this.selectAdvisorTeam(team.id)
       } catch (e) {
-        this.$message.error('修改队名失败：' + this.getApiErrorMessage(e, '未知错误'))
+        if (this.isDuplicateTeamNameError(e)) {
+          this.showDuplicateTeamNameModal(e)
+        } else {
+          this.$message.error('修改队名失败：' + this.getApiErrorMessage(e, '未知错误'))
+        }
       } finally {
         this.advisorTeamOpLoading = false
       }
@@ -10817,14 +10860,18 @@ export default {
     async downloadQuestionAnswer (answerId) {
       if (!this.activeCompetitionId || !answerId) return
       try {
-        const blob = await downloadCompetitionQuestionAnswer(this.activeCompetitionId, answerId)
+        const result = await downloadCompetitionQuestionAnswer(this.activeCompetitionId, answerId)
+        const blob = result && result.blob != null ? result.blob : result
         if (!blob || (typeof blob.size === 'number' && blob.size <= 0)) {
           throw new Error('文件为空')
         }
+        const filename =
+          (result && result.filename) ||
+          `question_answer_${answerId}`
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `question_answer_${answerId}`
+        a.download = filename
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)

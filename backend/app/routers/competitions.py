@@ -672,6 +672,34 @@ def _strip_team_name(raw: Optional[str]) -> Optional[str]:
     return s or None
 
 
+def _assert_team_name_unique_in_competition(
+    db: Session,
+    competition_id: int,
+    name: Optional[str],
+    *,
+    exclude_team_id: Optional[int] = None,
+) -> None:
+    """同一竞赛下待校审/已通过队伍的队名须唯一（忽略大小写）。"""
+    tn = _strip_team_name(name)
+    if not tn:
+        return
+    target_key = tn.casefold()
+    q = (
+        db.query(Team)
+        .filter(
+            Team.competition_id == competition_id,
+            Team.status.in_(_team_composition_open_statuses()),
+            Team.name.isnot(None),
+        )
+    )
+    if exclude_team_id is not None:
+        q = q.filter(Team.id != int(exclude_team_id))
+    for existing in q.all():
+        other = _strip_team_name(existing.name)
+        if other and other.casefold() == target_key:
+            raise HTTPException(status_code=400, detail="队名已存在，请更换其他队名")
+
+
 def _form_optional_str(val) -> Optional[str]:
     if val is None:
         return None
@@ -1631,6 +1659,28 @@ def _question_folder_name(
         if question_no in names:
             return names[question_no]
     return f"第{question_no}题"
+
+
+def _question_answer_download_filename(
+    *,
+    team: Optional[Team],
+    competition: Optional[Competition],
+    question_no: int,
+    work_track: Optional[str],
+    original_filename: Optional[str],
+) -> str:
+    """下载名：队伍名+题目名称，扩展名保持原文件不变。"""
+    raw_name = (original_filename or "").strip() or "answer"
+    _root, ext = os.path.splitext(os.path.basename(raw_name))
+    team_name = ""
+    if team is not None:
+        team_name = (getattr(team, "name", None) or "").strip()
+        if not team_name:
+            team_name = f"队伍{team.id}"
+    team_part = team_name or "队伍"
+    question_part = _question_folder_name(question_no, competition, work_track)
+    stem = _safe_export_filename(f"{team_part}{question_part}", fallback="answer")
+    return f"{stem}{ext}" if ext else stem
 
 
 def _question_answer_response(
@@ -4401,6 +4451,7 @@ async def school_admin_proxy_create_team(
     team_division = _resolve_enrollment_division(competition, body.division)
     team_work_track = _resolve_work_track(getattr(body, "work_track", None))
     tn = _strip_team_name(body.team_name)
+    _assert_team_name_unique_in_competition(db, competition.id, tn)
 
     ordered_ids: List[int] = []
     username_by_id: dict[int, str] = {}
@@ -6128,6 +6179,7 @@ async def create_team(
     tn = _strip_team_name(team_create.name)
     team_division = _resolve_enrollment_division(competition, team_create.division)
     team_work_track = _resolve_work_track(getattr(team_create, "work_track", None))
+    _assert_team_name_unique_in_competition(db, competition.id, tn)
 
     if role_eff in {"advisor", "teacher"}:
         ordered_ids: List[int] = []
@@ -6379,7 +6431,11 @@ async def patch_team(
         raise HTTPException(status_code=403, detail="Only captain or advising teacher can rename team")
 
     if body.name is not None:
-        team.name = _strip_team_name(body.name)
+        new_name = _strip_team_name(body.name)
+        _assert_team_name_unique_in_competition(
+            db, team.competition_id, new_name, exclude_team_id=team.id
+        )
+        team.name = new_name
     db.commit()
     db.refresh(team)
     return team
@@ -7383,10 +7439,28 @@ async def download_question_answer_file(
     if not file_record or not file_record.file_path or not os.path.exists(file_record.file_path):
         raise HTTPException(status_code=404, detail="File missing on server")
 
+    competition = _get_competition(db, competition_id)
+    team = (
+        db.query(Team)
+        .filter(Team.id == row.team_id, Team.competition_id == competition_id)
+        .first()
+    )
+    try:
+        work_track = _resolve_team_work_track(db, competition_id, team) if team else None
+    except HTTPException:
+        work_track = str(getattr(team, "work_track", None) or "").strip().lower() or None
+    download_name = _question_answer_download_filename(
+        team=team,
+        competition=competition,
+        question_no=int(row.question_no),
+        work_track=work_track,
+        original_filename=file_record.filename or os.path.basename(file_record.file_path),
+    )
+
     return FileResponse(
         path=file_record.file_path,
-        filename=file_record.filename,
         media_type=file_record.mime_type or "application/octet-stream",
+        headers={"Content-Disposition": _content_disposition_attachment(download_name)},
     )
 
 

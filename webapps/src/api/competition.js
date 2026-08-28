@@ -266,13 +266,20 @@ export function uploadCompetitionQuestionAnswer (competitionId, questionNo, form
   })
 }
 
-/** 下载单题答案文件 */
+/** 下载单题答案文件（保留 Content-Disposition 文件名：队伍名+题目名称+原扩展名） */
 export function downloadCompetitionQuestionAnswer (competitionId, answerId) {
   return axios({
     url: `/v1/competitions/${competitionId}/question-answers/${answerId}/download`,
     method: 'get',
     responseType: 'blob',
-    timeout: 600000
+    timeout: 600000,
+    __returnFullResponse: true
+  }).then((res) => {
+    const headers = (res && res.headers) || {}
+    const cd = headers['content-disposition'] || headers['Content-Disposition'] || ''
+    const filename =
+      parseContentDispositionFilename(cd) || `question_answer_${answerId}`
+    return { blob: res.data, filename }
   })
 }
 

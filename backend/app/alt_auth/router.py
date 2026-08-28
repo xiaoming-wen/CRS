@@ -14,10 +14,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.alt_auth import settings as alt_settings
 from app.alt_auth.context import get_current_alt_identity
 from app.alt_auth.database import get_alt_auth_db
+from app.alt_auth.settings import ALT_AUTH_DATABASE_URL
 from app.alt_auth.login_rate_limit import (
     check_login_allowed,
     clear_login_failures,
@@ -69,6 +71,18 @@ def _is_rejected_expert(row: Optional[AltAuthUserRecord]) -> bool:
         and not bool(getattr(row, "expert_verified", False))
         and not bool(getattr(row, "is_active", True))
     )
+
+
+def _username_eq(username: str) -> ColumnElement[bool]:
+    """
+    用户名等值比较：区分大小写。
+    MySQL 默认 *_ci 排序规则会把 Abc/abc 当成同一用户名，导致误报「手机号已注册」；
+    这里对 MySQL 使用 utf8mb4_bin，SQLite 默认 == 已区分大小写。
+    """
+    col = AltAuthUserRecord.username
+    if "sqlite" in (ALT_AUTH_DATABASE_URL or "").lower():
+        return col == username
+    return col.collate("utf8mb4_bin") == username
 
 
 def _assigned_competition_ids_for_expert(main_db: Session, expert_user_id: int) -> List[int]:
@@ -308,7 +322,7 @@ async def alt_identity_register(
             db.query(AltAuthUserRecord)
             .filter(
                 or_(
-                    AltAuthUserRecord.username == username,
+                    _username_eq(username),
                     AltAuthUserRecord.phone == phone,
                 )
             )
@@ -319,10 +333,13 @@ async def alt_identity_register(
             if _is_rejected_expert(existing):
                 db.delete(existing)
                 continue
+            # 分别判断，避免 MySQL 大小写不敏感时把「用户名冲突」误报成「手机号已注册」
             if (existing.username or "") == username:
                 detail = "该用户名已被注册"
-            else:
+            elif (existing.phone or "") == phone:
                 detail = "该手机号已被注册"
+            else:
+                detail = "该用户名已被注册"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=detail,
@@ -412,7 +429,7 @@ async def alt_identity_login(
 
         row: Optional[AltAuthUserRecord] = (
             db.query(AltAuthUserRecord)
-            .filter(AltAuthUserRecord.username == uname)
+            .filter(_username_eq(uname))
             .first()
         )
 

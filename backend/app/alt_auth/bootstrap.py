@@ -114,6 +114,22 @@ def setup_alt_auth_database(log: Optional[logging.Logger] = None) -> None:
     except Exception:
         pass
 
+    # 用户名列改为大小写敏感，避免 Abc / abc 被当成同一用户名
+    try:
+        url = str(alt_auth_engine.url)
+        if "sqlite" not in url.lower():
+            with alt_auth_engine.connect() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE alt_auth_users "
+                        "MODIFY COLUMN username VARCHAR(100) COLLATE utf8mb4_bin"
+                    )
+                )
+                conn.commit()
+            lg.info("Alt-auth: username column set to utf8mb4_bin (case-sensitive)")
+    except Exception as e:
+        lg.warning("Alt-auth username collation patch skipped: %s", e)
+
     try:
         with alt_auth_engine.connect() as conn:
             conn.execute(
