@@ -1019,10 +1019,22 @@ export function schoolReviewTeam (teamId, payload) {
   })
 }
 
-/** 校管/超管：为队伍添加或更换指导老师 */
+/** 校管/超管：为队伍添加或更换第一/第二指导老师 */
 export function setTeamAdvisor (teamId, payload) {
   return axios({
     url: `/v1/competitions/teams/${encodeURIComponent(teamId)}/advisor`,
+    method: 'put',
+    data: payload || {},
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+/** 指导老师：添加/更换第二指导老师 */
+export function setTeamSecondAdvisor (teamId, payload) {
+  return axios({
+    url: `/v1/competitions/teams/${encodeURIComponent(teamId)}/second-advisor`,
     method: 'put',
     data: payload || {},
     headers: {

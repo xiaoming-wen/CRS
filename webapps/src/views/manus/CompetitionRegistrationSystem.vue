@@ -894,12 +894,36 @@
                   </a-form-item>
                 </a-col>
                 <a-col :xs="24" :sm="12">
-                  <a-form-item label="指导老师">
+                  <a-form-item label="我的身份" required>
+                    <a-radio-group
+                      v-model="advisorCreateForm.creator_advisor_role"
+                      class="advisor-form-radio-white"
+                      :disabled="advisorTeamActionsDisabled || !allowTeam"
+                    >
+                      <a-radio value="first">第一指导老师</a-radio>
+                      <a-radio value="second">第二指导老师</a-radio>
+                    </a-radio-group>
+                    <div class="muted" style="margin-top: 4px; font-size: 12px; line-height: 1.5">
+                      请选择您本人担任第一还是第二指导老师。同一组别+赛道：第一指导老师最多 2 支，指导总数（含第二）最多 4 支。
+                    </div>
+                  </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="12">
+                  <a-form-item
+                    :label="advisorCreateForm.creator_advisor_role === 'second' ? '第一指导老师（选填）' : '第二指导老师（选填）'"
+                  >
                     <a-input
-                      :value="altCurrentUserDisplayName"
-                      disabled
-                      placeholder="自动设为当前登录老师"
+                      v-model="advisorCreateForm.other_advisor_name"
+                      :placeholder="advisorCreateForm.creator_advisor_role === 'second'
+                        ? '选填第一指导老师（姓名或 8 位用户 ID）；也可建队后由校管补充'
+                        : '选填另一位指导老师；也可建队后在队务中添加'"
+                      :maxLength="100"
+                      :disabled="advisorTeamActionsDisabled || !allowTeam"
+                      allow-clear
                     />
+                    <div class="muted" style="margin-top: 4px; font-size: 12px">
+                      当前账号：{{ altCurrentUserDisplayName || '—' }}
+                    </div>
                   </a-form-item>
                 </a-col>
                 <a-col :xs="24" :sm="12">
@@ -1010,10 +1034,45 @@
                 <a-descriptions-item label="队名">{{ advisorSelectedTeam.name || '（未设置）' }}</a-descriptions-item>
                 <a-descriptions-item label="队长">{{ advisorSelectedTeamCaptainLabel }}</a-descriptions-item>
                 <a-descriptions-item label="状态">{{ participantTeamStatusText(advisorSelectedTeam.status) }}</a-descriptions-item>
-                <a-descriptions-item label="指导老师">{{ advisorSelectedTeamAdvisorLabel }}</a-descriptions-item>
+                <a-descriptions-item label="第一指导老师">{{ advisorSelectedTeamAdvisorLabel }}</a-descriptions-item>
+                <a-descriptions-item label="第二指导老师" :span="2">{{ advisorSelectedTeamSecondAdvisorLabel }}</a-descriptions-item>
               </a-descriptions>
 
               <div class="advisor-manage-team-ops">
+                <a-form layout="inline" style="margin-top: 12px">
+                  <a-form-item label="第二指导老师">
+                    <a-input
+                      v-model="advisorSecondAdvisorRef"
+                      placeholder="姓名或 8 位用户 ID"
+                      style="width: 220px"
+                      :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled"
+                      allow-clear
+                    />
+                  </a-form-item>
+                  <a-form-item>
+                    <a-button
+                      type="primary"
+                      size="small"
+                      :loading="advisorTeamOpLoading"
+                      :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled || !(advisorSecondAdvisorRef && String(advisorSecondAdvisorRef).trim())"
+                      @click="handleAdvisorSetSecondAdvisor"
+                    >
+                      添加/更换
+                    </a-button>
+                    <a-button
+                      size="small"
+                      style="margin-left: 8px"
+                      :loading="advisorTeamOpLoading"
+                      :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled || !advisorSelectedTeamHasSecondAdvisor"
+                      @click="handleAdvisorClearSecondAdvisor"
+                    >
+                      清除
+                    </a-button>
+                  </a-form-item>
+                </a-form>
+                <div class="muted" style="margin: 4px 0 8px; font-size: 12px">
+                  同一组别+赛道：每位老师指导总数不超过 4 支，其中作为第一指导老师不超过 2 支。
+                </div>
                 <a-form layout="inline" style="margin-top: 12px">
                   <a-form-item label="新队名">
                     <a-input
@@ -1978,7 +2037,7 @@
             本竞赛已锁定组别，不可再改。
           </div>
         </a-form-item>
-        <a-form-item label="指导老师（选填）">
+        <a-form-item label="第一指导老师（选填）">
           <a-input
             v-model="studentCreateTeamForm.advisor_name"
             placeholder="姓名或 8 位用户 ID"
@@ -1986,6 +2045,17 @@
             allow-clear
           />
         </a-form-item>
+        <a-form-item label="第二指导老师（选填）">
+          <a-input
+            v-model="studentCreateTeamForm.second_advisor_name"
+            placeholder="姓名或 8 位用户 ID"
+            :maxLength="100"
+            allow-clear
+          />
+        </a-form-item>
+        <div class="muted" style="margin: 0 0 12px; font-size: 12px; line-height: 1.5">
+          指导老师均为选填，不必填写第一指导老师。同一组别+赛道额度：第一指导老师最多 2 支，指导总数（含第二）最多 4 支。
+        </div>
         <p class="muted" style="margin: 0; font-size: 13px">
           您将作为队长创建队伍；创建后状态为「待校审」，须校管理员审核通过后方可提交作品。作品赛道上传压缩包，软件 / 硬件赛道按题上传答案。
         </p>
@@ -3117,6 +3187,7 @@ import {
   createCompetitionTeam,
   patchCompetitionTeam,
   inviteCompetitionTeamMember,
+  setTeamSecondAdvisor,
   listMyTeamInvites,
   respondTeamInvite,
   removeCompetitionTeamMember,
@@ -3265,6 +3336,8 @@ export default {
       studentCreateTeamForm: {
         name: '',
         advisor_name: '',
+        second_advisor_name: '',
+        first_advisor_slot: 'primary',
         work_track: 'works',
         division: 'undergraduate'
       },
@@ -3329,11 +3402,14 @@ export default {
         name: '',
         captain_student: '',
         initial_members_text: '',
+        creator_advisor_role: '',
+        other_advisor_name: '',
         work_track: 'works',
         division: 'undergraduate'
       },
       advisorRenameName: '',
       advisorInviteStudent: '',
+      advisorSecondAdvisorRef: '',
       /** 本会话内由当前老师创建的队伍 ID（列表未带 created_by_advisor_id 时仍可管理） */
       advisorCreatedTeamIds: [],
       /** 本竞赛下当前老师已组班所属的学历组别（dual 时跨组禁止再建队/邀请） */
@@ -4960,15 +5036,23 @@ export default {
       return ''
     },
     advisorTeamsTableData () {
-      return this.advisorTeamsForCurrentView.map(t => ({
-        id: t.id,
-        name: t.name != null && String(t.name).trim() !== '' ? String(t.name) : '—',
-        captain_id: t.captain_id != null ? t.captain_id : '-',
-        member_count: Array.isArray(t.members) ? t.members.length : 0,
-        status_text: this.participantTeamStatusText(t.status),
-        can_operate: this.canAdvisorOperateTeam(t),
-        can_operate_text: this.canAdvisorOperateTeam(t) ? '是' : '否'
-      }))
+      return this.advisorTeamsForCurrentView.map(t => {
+        const members = Array.isArray(t.members) ? t.members : []
+        const joinedCaptain = members.find(m => m && m.is_captain)
+        const captainInRoster = joinedCaptain
+          || members.find(m => m && t.captain_id != null && Number(m.user_id) === Number(t.captain_id))
+        return {
+          id: t.id,
+          name: t.name != null && String(t.name).trim() !== '' ? String(t.name) : '—',
+          captain_id: captainInRoster
+            ? (joinedCaptain ? joinedCaptain.user_id : t.captain_id)
+            : '—',
+          member_count: members.length,
+          status_text: this.participantTeamStatusText(t.status),
+          can_operate: this.canAdvisorOperateTeam(t),
+          can_operate_text: this.canAdvisorOperateTeam(t) ? '是' : '否'
+        }
+      })
     },
     advisorSelectedTeam () {
       if (this.advisorSelectedTeamId == null) return null
@@ -4981,6 +5065,19 @@ export default {
       if (name) return name
       if (t.created_by_advisor_id != null) return String(t.created_by_advisor_id)
       return this.altCurrentUserDisplayName || '-'
+    },
+    advisorSelectedTeamSecondAdvisorLabel () {
+      const t = this.advisorSelectedTeam
+      if (!t) return '—'
+      const name = t.second_advisor_name != null ? String(t.second_advisor_name).trim() : ''
+      if (name) return name
+      if (t.second_advisor_id != null) return String(t.second_advisor_id)
+      return '—'
+    },
+    advisorSelectedTeamHasSecondAdvisor () {
+      const t = this.advisorSelectedTeam
+      if (!t) return false
+      return !!(t.second_advisor_id || (t.second_advisor_name && String(t.second_advisor_name).trim()))
     },
     advisorSelectedTeamMembers () {
       const t = this.advisorSelectedTeam
@@ -4998,7 +5095,14 @@ export default {
         const name = this.formatTeamMemberDisplayName(captain)
         return captain.user_id != null ? `${name}（ID ${captain.user_id}）` : name
       }
-      return t.captain_id != null ? `用户 #${t.captain_id}` : '-'
+      const designated = (t.members || []).find(
+        m => m && t.captain_id != null && Number(m.user_id) === Number(t.captain_id)
+      )
+      if (designated) {
+        const name = this.formatTeamMemberDisplayName(designated)
+        return designated.user_id != null ? `${name}（ID ${designated.user_id}）` : name
+      }
+      return t.captain_id != null ? `待确认（已邀请 #${t.captain_id}）` : '-'
     },
     canOperateAdvisorSelectedTeam () {
       return this.canAdvisorOperateTeam(this.advisorSelectedTeam)
@@ -7476,6 +7580,8 @@ export default {
       this.studentCreateTeamForm = {
         name: '',
         advisor_name: '',
+        second_advisor_name: '',
+        first_advisor_slot: 'primary',
         work_track: defaultTrack,
         division: lockedDiv || (this.enrollProfileForm && this.enrollProfileForm.division) || 'undergraduate'
       }
@@ -7488,6 +7594,8 @@ export default {
       this.studentCreateTeamForm = {
         name: '',
         advisor_name: '',
+        second_advisor_name: '',
+        first_advisor_slot: 'primary',
         work_track: 'works',
         division: 'undergraduate'
       }
@@ -7548,6 +7656,14 @@ export default {
           teamPayload.advisor_id = Number(advisor)
         } else {
           teamPayload.advisor_name = advisor
+        }
+      }
+      const secondAdvisor = String(this.studentCreateTeamForm.second_advisor_name || '').trim()
+      if (secondAdvisor) {
+        if (isEightDigitId(secondAdvisor)) {
+          teamPayload.second_advisor_id = Number(secondAdvisor)
+        } else {
+          teamPayload.second_advisor_name = secondAdvisor
         }
       }
       const team = await createCompetitionTeam(teamPayload)
@@ -8034,8 +8150,9 @@ export default {
       const myId = this.altCurrentUserId
       if (myId == null) return false
       const creatorId = this.getTeamCreatorAdvisorId(team)
-      if (creatorId == null) return false
-      return Number(creatorId) === Number(myId)
+      if (creatorId != null && Number(creatorId) === Number(myId)) return true
+      const secondId = team.second_advisor_id != null ? team.second_advisor_id : null
+      return secondId != null && Number(secondId) === Number(myId)
     },
 
     assertCompetitionOpenForTeamCreateOrInvite (showToast = true) {
@@ -8091,6 +8208,51 @@ export default {
       const t = this.advisorSelectedTeam
       this.advisorRenameName = t && t.name != null ? String(t.name) : ''
       this.advisorInviteStudent = ''
+      this.advisorSecondAdvisorRef = ''
+    },
+
+    async handleAdvisorSetSecondAdvisor () {
+      const t = this.advisorSelectedTeam
+      if (!t || t.id == null) return
+      if (!this.canOperateAdvisorSelectedTeam) {
+        this.$message.warning('当前队伍不可管理')
+        return
+      }
+      const ref = String(this.advisorSecondAdvisorRef || '').trim()
+      if (!ref) {
+        this.$message.warning('请填写第二指导老师')
+        return
+      }
+      const payload = {}
+      if (isEightDigitId(ref)) payload.second_advisor_id = Number(ref)
+      else payload.second_advisor_name = ref
+      this.advisorTeamOpLoading = true
+      try {
+        await setTeamSecondAdvisor(t.id, payload)
+        this.$message.success('第二指导老师已更新')
+        this.advisorSecondAdvisorRef = ''
+        await this.refreshAdvisorTeams()
+      } catch (e) {
+        this.$message.error('设置失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.advisorTeamOpLoading = false
+      }
+    },
+
+    async handleAdvisorClearSecondAdvisor () {
+      const t = this.advisorSelectedTeam
+      if (!t || t.id == null) return
+      this.advisorTeamOpLoading = true
+      try {
+        await setTeamSecondAdvisor(t.id, { clear: true })
+        this.$message.success('已清除第二指导老师')
+        this.advisorSecondAdvisorRef = ''
+        await this.refreshAdvisorTeams()
+      } catch (e) {
+        this.$message.error('清除失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.advisorTeamOpLoading = false
+      }
     },
 
     async handleAdvisorCreateTeam () {
@@ -8127,14 +8289,30 @@ export default {
         })
         return
       }
+      const myRole = String(this.advisorCreateForm.creator_advisor_role || '').trim()
+      if (myRole !== 'first' && myRole !== 'second') {
+        this.$message.warning('请选择您担任第一指导老师还是第二指导老师')
+        return
+      }
+      const otherAdvisor = String(this.advisorCreateForm.other_advisor_name || '').trim()
       const payload = {
         competition_id: Number(this.activeCompetitionId),
         division,
         work_track: workTrack,
-        name: teamName
+        name: teamName,
+        creator_advisor_role: myRole
       }
       if (captainRef) payload.captain_student = captainRef
       if (memberRefs.length) payload.initial_members = memberRefs
+      if (otherAdvisor) {
+        if (myRole === 'first') {
+          if (isEightDigitId(otherAdvisor)) payload.second_advisor_id = Number(otherAdvisor)
+          else payload.second_advisor_name = otherAdvisor
+        } else {
+          if (isEightDigitId(otherAdvisor)) payload.advisor_id = Number(otherAdvisor)
+          else payload.advisor_name = otherAdvisor
+        }
+      }
 
       this.advisorCreateLoading = true
       try {
@@ -8163,6 +8341,8 @@ export default {
           name: '',
           captain_student: '',
           initial_members_text: '',
+          creator_advisor_role: '',
+          other_advisor_name: '',
           work_track: 'works',
           division: 'undergraduate'
         }

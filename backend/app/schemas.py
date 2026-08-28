@@ -863,12 +863,29 @@ class TeamCreate(BaseModel):
     )
     advisor_id: Optional[EightDigitAltUserId] = Field(
         None,
-        description="指导老师用户 ID（学生自建队选填，与 advisor_name 二选一）；须为 advisor/teacher 角色",
+        description="第一指导老师用户 ID（学生自建队选填，与 advisor_name 二选一）；须为 advisor/teacher 角色",
     )
     advisor_name: Optional[str] = Field(
         None,
         max_length=100,
-        description="指导老师姓名/用户名/8位ID（学生自建队选填）；写入队伍展示字段；匹配系统账号时同时关联 created_by_advisor_id",
+        description="第一指导老师姓名/用户名/8位ID（学生自建队选填）；写入队伍展示字段；匹配系统账号时同时关联 created_by_advisor_id",
+    )
+    second_advisor_id: Optional[EightDigitAltUserId] = Field(
+        None,
+        description="第二指导老师用户 ID（选填）",
+    )
+    second_advisor_name: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="第二指导老师姓名/用户名/8位ID（选填）",
+    )
+    first_advisor_slot: Optional[Literal["primary", "secondary"]] = Field(
+        None,
+        description="学生同时填写两位时，指定谁是第一指导老师：primary=advisor_*，secondary=second_advisor_*；默认 primary",
+    )
+    creator_advisor_role: Optional[Literal["first", "second"]] = Field(
+        None,
+        description="指导老师/教师建队时：本人担任 first（第一指导老师）或 second（第二指导老师）；须显式选择",
     )
 
 
@@ -884,6 +901,8 @@ class TeamResponse(BaseModel):
         description="建队指导老师 alt_auth_users.id；学生自建未指定时为 null",
     )
     advisor_name: Optional[str] = Field(None, description="指导老师姓名（学生填写或老师代建时展示用）")
+    second_advisor_id: Optional[int] = Field(None, description="第二指导老师 alt_auth_users.id")
+    second_advisor_name: Optional[str] = Field(None, description="第二指导老师姓名（展示用）")
     status: TeamStatus
     created_at: UtcDatetime
 
@@ -969,6 +988,8 @@ class TeamDetailResponse(BaseModel):
     captain_id: int
     created_by_advisor_id: Optional[int] = Field(None, description="建队指导老师 alt_auth_users.id")
     advisor_name: Optional[str] = Field(None, description="建队指导老师姓名（展示用）")
+    second_advisor_id: Optional[int] = Field(None, description="第二指导老师 alt_auth_users.id")
+    second_advisor_name: Optional[str] = Field(None, description="第二指导老师姓名（展示用）")
     division: CompetitionDivision = CompetitionDivision.DEFAULT
     work_track: Optional[CompetitionWorkTrack] = Field(
         None, description="works / software / hardware"
@@ -1090,11 +1111,13 @@ class SchoolAdminTeamReviewItem(BaseModel):
     competition_start_at: OptionalUtcDatetime = None
     competition_end_at: OptionalUtcDatetime = None
     school: Optional[str] = None
-    advisor_name: Optional[str] = Field(None, description="指导老师姓名（代建队时有值）")
+    advisor_name: Optional[str] = Field(None, description="第一指导老师姓名（代建队时有值）")
     advisor_id: Optional[int] = None
+    second_advisor_name: Optional[str] = Field(None, description="第二指导老师姓名")
+    second_advisor_id: Optional[int] = None
     team_name: Optional[str] = None
     captain_name: Optional[str] = None
-    captain_id: int
+    captain_id: Optional[int] = None
     members: List[SchoolAdminTeamMemberItem] = Field(default_factory=list)
     division: Optional[str] = Field(None, description="组别：undergraduate / vocational / default")
     work_track: Optional[str] = Field(None, description="赛道：works / software / hardware")
@@ -1132,21 +1155,47 @@ class TeamSchoolReviewResult(BaseModel):
 
 
 class SchoolAdminSetTeamAdvisorRequest(BaseModel):
-    """校管/超管为队伍指定指导老师（姓名 / 用户名 / 8 位用户 ID，任填其一）。"""
+    """校管/超管/指导老师为队伍指定第一/第二指导老师（姓名 / 用户名 / 8 位用户 ID，任填其一）。"""
 
     advisor_username: Optional[str] = Field(
         None,
         max_length=100,
-        description="指导老师用户名",
+        description="第一指导老师用户名",
     )
     advisor_id: Optional[EightDigitAltUserId] = Field(
         None,
-        description="指导老师 8 位用户 ID",
+        description="第一指导老师 8 位用户 ID",
     )
     advisor_name: Optional[str] = Field(
         None,
         max_length=100,
-        description="指导老师姓名、用户名或 8 位用户 ID",
+        description="第一指导老师姓名、用户名或 8 位用户 ID",
+    )
+    second_advisor_username: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="第二指导老师用户名",
+    )
+    second_advisor_id: Optional[EightDigitAltUserId] = Field(
+        None,
+        description="第二指导老师 8 位用户 ID",
+    )
+    second_advisor_name: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="第二指导老师姓名、用户名或 8 位用户 ID",
+    )
+    clear_second_advisor: bool = Field(
+        False,
+        description="为 true 时清空第二指导老师",
+    )
+    clear_first_advisor: bool = Field(
+        False,
+        description="为 true 时清空第一指导老师",
+    )
+    first_advisor_slot: Optional[Literal["primary", "secondary"]] = Field(
+        None,
+        description="同时填写两位时，指定谁是第一指导老师：primary=第一栏，secondary=第二栏；默认 primary",
     )
 
 
@@ -1154,6 +1203,22 @@ class SchoolAdminSetTeamAdvisorResult(BaseModel):
     team_id: int
     advisor_id: Optional[int] = None
     advisor_name: Optional[str] = None
+    second_advisor_id: Optional[int] = None
+    second_advisor_name: Optional[str] = None
+
+
+class TeamSetSecondAdvisorRequest(BaseModel):
+    """指导老师在队务管理中添加/更换第二指导老师。"""
+
+    second_advisor_id: Optional[EightDigitAltUserId] = None
+    second_advisor_name: Optional[str] = Field(None, max_length=100)
+    clear: bool = Field(False, description="清空第二指导老师")
+
+
+class TeamSetSecondAdvisorResult(BaseModel):
+    team_id: int
+    second_advisor_id: Optional[int] = None
+    second_advisor_name: Optional[str] = None
 
 
 class SchoolAdminSetTeamDivisionTrackRequest(BaseModel):

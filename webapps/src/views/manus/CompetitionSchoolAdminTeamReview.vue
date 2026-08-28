@@ -62,8 +62,9 @@
             :scroll="{ x: 1480 }"
             :locale="{ emptyText: '暂无队伍数据' }"
           >
-            <template slot="advisorName" slot-scope="text">
-              {{ text && String(text).trim() ? String(text).trim() : '—' }}
+            <template slot="advisorName" slot-scope="text, record">
+              <span v-if="formatAdvisorsLabel(record)">{{ formatAdvisorsLabel(record) }}</span>
+              <span v-else class="muted">—</span>
             </template>
             <template slot="division" slot-scope="text">
               {{ divisionLabel(text) }}
@@ -83,6 +84,10 @@
                 {{ nonCaptainMembers(record).map(m => formatMemberLabel(m)).join('、') }}
               </span>
             </template>
+            <template slot="captainName" slot-scope="text">
+              <span v-if="text">{{ text }}</span>
+              <span v-else class="muted">—</span>
+            </template>
             <template slot="teamStatus" slot-scope="text">
               <a-tag :color="teamStatusColor(text)">{{ teamStatusText(text) }}</a-tag>
             </template>
@@ -92,6 +97,8 @@
                   <a-button
                     type="primary"
                     size="small"
+                    :disabled="!teamHasFormalMembers(record)"
+                    :title="teamHasFormalMembers(record) ? '' : '队伍尚无正式队员，无法通过'"
                     :loading="reviewLoadingId === record.team_id && reviewAction === 'approve'"
                     @click="handleReviewTeam(record, 'approve')"
                   >
@@ -186,21 +193,40 @@
         队伍「{{ advisorModalTeam.team_name || ('#' + advisorModalTeam.team_id) }}」
       </p>
       <p class="muted" style="margin-bottom: 12px">
-        当前指导老师：
+        当前第一指导老师：
         <span v-if="advisorModalCurrentAdvisorLabel">{{ advisorModalCurrentAdvisorLabel }}</span>
         <span v-else>未设置</span>
+        <br />
+        当前第二指导老师：
+        <span v-if="advisorModalCurrentSecondAdvisorLabel">{{ advisorModalCurrentSecondAdvisorLabel }}</span>
+        <span v-else>未设置</span>
       </p>
-      <a-form :label-col="{ span: 7 }" :wrapper-col="{ span: 16 }">
-        <a-form-item label="指导老师" required>
+      <a-form :label-col="{ span: 8 }" :wrapper-col="{ span: 15 }">
+        <a-form-item label="第一指导老师">
           <a-input
             v-model="advisorForm.advisor_ref"
-            placeholder="姓名、用户名或 8 位用户 ID"
+            placeholder="姓名、用户名或 8 位用户 ID；可清空后勾选清除"
             allow-clear
+            :disabled="advisorForm.clear_first_advisor"
           />
         </a-form-item>
+        <a-form-item label="清除第一指导老师">
+          <a-checkbox v-model="advisorForm.clear_first_advisor">保存时清空第一指导老师</a-checkbox>
+        </a-form-item>
+        <a-form-item label="第二指导老师">
+          <a-input
+            v-model="advisorForm.second_advisor_ref"
+            placeholder="姓名、用户名或 8 位用户 ID；可清空后勾选清除"
+            allow-clear
+            :disabled="advisorForm.clear_second_advisor"
+          />
+        </a-form-item>
+        <a-form-item label="清除第二指导老师">
+          <a-checkbox v-model="advisorForm.clear_second_advisor">保存时清空第二指导老师</a-checkbox>
+        </a-form-item>
       </a-form>
-      <p class="muted" style="margin: 0; font-size: 12px">
-        未设置时可添加；已有老师时填写新信息即可修改替换。
+      <p class="muted" style="margin: 0; font-size: 12px; line-height: 1.5">
+        可任意设置或清除第一/第二指导老师。同一组别+赛道：每位老师指导总数不超过 4 支，其中作为第一指导老师不超过 2 支。
       </p>
     </a-modal>
 
@@ -358,7 +384,10 @@ export default {
       advisorModalLoading: false,
       advisorModalTeam: null,
       advisorForm: {
-        advisor_ref: ''
+        advisor_ref: '',
+        second_advisor_ref: '',
+        clear_first_advisor: false,
+        clear_second_advisor: false
       },
       divisionTrackModalVisible: false,
       divisionTrackModalLoading: false,
@@ -399,15 +428,24 @@ export default {
       }
       return t.advisor_id != null ? `ID ${t.advisor_id}` : ''
     },
+    advisorModalCurrentSecondAdvisorLabel () {
+      const t = this.advisorModalTeam
+      if (!t) return ''
+      const name = t.second_advisor_name != null ? String(t.second_advisor_name).trim() : ''
+      if (name) {
+        return t.second_advisor_id != null ? `${name}（ID ${t.second_advisor_id}）` : name
+      }
+      return t.second_advisor_id != null ? `ID ${t.second_advisor_id}` : ''
+    },
     teamColumns () {
       return [
         { title: '竞赛', dataIndex: 'competition_name', key: 'competition_name', width: 160, ellipsis: true },
         { title: '开始时间', dataIndex: 'competition_start_at', key: 'competition_start_at', width: 150, scopedSlots: { customRender: 'competitionStartAt' } },
         { title: '结束时间', dataIndex: 'competition_end_at', key: 'competition_end_at', width: 150, scopedSlots: { customRender: 'competitionEndAt' } },
         { title: '学校', dataIndex: 'school', key: 'school', width: 120, ellipsis: true },
-        { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', width: 100, ellipsis: true, scopedSlots: { customRender: 'advisorName' } },
+        { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', width: 140, ellipsis: true, scopedSlots: { customRender: 'advisorName' } },
         { title: '队伍名', dataIndex: 'team_name', key: 'team_name', width: 120, ellipsis: true },
-        { title: '队长', dataIndex: 'captain_name', key: 'captain_name', width: 100, ellipsis: true },
+        { title: '队长', dataIndex: 'captain_name', key: 'captain_name', width: 100, ellipsis: true, scopedSlots: { customRender: 'captainName' } },
         { title: '队员', key: 'members', scopedSlots: { customRender: 'members' }, width: 180, ellipsis: true },
         { title: '组别', dataIndex: 'division', key: 'division', width: 80, scopedSlots: { customRender: 'division' } },
         { title: '赛道', dataIndex: 'work_track', key: 'work_track', width: 80, scopedSlots: { customRender: 'workTrack' } },
@@ -456,6 +494,10 @@ export default {
     nonCaptainMembers (record) {
       const members = (record && Array.isArray(record.members)) ? record.members : []
       return members.filter(m => m && !m.is_captain)
+    },
+    teamHasFormalMembers (record) {
+      const members = (record && Array.isArray(record.members)) ? record.members : []
+      return members.length > 0
     },
     teamStatusText (status) {
       return (TEAM_STATUS_MAP[status] || { text: status || '—' }).text
@@ -607,31 +649,88 @@ export default {
         return
       }
       this.advisorModalTeam = record
-      this.advisorForm = { advisor_ref: '' }
+      const firstRef = (record && record.advisor_id != null)
+        ? String(record.advisor_id)
+        : ((record && record.advisor_name) ? String(record.advisor_name).trim() : '')
+      const secondRef = (record && record.second_advisor_id != null)
+        ? String(record.second_advisor_id)
+        : ((record && record.second_advisor_name) ? String(record.second_advisor_name).trim() : '')
+      this.advisorForm = {
+        advisor_ref: firstRef,
+        second_advisor_ref: secondRef,
+        clear_first_advisor: false,
+        clear_second_advisor: false
+      }
       this.advisorModalVisible = true
     },
     closeAdvisorModal () {
       this.advisorModalVisible = false
       this.advisorModalTeam = null
-      this.advisorForm = { advisor_ref: '' }
+      this.advisorForm = {
+        advisor_ref: '',
+        second_advisor_ref: '',
+        clear_first_advisor: false,
+        clear_second_advisor: false
+      }
       this.advisorModalLoading = false
+    },
+    formatAdvisorsLabel (record) {
+      if (!record) return ''
+      const first = record.advisor_name != null ? String(record.advisor_name).trim() : ''
+      const second = record.second_advisor_name != null ? String(record.second_advisor_name).trim() : ''
+      if (first && second) return `一：${first}；二：${second}`
+      if (first) return `一：${first}`
+      if (second) return `二：${second}`
+      return ''
     },
     async submitAdvisorModal () {
       if (!this.advisorModalTeam || this.advisorModalTeam.team_id == null) {
         return Promise.reject(new Error('cancelled'))
       }
+      const t = this.advisorModalTeam
       const ref = String(this.advisorForm.advisor_ref || '').trim()
-      if (!ref) {
-        this.$message.warning('请填写指导老师姓名、用户名或用户 ID')
+      const secondRef = String(this.advisorForm.second_advisor_ref || '').trim()
+      const clearFirst = !!this.advisorForm.clear_first_advisor
+      const clearSecond = !!this.advisorForm.clear_second_advisor
+      const origFirst = (t.advisor_id != null)
+        ? String(t.advisor_id)
+        : ((t.advisor_name && String(t.advisor_name).trim()) || '')
+      const origSecond = (t.second_advisor_id != null)
+        ? String(t.second_advisor_id)
+        : ((t.second_advisor_name && String(t.second_advisor_name).trim()) || '')
+      const firstChanged = clearFirst || ref !== origFirst
+      const secondChanged = clearSecond || secondRef !== origSecond
+      if (!firstChanged && !secondChanged) {
+        this.$message.warning('请修改或勾选清除第一/第二指导老师')
         return Promise.reject(new Error('cancelled'))
       }
-      const payload = /^\d{8}$/.test(ref)
-        ? { advisor_id: Number(ref) }
-        : { advisor_name: ref }
+      const payload = {}
+      if (clearFirst) {
+        payload.clear_first_advisor = true
+      } else if (ref !== origFirst) {
+        if (!ref) {
+          payload.clear_first_advisor = true
+        } else if (/^\d{8}$/.test(ref)) {
+          payload.advisor_id = Number(ref)
+        } else {
+          payload.advisor_name = ref
+        }
+      }
+      if (clearSecond) {
+        payload.clear_second_advisor = true
+      } else if (secondRef !== origSecond) {
+        if (!secondRef) {
+          payload.clear_second_advisor = true
+        } else if (/^\d{8}$/.test(secondRef)) {
+          payload.second_advisor_id = Number(secondRef)
+        } else {
+          payload.second_advisor_name = secondRef
+        }
+      }
       this.advisorModalLoading = true
       try {
         await setTeamAdvisor(this.advisorModalTeam.team_id, payload)
-        this.$message.success(this.advisorModalCurrentAdvisorLabel ? '指导老师已修改' : '指导老师已添加')
+        this.$message.success('指导老师已更新')
         this.closeAdvisorModal()
         await this.loadTeams()
       } catch (e) {

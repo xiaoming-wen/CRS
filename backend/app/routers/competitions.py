@@ -87,6 +87,8 @@ from app.schemas import (
     TeamSchoolReviewResult,
     SchoolAdminSetTeamAdvisorRequest,
     SchoolAdminSetTeamAdvisorResult,
+    TeamSetSecondAdvisorRequest,
+    TeamSetSecondAdvisorResult,
     SchoolAdminSetTeamDivisionTrackRequest,
     SchoolAdminSetTeamDivisionTrackResult,
     SchoolAdminProxyTeamCreate,
@@ -384,15 +386,179 @@ def _team_advisor_display_name(
     return None
 
 
+def _team_second_advisor_display_name(
+    team: Team,
+    users_by_id: Optional[dict[int, AltAuthUserRecord]] = None,
+) -> Optional[str]:
+    stored = getattr(team, "second_advisor_name", None)
+    if stored is not None and str(stored).strip():
+        return str(stored).strip()
+    advisor_id = getattr(team, "second_advisor_id", None)
+    if advisor_id and users_by_id:
+        adv = users_by_id.get(int(advisor_id))
+        if adv:
+            return _display_user_name(adv, int(advisor_id))
+    return None
+
+
+ADVISOR_MAX_TEAMS_PER_DIVISION_TRACK = 4
+ADVISOR_MAX_FIRST_TEAMS_PER_DIVISION_TRACK = 2
+
+
+def _advisor_quota_team_statuses() -> Tuple[str, ...]:
+    return (TeamStatus.PENDING_SCHOOL_REVIEW, TeamStatus.ACTIVE)
+
+
+def _division_track_label_cn(division: Optional[str], work_track: Optional[str]) -> str:
+    div = _division_label_cn(division)
+    track_map = {"works": "作品", "software": "软件", "hardware": "硬件"}
+    track = track_map.get(str(work_track or "").strip().lower(), str(work_track or "").strip() or "未设赛道")
+    return f"{div}·{track}"
+
+
+def _count_advisor_teams_in_scope(
+    db: Session,
+    *,
+    competition_id: int,
+    advisor_id: int,
+    division: str,
+    work_track: str,
+    exclude_team_id: Optional[int] = None,
+) -> Tuple[int, int]:
+    """
+    返回 (作为第一指导老师的队伍数, 作为第一或第二指导老师的队伍总数)。
+    仅统计待校审/已通过队伍，按竞赛+组别+赛道。
+    """
+    div = str(division or CompetitionDivision.DEFAULT.value).strip().lower()
+    track = _normalize_optional_work_track(work_track) or str(work_track or "").strip().lower()
+    q = db.query(Team).filter(
+        Team.competition_id == competition_id,
+        Team.status.in_(_advisor_quota_team_statuses()),
+        Team.division == div,
+        Team.work_track == track,
+        or_(
+            Team.created_by_advisor_id == advisor_id,
+            Team.second_advisor_id == advisor_id,
+        ),
+    )
+    if exclude_team_id is not None:
+        q = q.filter(Team.id != int(exclude_team_id))
+    rows = q.all()
+    as_first = sum(
+        1
+        for t in rows
+        if t.created_by_advisor_id is not None and int(t.created_by_advisor_id) == int(advisor_id)
+    )
+    return as_first, len(rows)
+
+
+def _assert_advisor_quota(
+    db: Session,
+    *,
+    competition_id: int,
+    advisor_id: int,
+    division: str,
+    work_track: str,
+    as_first: bool,
+    exclude_team_id: Optional[int] = None,
+    advisor_label: str = "该指导老师",
+) -> None:
+    as_first_count, total_count = _count_advisor_teams_in_scope(
+        db,
+        competition_id=competition_id,
+        advisor_id=advisor_id,
+        division=division,
+        work_track=work_track,
+        exclude_team_id=exclude_team_id,
+    )
+    scope_label = _division_track_label_cn(division, work_track)
+    if as_first and as_first_count >= ADVISOR_MAX_FIRST_TEAMS_PER_DIVISION_TRACK:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{advisor_label}在「{scope_label}」已作为第一指导老师指导 "
+                f"{as_first_count} 支队伍，不得超过 "
+                f"{ADVISOR_MAX_FIRST_TEAMS_PER_DIVISION_TRACK} 支"
+            ),
+        )
+    if total_count >= ADVISOR_MAX_TEAMS_PER_DIVISION_TRACK:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{advisor_label}在「{scope_label}」指导队伍总数已达 "
+                f"{total_count} 支，不得超过 {ADVISOR_MAX_TEAMS_PER_DIVISION_TRACK} 支"
+                f"（含第一/第二指导老师）"
+            ),
+        )
+
+
+def _resolve_advisor_pair_for_assignment(
+    *,
+    first_id: Optional[int],
+    first_name: Optional[str],
+    second_id: Optional[int],
+    second_name: Optional[str],
+    first_advisor_slot: Optional[str] = None,
+) -> Tuple[Optional[int], Optional[str], Optional[int], Optional[str]]:
+    """按 first_advisor_slot 交换第一/第二指导老师栏位。"""
+    slot = str(first_advisor_slot or "primary").strip().lower()
+    if slot == "secondary":
+        return second_id, second_name, first_id, first_name
+    return first_id, first_name, second_id, second_name
+
+
+def _assert_team_advisors_quota(
+    db: Session,
+    *,
+    competition_id: int,
+    division: str,
+    work_track: str,
+    first_advisor_id: Optional[int],
+    second_advisor_id: Optional[int],
+    exclude_team_id: Optional[int] = None,
+) -> None:
+    if first_advisor_id is not None and second_advisor_id is not None:
+        if int(first_advisor_id) == int(second_advisor_id):
+            raise HTTPException(status_code=400, detail="第一与第二指导老师不能为同一人")
+    if first_advisor_id is not None:
+        _assert_advisor_quota(
+            db,
+            competition_id=competition_id,
+            advisor_id=int(first_advisor_id),
+            division=division,
+            work_track=work_track,
+            as_first=True,
+            exclude_team_id=exclude_team_id,
+            advisor_label="第一指导老师",
+        )
+    if second_advisor_id is not None:
+        _assert_advisor_quota(
+            db,
+            competition_id=competition_id,
+            advisor_id=int(second_advisor_id),
+            division=division,
+            work_track=work_track,
+            as_first=False,
+            exclude_team_id=exclude_team_id,
+            advisor_label="第二指导老师",
+        )
+
+
 def _team_advisor_managed(team: Team, identity_id: int) -> bool:
-    return team.created_by_advisor_id is not None and int(team.created_by_advisor_id) == int(identity_id)
+    uid = int(identity_id)
+    if team.created_by_advisor_id is not None and int(team.created_by_advisor_id) == uid:
+        return True
+    second_id = getattr(team, "second_advisor_id", None)
+    return second_id is not None and int(second_id) == uid
 
 
 def _can_manage_team_composition(team: Team, identity: AltAuthUserRecord) -> bool:
-    """队长，或指导老师建队者可调整队员。"""
+    """队长，或第一/第二指导老师可调整队员。"""
     if team.captain_id == identity.id:
         return True
-    return _effective_alt_role(identity.role) in {"advisor", "teacher"} and _team_advisor_managed(team, identity.id)
+    return _effective_alt_role(identity.role) in {"advisor", "teacher"} and _team_advisor_managed(
+        team, identity.id
+    )
 
 
 def _normalize_school_name(raw: Optional[str]) -> str:
@@ -618,6 +784,35 @@ def _team_ids_with_submitted_work(db: Session, teams: List[Team]) -> set[int]:
     return submitted
 
 
+def _resolved_team_captain_id(team: Team) -> Optional[int]:
+    """仅以已正式入队成员为准解析队长；邀请未接受时不把 designated captain_id 当队长。"""
+    members = list(team.members or [])
+    for m in members:
+        if m.is_captain and m.user_id is not None:
+            return int(m.user_id)
+    if team.captain_id is None:
+        return None
+    designated = int(team.captain_id)
+    for m in members:
+        if m.user_id is not None and int(m.user_id) == designated:
+            return designated
+    return None
+
+
+def _assert_team_ready_for_school_approve(team: Team) -> None:
+    members = list(team.members or [])
+    if not members:
+        raise HTTPException(
+            status_code=400,
+            detail="队伍尚无正式队员（邀请未被接受），无法通过审核",
+        )
+    if _resolved_team_captain_id(team) is None:
+        raise HTTPException(
+            status_code=400,
+            detail="队伍尚无正式队长，无法通过审核",
+        )
+
+
 def _build_school_admin_team_item(
     team: Team,
     competition: Competition,
@@ -627,8 +822,11 @@ def _build_school_admin_team_item(
 ) -> SchoolAdminTeamReviewItem:
     advisor_id = team.created_by_advisor_id
     advisor_name = _team_advisor_display_name(team, users_by_id)
+    second_advisor_id = getattr(team, "second_advisor_id", None)
+    second_advisor_name = _team_second_advisor_display_name(team, users_by_id)
 
-    captain = users_by_id.get(team.captain_id)
+    captain_id = _resolved_team_captain_id(team)
+    captain = users_by_id.get(captain_id) if captain_id is not None else None
     captain_name = (captain.full_name or captain.username) if captain else None
 
     members_out: List[SchoolAdminTeamMemberItem] = []
@@ -652,9 +850,11 @@ def _build_school_admin_team_item(
         school=getattr(team, "school", None),
         advisor_name=advisor_name,
         advisor_id=advisor_id,
+        second_advisor_name=second_advisor_name,
+        second_advisor_id=int(second_advisor_id) if second_advisor_id is not None else None,
         team_name=team.name,
         captain_name=captain_name,
-        captain_id=team.captain_id,
+        captain_id=captain_id,
         members=members_out,
         division=getattr(team, "division", None),
         work_track=getattr(team, "work_track", None),
@@ -1226,6 +1426,8 @@ def _promote_prelim_team_to_final(
         captain_id=source_team.captain_id,
         created_by_advisor_id=source_team.created_by_advisor_id,
         advisor_name=source_team.advisor_name,
+        second_advisor_id=getattr(source_team, "second_advisor_id", None),
+        second_advisor_name=getattr(source_team, "second_advisor_name", None),
         school=source_team.school,
         division=division,
         work_track=work_track,
@@ -1521,7 +1723,10 @@ def _can_download_exam_paper(
     if role in {"advisor", "teacher"}:
         q = db.query(Team).filter(
             Team.competition_id == cid,
-            Team.created_by_advisor_id == identity.id,
+            or_(
+                Team.created_by_advisor_id == identity.id,
+                Team.second_advisor_id == identity.id,
+            ),
         )
         if match_division:
             q = q.filter(Team.division == division)
@@ -1558,7 +1763,10 @@ def _resolve_identity_work_track_for_paper(
     if role in {"advisor", "teacher"}:
         q = db.query(Team).filter(
             Team.competition_id == competition.id,
-            Team.created_by_advisor_id == identity.id,
+            or_(
+                Team.created_by_advisor_id == identity.id,
+                Team.second_advisor_id == identity.id,
+            ),
         )
         if match_division:
             q = q.filter(Team.division == division)
@@ -2088,6 +2296,52 @@ def _cancel_pending_team_side_effects(db: Session, team: Team, *, now=None) -> N
     for req in pending_joins:
         req.status = TeamJoinRequestStatus.REJECTED
         req.reviewed_at = ts
+
+
+def _handle_team_invite_rejected(db: Session, inv: TeamInvite, team: Optional[Team]) -> None:
+    """
+    指定队长拒绝邀请且队伍尚无正式成员时：自动驳回待审队伍，避免校管看到「空壳队」并误通过。
+    若已有其他正式队员，则将队长转给队内成员。
+    """
+    if team is None:
+        return
+    if team.status not in _team_composition_open_statuses():
+        return
+
+    is_designated_captain = bool(inv.as_captain) or (
+        team.captain_id is not None and int(team.captain_id) == int(inv.invitee_id)
+    )
+    if not is_designated_captain:
+        return
+
+    already_member = (
+        db.query(TeamMember)
+        .filter(TeamMember.team_id == team.id, TeamMember.user_id == inv.invitee_id)
+        .first()
+    )
+    if already_member:
+        return
+
+    members = (
+        db.query(TeamMember)
+        .filter(TeamMember.team_id == team.id)
+        .order_by(TeamMember.id.asc())
+        .all()
+    )
+    now = utc_now()
+    if not members:
+        if team.status == TeamStatus.PENDING_SCHOOL_REVIEW:
+            team.status = TeamStatus.REJECTED
+            team.reviewed_at = now
+            team.review_feedback = "指定队长拒绝入队邀请，队伍已自动取消待审"
+            _cancel_pending_team_side_effects(db, team, now=now)
+        return
+
+    # 已有队员：把队长转给队内第一人（优先已有 is_captain）
+    new_cap = next((m for m in members if m.is_captain), members[0])
+    for m in members:
+        m.is_captain = int(m.user_id) == int(new_cap.user_id)
+    team.captain_id = int(new_cap.user_id)
 
 
 def _build_question_answers_board(
@@ -2646,7 +2900,11 @@ def _team_detail_response(
     adb: Session, team: Team, *, anonymize: bool = False
 ) -> TeamDetailResponse:
     member_uids = {m.user_id for m in team.members}
-    advisor_ids = {team.created_by_advisor_id} if team.created_by_advisor_id is not None else set()
+    advisor_ids = set()
+    if team.created_by_advisor_id is not None:
+        advisor_ids.add(team.created_by_advisor_id)
+    if getattr(team, "second_advisor_id", None) is not None:
+        advisor_ids.add(int(team.second_advisor_id))
     users_by_id = _alt_users_by_id(adb, member_uids | advisor_ids | {team.captain_id})
     members_out = _build_team_member_user_responses(
         team.members, users_by_id, anonymize=anonymize
@@ -2671,6 +2929,8 @@ def _team_detail_response(
             captain_id=team.captain_id,
             created_by_advisor_id=None,
             advisor_name=None,
+            second_advisor_id=None,
+            second_advisor_name=None,
             division=division,
             work_track=work_track,
             status=TeamStatus(team.status),
@@ -2679,6 +2939,7 @@ def _team_detail_response(
         )
     display_name = _team_advisor_display_name(team, users_by_id)
     advisor_name = display_name if display_name else getattr(team, "advisor_name", None)
+    second_name = _team_second_advisor_display_name(team, users_by_id)
     return TeamDetailResponse(
         id=team.id,
         competition_id=team.competition_id,
@@ -2686,6 +2947,8 @@ def _team_detail_response(
         captain_id=team.captain_id,
         created_by_advisor_id=team.created_by_advisor_id,
         advisor_name=advisor_name,
+        second_advisor_id=getattr(team, "second_advisor_id", None),
+        second_advisor_name=second_name if second_name else getattr(team, "second_advisor_name", None),
         division=division,
         work_track=work_track,
         status=TeamStatus(team.status),
@@ -2845,12 +3108,8 @@ def _load_active_teams_with_members(db: Session, competition_id: int) -> list[Te
 
 
 def _team_captain_label(team: Team, users_by_id: dict[int, AltAuthUserRecord]) -> Tuple[Optional[int], Optional[str]]:
-    """返回 (captain_id, captain_display_name)。"""
-    captain_id = int(team.captain_id) if team.captain_id is not None else None
-    for m in team.members or []:
-        if m.is_captain and m.user_id is not None:
-            captain_id = int(m.user_id)
-            break
+    """返回 (captain_id, captain_display_name)。仅统计已正式入队成员。"""
+    captain_id = _resolved_team_captain_id(team)
     if captain_id is None:
         return None, None
     u = users_by_id.get(captain_id)
@@ -4040,6 +4299,8 @@ async def list_school_admin_teams(
         all_uids.add(t.captain_id)
         if t.created_by_advisor_id:
             all_uids.add(t.created_by_advisor_id)
+        if getattr(t, "second_advisor_id", None):
+            all_uids.add(int(t.second_advisor_id))
         for m in t.members:
             all_uids.add(m.user_id)
     users_by_id = _alt_users_by_id(adb, all_uids)
@@ -4051,6 +4312,8 @@ async def list_school_admin_teams(
             uids = {t.captain_id}
             if t.created_by_advisor_id:
                 uids.add(t.created_by_advisor_id)
+            if getattr(t, "second_advisor_id", None):
+                uids.add(int(t.second_advisor_id))
             for m in t.members:
                 uids.add(m.user_id)
             hit = False
@@ -4115,6 +4378,7 @@ async def school_review_team(
     if action == "approve":
         if team.status != TeamStatus.PENDING_SCHOOL_REVIEW:
             raise HTTPException(status_code=400, detail="Team is not pending school review")
+        _assert_team_ready_for_school_approve(team)
         team.status = TeamStatus.ACTIVE
         team.reviewed_by_id = identity.id
         team.reviewed_at = now
@@ -4175,6 +4439,29 @@ async def school_review_team(
     )
 
 
+def _resolve_advisor_row_from_refs(
+    adb: Session,
+    *,
+    advisor_username: Optional[str] = None,
+    advisor_id: Optional[int] = None,
+    advisor_name: Optional[str] = None,
+    label: str = "指导老师",
+) -> Optional[AltAuthUserRecord]:
+    username = (advisor_username or "").strip()
+    name = (advisor_name or "").strip()
+    if username:
+        adv_row = _resolve_alt_user_by_username(adb, username, label=label)
+    elif advisor_id is not None:
+        adv_row = _ensure_alt_principal_is_advisor(adb, int(advisor_id))
+    elif name:
+        adv_row = _resolve_advisor_ref(adb, name)
+    else:
+        return None
+    if _effective_alt_role(adv_row.role) not in {"advisor", "teacher"}:
+        raise HTTPException(status_code=400, detail=f"{label}须为指导老师账号")
+    return adv_row
+
+
 @router.put("/teams/{team_id}/advisor", response_model=SchoolAdminSetTeamAdvisorResult)
 async def set_team_advisor(
     team_id: int,
@@ -4183,7 +4470,7 @@ async def set_team_advisor(
     adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
-    """校管（本校）或超管为队伍添加/更换指导老师。"""
+    """校管（本校）或超管为队伍添加/更换第一、第二指导老师。"""
     role = _effective_alt_role(identity.role)
     is_super = role == "super_admin"
     is_school = role == "school_admin"
@@ -4206,31 +4493,160 @@ async def set_team_advisor(
 
     _assert_team_school_meta_mutable(db, team.competition_id, team.id)
 
-    advisor_username = (body.advisor_username or "").strip()
-    advisor_name = (body.advisor_name or "").strip()
-    advisor_id = body.advisor_id
-    if advisor_username:
-        adv_row = _resolve_alt_user_by_username(adb, advisor_username, label="指导老师")
-        if _effective_alt_role(adv_row.role) not in {"advisor", "teacher"}:
-            raise HTTPException(status_code=400, detail="指定用户须为指导老师账号")
-    elif advisor_id is not None:
-        adv_row = _ensure_alt_principal_is_advisor(adb, int(advisor_id))
-    elif advisor_name:
-        adv_row = _resolve_advisor_ref(adb, advisor_name)
+    primary_row = _resolve_advisor_row_from_refs(
+        adb,
+        advisor_username=body.advisor_username,
+        advisor_id=body.advisor_id,
+        advisor_name=body.advisor_name,
+        label="第一指导老师",
+    )
+    secondary_row = _resolve_advisor_row_from_refs(
+        adb,
+        advisor_username=body.second_advisor_username,
+        advisor_id=body.second_advisor_id,
+        advisor_name=body.second_advisor_name,
+        label="第二指导老师",
+    )
+    clear_first = bool(getattr(body, "clear_first_advisor", False))
+    clear_second = bool(body.clear_second_advisor)
+    if (
+        primary_row is None
+        and secondary_row is None
+        and not clear_first
+        and not clear_second
+    ):
+        raise HTTPException(status_code=400, detail="请填写或勾选清除第一/第二指导老师")
+
+    # 第一栏固定为第一指导老师，第二栏固定为第二指导老师
+    if clear_first:
+        first_id, first_name = None, None
+    elif primary_row is not None:
+        first_id = int(primary_row.id)
+        first_name = _display_user_name(primary_row, primary_row.id)
     else:
-        raise HTTPException(status_code=400, detail="请填写指导老师姓名、用户名或用户 ID")
+        first_id = team.created_by_advisor_id
+        first_name = team.advisor_name
 
-    if _effective_alt_role(adv_row.role) not in {"advisor", "teacher"}:
-        raise HTTPException(status_code=400, detail="指定用户须为指导老师账号")
+    if clear_second:
+        second_id, second_name = None, None
+    elif secondary_row is not None:
+        second_id = int(secondary_row.id)
+        second_name = _display_user_name(secondary_row, secondary_row.id)
+    else:
+        second_id = getattr(team, "second_advisor_id", None)
+        second_name = getattr(team, "second_advisor_name", None)
 
-    team.created_by_advisor_id = int(adv_row.id)
-    team.advisor_name = _display_user_name(adv_row, adv_row.id)
+    if first_id is not None and second_id is not None and int(first_id) == int(second_id):
+        raise HTTPException(status_code=400, detail="第一与第二指导老师不能为同一人")
+
+    division = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).lower()
+    work_track = _normalize_optional_work_track(getattr(team, "work_track", None))
+    if not work_track:
+        raise HTTPException(status_code=400, detail="队伍未设置赛道，无法校验指导老师额度")
+    _assert_team_advisors_quota(
+        db,
+        competition_id=team.competition_id,
+        division=division,
+        work_track=work_track,
+        first_advisor_id=int(first_id) if first_id is not None else None,
+        second_advisor_id=int(second_id) if second_id is not None else None,
+        exclude_team_id=team.id,
+    )
+
+    if clear_first or primary_row is not None:
+        team.created_by_advisor_id = int(first_id) if first_id is not None else None
+        team.advisor_name = first_name
+    if clear_second or secondary_row is not None:
+        team.second_advisor_id = int(second_id) if second_id is not None else None
+        team.second_advisor_name = second_name
     db.commit()
     db.refresh(team)
     return SchoolAdminSetTeamAdvisorResult(
         team_id=team.id,
         advisor_id=team.created_by_advisor_id,
         advisor_name=team.advisor_name,
+        second_advisor_id=team.second_advisor_id,
+        second_advisor_name=team.second_advisor_name,
+    )
+
+
+@router.put("/teams/{team_id}/second-advisor", response_model=TeamSetSecondAdvisorResult)
+async def set_team_second_advisor(
+    team_id: int,
+    body: TeamSetSecondAdvisorRequest,
+    db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """第一/第二指导老师可为队伍添加或更换第二指导老师。"""
+    role = _effective_alt_role(identity.role)
+    if role not in {"advisor", "teacher", "school_admin", "super_admin"}:
+        raise HTTPException(status_code=403, detail="Only advisor/teacher or admin can set second advisor")
+
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    if team.status == TeamStatus.REJECTED:
+        raise HTTPException(status_code=400, detail="Cannot set advisor on a rejected team")
+
+    if role in {"advisor", "teacher"}:
+        if not _team_advisor_managed(team, identity.id):
+            raise HTTPException(status_code=403, detail="Only this team's advisors may set second advisor")
+    elif role == "school_admin":
+        _require_school_admin_identity(identity)
+        admin_school = _normalize_school_name(identity.school)
+        if not _team_matches_school(team, admin_school):
+            raise HTTPException(status_code=403, detail="Team does not belong to your school")
+    else:
+        _require_super_admin_identity(identity)
+
+    _assert_team_school_meta_mutable(db, team.competition_id, team.id)
+
+    if body.clear:
+        team.second_advisor_id = None
+        team.second_advisor_name = None
+        db.commit()
+        db.refresh(team)
+        return TeamSetSecondAdvisorResult(
+            team_id=team.id,
+            second_advisor_id=None,
+            second_advisor_name=None,
+        )
+
+    adv_row = _resolve_advisor_row_from_refs(
+        adb,
+        advisor_id=body.second_advisor_id,
+        advisor_name=body.second_advisor_name,
+        label="第二指导老师",
+    )
+    if adv_row is None:
+        raise HTTPException(status_code=400, detail="请填写第二指导老师姓名或用户 ID")
+
+    if team.created_by_advisor_id is not None and int(team.created_by_advisor_id) == int(adv_row.id):
+        raise HTTPException(status_code=400, detail="第二指导老师不能与第一指导老师相同")
+
+    division = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).lower()
+    work_track = _normalize_optional_work_track(getattr(team, "work_track", None))
+    if not work_track:
+        raise HTTPException(status_code=400, detail="队伍未设置赛道，无法校验指导老师额度")
+    _assert_team_advisors_quota(
+        db,
+        competition_id=team.competition_id,
+        division=division,
+        work_track=work_track,
+        first_advisor_id=team.created_by_advisor_id,
+        second_advisor_id=int(adv_row.id),
+        exclude_team_id=team.id,
+    )
+
+    team.second_advisor_id = int(adv_row.id)
+    team.second_advisor_name = _display_user_name(adv_row, adv_row.id)
+    db.commit()
+    db.refresh(team)
+    return TeamSetSecondAdvisorResult(
+        team_id=team.id,
+        second_advisor_id=team.second_advisor_id,
+        second_advisor_name=team.second_advisor_name,
     )
 
 
@@ -4352,6 +4768,15 @@ async def set_team_division_track(
     competition = _get_competition(db, team.competition_id)
     division = _resolve_enrollment_division(competition, body.division)
     work_track = _resolve_work_track(body.work_track)
+    _assert_team_advisors_quota(
+        db,
+        competition_id=team.competition_id,
+        division=division,
+        work_track=work_track,
+        first_advisor_id=team.created_by_advisor_id,
+        second_advisor_id=getattr(team, "second_advisor_id", None),
+        exclude_team_id=team.id,
+    )
     try:
         _sync_team_division_and_work_track(db, team, division, work_track)
         db.commit()
@@ -4427,6 +4852,8 @@ async def list_admin_team_reviews(
         all_uids.add(t.captain_id)
         if t.created_by_advisor_id:
             all_uids.add(t.created_by_advisor_id)
+        if getattr(t, "second_advisor_id", None):
+            all_uids.add(int(t.second_advisor_id))
         for m in t.members:
             all_uids.add(m.user_id)
     users_by_id = _alt_users_by_id(adb, all_uids)
@@ -4667,6 +5094,15 @@ async def school_admin_proxy_create_team(
             raise HTTPException(status_code=400, detail=f"「{advisor_username}」须为指导老师账号")
         created_by_advisor_id = int(adv_row.id)
         advisor_display_name = _display_user_name(adv_row, adv_row.id)
+
+    _assert_team_advisors_quota(
+        db,
+        competition_id=competition.id,
+        division=team_division,
+        work_track=team_work_track,
+        first_advisor_id=created_by_advisor_id,
+        second_advisor_id=None,
+    )
 
     now = utc_now()
     team = Team(
@@ -6166,7 +6602,10 @@ async def list_teams(
         teams = (
             q.options(joinedload(Team.members))
             .filter(
-                Team.created_by_advisor_id == identity.id,
+                or_(
+                    Team.created_by_advisor_id == identity.id,
+                    Team.second_advisor_id == identity.id,
+                ),
                 Team.status.in_(
                     [
                         TeamStatus.ACTIVE,
@@ -6401,14 +6840,79 @@ async def create_team(
             )
 
         team_school = _assert_student_ids_same_school(adb, ordered_ids)
-        # 指导老师/教师代建队：自动将当前登录老师设为建队指导老师（忽略请求体中的 advisor_id/advisor_name）
+        # 指导老师/教师代建队：须显式选择本人担任第一或第二指导老师
+        my_role = str(getattr(team_create, "creator_advisor_role", None) or "").strip().lower()
+        if my_role not in ("first", "second"):
+            raise HTTPException(
+                status_code=400,
+                detail="请选择您担任第一指导老师还是第二指导老师（creator_advisor_role）",
+            )
+        self_id = int(identity.id)
+        self_name = _display_user_name(identity, identity.id)
+
+        other_row = None
+        # 另一位老师：first 时来自 second_advisor_*；second 时来自 advisor_*（作为第一指导老师）
+        if my_role == "first":
+            other_row = _resolve_advisor_row_from_refs(
+                adb,
+                advisor_id=team_create.second_advisor_id,
+                advisor_name=team_create.second_advisor_name,
+                label="第二指导老师",
+            )
+            first_advisor_id = self_id
+            first_advisor_name = self_name
+            second_advisor_id = int(other_row.id) if other_row else None
+            second_advisor_name = (
+                _display_user_name(other_row, other_row.id) if other_row else None
+            )
+        else:
+            # 担任第二：第一指导老师选填（可只填姓名，或留空）
+            first_advisor_id = None
+            first_advisor_name = None
+            if team_create.advisor_id is not None:
+                other_row = _ensure_alt_principal_is_advisor(adb, int(team_create.advisor_id))
+                first_advisor_id = int(other_row.id)
+                first_advisor_name = _display_user_name(other_row, other_row.id)
+            else:
+                raw = (team_create.advisor_name or "").strip()
+                if raw:
+                    nid = _looks_like_eight_digit_id(raw)
+                    if nid is not None:
+                        other_row = _ensure_alt_principal_is_advisor(adb, nid)
+                        first_advisor_id = int(other_row.id)
+                        first_advisor_name = _display_user_name(other_row, other_row.id)
+                    else:
+                        other_row = _try_resolve_advisor_by_name(adb, raw)
+                        if other_row:
+                            first_advisor_id = int(other_row.id)
+                            first_advisor_name = _display_user_name(other_row, other_row.id)
+                        else:
+                            first_advisor_name = raw
+            second_advisor_id = self_id
+            second_advisor_name = self_name
+
+        if first_advisor_id is not None and second_advisor_id is not None:
+            if int(first_advisor_id) == int(second_advisor_id):
+                raise HTTPException(status_code=400, detail="第一与第二指导老师不能为同一人")
+
+        _assert_team_advisors_quota(
+            db,
+            competition_id=competition.id,
+            division=team_division,
+            work_track=team_work_track,
+            first_advisor_id=first_advisor_id,
+            second_advisor_id=second_advisor_id,
+        )
+
         team = Team(
             id=allocate_eight_digit_id(db, Team),
             competition_id=competition.id,
             name=tn,
             captain_id=captain_id,
-            created_by_advisor_id=identity.id,
-            advisor_name=_display_user_name(identity, identity.id),
+            created_by_advisor_id=first_advisor_id,
+            advisor_name=first_advisor_name,
+            second_advisor_id=second_advisor_id,
+            second_advisor_name=second_advisor_name,
             school=team_school,
             division=team_division,
             work_track=team_work_track,
@@ -6440,30 +6944,56 @@ async def create_team(
         )
 
         team_school = _resolve_team_school(adb, identity.id)
-        created_by_advisor_id = None
-        advisor_display_name = None
-        if team_create.advisor_id is not None:
-            if int(team_create.advisor_id) == int(identity.id):
-                raise HTTPException(status_code=400, detail="不能将自己指定为指导老师")
-            adv_row = _ensure_alt_principal_is_advisor(adb, team_create.advisor_id)
-            created_by_advisor_id = team_create.advisor_id
-            advisor_display_name = _display_user_name(adv_row, team_create.advisor_id)
-        elif team_create.advisor_name and str(team_create.advisor_name).strip():
-            advisor_raw = str(team_create.advisor_name).strip()
-            advisor_nid = _looks_like_eight_digit_id(advisor_raw)
-            if advisor_nid is not None:
-                adv_row = _ensure_alt_principal_is_advisor(adb, advisor_nid)
+
+        def _resolve_student_picked_advisor(
+            *,
+            advisor_id: Optional[int],
+            advisor_name: Optional[str],
+            label: str,
+        ) -> Tuple[Optional[int], Optional[str]]:
+            if advisor_id is not None:
+                if int(advisor_id) == int(identity.id):
+                    raise HTTPException(status_code=400, detail=f"不能将自己指定为{label}")
+                adv_row = _ensure_alt_principal_is_advisor(adb, int(advisor_id))
+                return int(adv_row.id), _display_user_name(adv_row, adv_row.id)
+            raw = (advisor_name or "").strip()
+            if not raw:
+                return None, None
+            nid = _looks_like_eight_digit_id(raw)
+            if nid is not None:
+                adv_row = _ensure_alt_principal_is_advisor(adb, nid)
                 if int(adv_row.id) == int(identity.id):
-                    raise HTTPException(status_code=400, detail="不能将自己指定为指导老师")
-                created_by_advisor_id = int(adv_row.id)
-                advisor_display_name = _display_user_name(adv_row, adv_row.id)
-            else:
-                advisor_display_name = advisor_raw
-            advisor_row = _try_resolve_advisor_by_name(adb, advisor_display_name)
+                    raise HTTPException(status_code=400, detail=f"不能将自己指定为{label}")
+                return int(adv_row.id), _display_user_name(adv_row, adv_row.id)
+            display = raw
+            advisor_row = _try_resolve_advisor_by_name(adb, display)
             if advisor_row:
                 if int(advisor_row.id) == int(identity.id):
-                    raise HTTPException(status_code=400, detail="不能将自己指定为指导老师")
-                created_by_advisor_id = advisor_row.id
+                    raise HTTPException(status_code=400, detail=f"不能将自己指定为{label}")
+                return int(advisor_row.id), _display_user_name(advisor_row, advisor_row.id)
+            return None, display
+
+        primary_id, primary_name = _resolve_student_picked_advisor(
+            advisor_id=team_create.advisor_id,
+            advisor_name=team_create.advisor_name,
+            label="第一指导老师",
+        )
+        secondary_id, secondary_name = _resolve_student_picked_advisor(
+            advisor_id=team_create.second_advisor_id,
+            advisor_name=team_create.second_advisor_name,
+            label="第二指导老师",
+        )
+        # 学生建队：第一/第二均为选填，栏位固定，不做互换
+        created_by_advisor_id, advisor_display_name = primary_id, primary_name
+        second_advisor_id, second_advisor_name = secondary_id, secondary_name
+        _assert_team_advisors_quota(
+            db,
+            competition_id=competition.id,
+            division=team_division,
+            work_track=team_work_track,
+            first_advisor_id=created_by_advisor_id,
+            second_advisor_id=second_advisor_id,
+        )
 
         team = Team(
             id=allocate_eight_digit_id(db, Team),
@@ -6472,6 +7002,8 @@ async def create_team(
             captain_id=identity.id,
             created_by_advisor_id=created_by_advisor_id,
             advisor_name=advisor_display_name,
+            second_advisor_id=second_advisor_id,
+            second_advisor_name=second_advisor_name,
             school=team_school,
             division=team_division,
             work_track=team_work_track,
@@ -6793,6 +7325,7 @@ async def respond_team_invite(
         # 队伍已驳回/解散时仍允许学生关闭邀请，避免列表卡住
         inv.status = TeamInviteStatus.REJECTED
         inv.responded_at = utc_now()
+        _handle_team_invite_rejected(db, inv, team_any)
         db.commit()
         db.refresh(inv)
         return _build_team_invite_response(inv, team=team_any, competition=competition)

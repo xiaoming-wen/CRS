@@ -22,6 +22,8 @@ def migrate_competition_team_review(engine) -> None:
             ("reviewed_at", "DATETIME"),
             ("review_feedback", "TEXT"),
             ("advisor_name", "VARCHAR(100)"),
+            ("second_advisor_id", "INTEGER"),
+            ("second_advisor_name", "VARCHAR(100)"),
         ):
             if col not in cols:
                 try:

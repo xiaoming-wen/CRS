@@ -238,10 +238,13 @@ class Team(Base):
     # alt_auth_users.id（队长，须为学生）
     captain_id = Column(Integer, nullable=False, index=True)
 
-    # 指导老师代为建队时记录其 alt_auth_users.id（普通学生自建队则为空）
+    # 第一指导老师（建队指导老师 / 主指导）
     created_by_advisor_id = Column(Integer, nullable=True, index=True)
     # 学生自建队时填写的指导老师姓名（展示用；可与 created_by_advisor_id 并存）
     advisor_name = Column(String(100), nullable=True)
+    # 第二指导老师
+    second_advisor_id = Column(Integer, nullable=True, index=True)
+    second_advisor_name = Column(String(100), nullable=True)
 
     division = Column(
         String(20),
