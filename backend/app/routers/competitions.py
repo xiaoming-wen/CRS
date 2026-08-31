@@ -3061,7 +3061,7 @@ def _append_team_mapping_rows(
     question_count: int = 5,
     include_scores: bool = True,
 ) -> None:
-    """对照表：一行一支队伍；include_scores 时含分题分与总分。"""
+    """对照表：一行一支队伍；表头含分题列与总分，include_scores=false 时分数单元格留空。"""
     grades_by_team = grades_by_team or {}
     q_count = max(1, min(COMPETITION_QUESTION_COUNT, int(question_count) or 5))
     for team in teams:
@@ -3095,6 +3095,9 @@ def _append_team_mapping_rows(
             grade = grades_by_team.get(int(team.id))
             row.extend(_grade_score_cells(grade, q_count))
             row.append(grade.total_score if grade else "")
+        else:
+            row.extend([""] * q_count)
+            row.append("")
         ws.append(row)
 
 
@@ -3199,7 +3202,7 @@ async def export_team_roster_excel(
     ),
     include_scores: bool = Query(
         True,
-        description="是否包含分题列与总分；false 时仅导出参赛者基础信息",
+        description="是否填充分题分数与总分；false 时仍保留题目名称与总分表头，分数单元格留空",
     ),
     db: Session = Depends(get_db),
     adb: Session = Depends(get_alt_auth_db),
@@ -3207,8 +3210,9 @@ async def export_team_roster_excel(
 ):
     """
     管理员导出参赛对照表：按作品/软件/硬件赛道各生成一份 Excel，打成 zip。
-    基础列：学校名称、竞赛名称、组别项目、队伍编码、队伍名称指导老师、队员。
-    include_scores=true 时追加分题列（表头取自该赛道发布试卷时的分题配置名称）与总分。
+    每份表格列：学校名称、竞赛名称、组别项目、队伍编码、队伍名称指导老师、队员、
+    分题列（表头取自该赛道发布试卷时的分题配置名称）、总分。
+    include_scores=false 时分题列与总分表头保留，单元格不填分数。
     scope=both 时导出初赛+决赛全部队伍。
     """
     from app.competition_exam_config import WORK_TRACKS
@@ -3267,8 +3271,8 @@ async def export_team_roster_excel(
     with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for track in WORK_TRACKS:
             # 表头以当前请求竞赛的该赛道分题配置为准（发布试卷时填写的题名）
-            q_headers = _question_score_headers_for_track(competition, track) if include_scores else []
-            q_count = len(q_headers) if include_scores else 0
+            q_headers = _question_score_headers_for_track(competition, track)
+            q_count = len(q_headers)
 
             wb = Workbook()
             ws = wb.active
@@ -3280,9 +3284,9 @@ async def export_team_roster_excel(
                 "队伍编码",
                 "队伍名称指导老师",
                 "队员",
+                *q_headers,
+                "总分",
             ]
-            if include_scores:
-                headers.extend([*q_headers, "总分"])
             ws.append(headers)
 
             for comp in comps:

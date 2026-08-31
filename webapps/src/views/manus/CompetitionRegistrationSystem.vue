@@ -1566,9 +1566,9 @@
               </a-button>
             </div>
             <p class="muted" style="margin: 8px 0 0; font-size: 12px">
-              下载参赛者信息：按作品 / 软件 / 硬件各一份 Excel（压缩包），表头为学校、竞赛、组别项目、队伍、队员（不含分数）。
+              下载参赛者信息：按作品 / 软件 / 硬件各一份 Excel（压缩包）。表头含学校、竞赛、组别项目、队伍、队员、题目名称、总分（分数单元格留空）。
               <template v-if="canManageCompetitions">
-                「导出参赛表格」额外含分题列与总分。
+                「导出参赛表格」会填充分题分数与总分。
               </template>
             </p>
           </a-card>
@@ -11142,7 +11142,7 @@ export default {
         a.click()
         document.body.removeChild(a)
         window.URL.revokeObjectURL(url)
-        this.$message.success('已下载参赛者信息（作品/软件/硬件赛道各一份 Excel，不含分数）')
+        this.$message.success('已下载参赛者信息（含题目名称与总分表头，分数留空）')
       } catch (e) {
         this.$message.error('下载参赛者信息失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {

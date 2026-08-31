@@ -210,7 +210,7 @@ export function getCompetitionParticipantsTeams (competitionId, options = {}) {
 
 // 8.11.1 导出参赛对照表（按赛道拆成多份 Excel，打成 zip）
 // options.scope: current | paired | both
-// options.includeScores: false 时不含分题列与总分（参赛者信息）
+// options.includeScores: false 时仍含题目名称与总分表头，分数单元格留空
 export function exportCompetitionTeamsExcel (competitionId, options = {}) {
   const params = {
     ...buildCompetitionDivisionParams(options)
