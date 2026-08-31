@@ -59,16 +59,6 @@
         </a-button>
       </div>
       <div v-else-if="showStandaloneAdvisorToolbar" class="detail-toolbar-right">
-        <a-button
-          v-if="showExamPaperDownloadToolbar"
-          type="primary"
-          ghost
-          class="detail-toolbar-btn"
-          :loading="examPaperToolbarLoading"
-          @click="onToolbarDownloadExamPaper"
-        >
-          下载试卷
-        </a-button>
         <a-button type="primary" ghost class="detail-toolbar-btn" @click="onToolbarLogout">
           退出
         </a-button>

@@ -2916,7 +2916,7 @@
         type="info"
         show-icon
         style="margin-bottom: 12px"
-        message="竞赛须已发布。请切换本科 / 高职组别，分别为作品、软件、硬件三赛道上传试卷；学生与指导老师将按本人组别+赛道下载对应试卷。"
+        message="竞赛须已发布。请切换本科 / 高职组别，分别为作品、软件、硬件三赛道上传试卷；学生将按本人组别+赛道下载对应试卷（指导老师不可下载）。"
       />
 
       <a-tabs
@@ -3099,7 +3099,7 @@
       </a-spin>
     </a-modal>
 
-    <!-- 学生 / 指导老师：按报名或建队赛道选择下载试卷 -->
+    <!-- 学生：按已报名且校审通过的赛道选择下载试卷 -->
     <a-modal
       v-model="showExamPaperDownloadModal"
       title="下载试卷"
@@ -3111,15 +3111,7 @@
       @cancel="closeExamPaperDownloadModal"
     >
       <p class="muted" style="margin: 0 0 12px; font-size: 13px">
-        <template v-if="isStudent">
-          以下为您已报名赛道对应的试卷，请选择下载。
-        </template>
-        <template v-else-if="isAdvisorOrTeacher">
-          以下为您所创建队伍涉及赛道的试卷，请选择下载。
-        </template>
-        <template v-else>
-          请选择要下载的试卷。
-        </template>
+        以下为您已报名且队伍校审通过的赛道对应试卷，请选择下载。
       </p>
       <a-empty
         v-if="!examPaperDownloadOptions.length"
@@ -3517,7 +3509,7 @@ export default {
         { value: 'hardware', label: '硬件赛道' }
       ],
 
-      /** 详情页试卷下载（学生/指导老师） */
+      /** 详情页试卷下载（仅学生） */
       examPapersForDetail: null,
       examPaperDownloadLoading: false,
       showExamPaperDownloadModal: false,
@@ -3907,7 +3899,7 @@ export default {
       }
       return this.normalizeViewDivision(this.activeViewDivision) || null
     },
-    /** 学生/指导老师可下载的试卷选项（按报名/建队赛道） */
+    /** 学生可下载的试卷选项（按已报名且校审通过的赛道） */
     examPaperDownloadOptions () {
       const meta = this.examPapersForDetail
       const byTrack = (meta && meta.by_track) || {}
@@ -3958,36 +3950,6 @@ export default {
             team_id: row.team_id != null ? row.team_id : null
           })
         })
-      } else if (this.isAdvisorOrTeacher) {
-        const list = (this.advisorTeams || []).filter(
-          t => t && String(t.status || '').trim().toLowerCase() === 'active'
-        )
-        list.forEach((t) => {
-          if (!t) return
-          const track = t.work_track != null ? String(t.work_track).trim().toLowerCase() : ''
-          if (!order.includes(track)) return
-          const div = this.normalizeViewDivision(t.division)
-            || this.normalizeViewDivision(this.activeCompetitionAdvisorTeamDivision)
-            || this.normalizeViewDivision(this.activeViewDivision)
-          if (div !== 'undergraduate' && div !== 'vocational') return
-          const slot = resolveSlot(div, track)
-          const existing = map.get(`${div}__${track}`)
-          if (existing) {
-            existing.team_count = (existing.team_count || 1) + 1
-            return
-          }
-          pushUnique(map, {
-            key: `${div}__${track}`,
-            division: div,
-            work_track: track,
-            division_label: this.examPaperDivisionLabel(div),
-            track_label: this.workTrackDisplayLabel(track) + '赛道',
-            published: !!(slot && slot.published),
-            filename: (slot && slot.filename) || '',
-            team_count: 1,
-            team_id: t.id != null ? t.id : null
-          })
-        })
       }
 
       return Array.from(map.values()).sort((a, b) => {
@@ -4004,28 +3966,17 @@ export default {
       if (!this.isCompetitionShareableStatus(this.activeCompetition && this.activeCompetition.status)) {
         return false
       }
-      if (!(this.isStudent || this.isAdvisorOrTeacher)) return false
-      if (this.isAdvisorOrTeacher) {
-        const hasActiveTeam = (this.advisorTeams || []).some(
-          t => t && String(t.status || '').trim().toLowerCase() === 'active'
-        )
-        if (!hasActiveTeam) return false
+      // 仅学生可下载试卷；指导老师不可下载
+      if (!this.isStudent) return false
+      if (!this.hasAnyEnrollment) return false
+      if (Object.keys(this.examPaperTeamStatusById || {}).length > 0) {
         return this.examPaperDownloadOptionsPublished.length > 0
       }
-      if (this.isStudent) {
-        if (!this.hasAnyEnrollment) return false
-        // 已拉到队伍校审状态时，严格按「通过队伍对应赛道」判断
-        if (Object.keys(this.examPaperTeamStatusById || {}).length > 0) {
-          return this.examPaperDownloadOptionsPublished.length > 0
-        }
-        // 状态尚未加载：只要有报名且存在已发布试卷元数据，先显示入口（打开弹窗时再过滤）
-        const byTrack = (this.examPapersForDetail && this.examPapersForDetail.by_track) || {}
-        return ['undergraduate', 'vocational', 'default'].some((div) => {
-          const m = byTrack[div] || {}
-          return ['works', 'software', 'hardware'].some(t => m[t] && m[t].published)
-        })
-      }
-      return false
+      const byTrack = (this.examPapersForDetail && this.examPapersForDetail.by_track) || {}
+      return ['undergraduate', 'vocational', 'default'].some((div) => {
+        const m = byTrack[div] || {}
+        return ['works', 'software', 'hardware'].some(t => m[t] && m[t].published)
+      })
     },
     createCompetitionNeedsSharedQr () {
       const mode = this.createCompetitionForm.division_mode || 'single'
@@ -6268,21 +6219,19 @@ export default {
         this.$message.warning('请先选择竞赛')
         return
       }
+      if (!this.isStudent) {
+        this.$message.warning('指导老师不可下载试卷')
+        return
+      }
       try {
         if (!this.examPapersForDetail) {
           await this.refreshExamPapersForDetail()
         }
-        if (this.isStudent) {
-          await this.refreshExamPaperTeamStatusesForStudent()
-        }
+        await this.refreshExamPaperTeamStatusesForStudent()
       } catch (e) { /* refresh 内部已处理 */ }
       const opts = this.examPaperDownloadOptions || []
       if (!opts.length) {
-        this.$message.warning(
-          this.isAdvisorOrTeacher
-            ? '请先创建队伍，且队伍校审通过后，方可下载对应赛道试卷'
-            : '请先完成报名，且组队校审通过后，方可下载对应赛道试卷'
-        )
+        this.$message.warning('请先完成报名，且组队校审通过后，方可下载对应赛道试卷')
         return
       }
       if (!this.examPaperDownloadOptionsPublished.length) {

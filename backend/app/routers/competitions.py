@@ -1730,20 +1730,7 @@ def _can_download_exam_paper(
             if team is not None and team.status == TeamStatus.ACTIVE:
                 return True
         return False
-    if role in {"advisor", "teacher"}:
-        q = db.query(Team).filter(
-            Team.competition_id == cid,
-            Team.status == TeamStatus.ACTIVE,
-            or_(
-                Team.created_by_advisor_id == identity.id,
-                Team.second_advisor_id == identity.id,
-            ),
-        )
-        if match_division:
-            q = q.filter(Team.division == division)
-        if track:
-            q = q.filter(Team.work_track == track)
-        return q.first() is not None
+    # 指导老师 / 教师不可下载试卷
     return False
 
 
@@ -3874,7 +3861,7 @@ async def download_competition_exam_paper(
 ):
     """
     下载已发布试卷。
-    学生/指导老师按报名或关联队伍的组别（本科/高职）与赛道下载对应试卷。
+    仅学生按有效报名的组别（本科/高职）与赛道下载；指导老师不可下载。
     """
     from app.competition_exam_config import get_exam_paper_track_file
 
@@ -3887,9 +3874,8 @@ async def download_competition_exam_paper(
         raise HTTPException(
             status_code=403,
             detail=(
-                "无权下载试卷：学生须在本赛道有效报名且组队已校审通过；"
-                "指导老师须有本赛道已通过校审的关联队伍。"
-                "请确认当前详情页组别与报名组别、赛道一致。"
+                "无权下载试卷：仅学生在对应赛道有效报名且组队已校审通过后可下载；"
+                "指导老师不可下载试卷。"
             ),
         )
     path, filename = get_exam_paper_track_file(competition, div, track)

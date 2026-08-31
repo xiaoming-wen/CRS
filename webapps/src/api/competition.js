@@ -717,7 +717,7 @@ export function putSubmissionQuestionConfig (competitionId, payload) {
   })
 }
 
-/** 下载已发布试卷（已报名学生 / 关联指导老师；须传 division；建议传 work_track） */
+/** 下载已发布试卷（仅已报名且校审通过的学生；须传 division；建议传 work_track） */
 export function downloadCompetitionExamPaper (competitionId, options = {}) {
   const params = {}
   if (options.division != null && options.division !== '') {
