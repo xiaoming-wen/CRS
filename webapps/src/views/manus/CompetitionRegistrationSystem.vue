@@ -364,8 +364,8 @@
             <a-descriptions-item label="竞赛ID">{{ activeCompetition.id }}</a-descriptions-item>
             <a-descriptions-item label="竞赛名称">{{ activeCompetition.name }}</a-descriptions-item>
             <a-descriptions-item label="简介" :span="2">{{ activeCompetition.description || '-' }}</a-descriptions-item>
-            <a-descriptions-item label="规则说明" :span="2">{{ activeCompetition.rules_text || '-' }}</a-descriptions-item>
-            <a-descriptions-item label="参赛对象" :span="2">{{ activeCompetition.target_audience || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="竞赛说明" :span="2">{{ activeCompetition.rules_text || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="竞赛组织" :span="2">{{ activeCompetition.target_audience || '-' }}</a-descriptions-item>
             <a-descriptions-item label="联系人">{{ activeCompetition.contact_name || '-' }}</a-descriptions-item>
             <a-descriptions-item label="联系方式">{{ activeCompetition.contact_phone || '-' }}</a-descriptions-item>
             <a-descriptions-item label="竞赛地点" :span="2">{{ activeCompetition.location || '-' }}</a-descriptions-item>
@@ -4775,7 +4775,7 @@ export default {
       if (audienceParsed.tracks.length >= 2) {
         blocks.push({
           num: '01',
-          title: '参赛对象',
+          title: '竞赛组织',
           kind: 'tracks',
           theme: 'cyan',
           intro: audienceParsed.intro,
@@ -4785,7 +4785,7 @@ export default {
       } else {
         blocks.push({
           num: '01',
-          title: '参赛对象',
+          title: '竞赛组织',
           kind: 'text',
           theme: 'cyan',
           body: audience || modeLine
@@ -4795,7 +4795,7 @@ export default {
       // 规则说明整块展示，不拆成多条图标列表
       blocks.push({
         num: '02',
-        title: '规则说明',
+        title: '竞赛说明',
         kind: 'text',
         theme: 'gold',
         body: rules || '作品格式、提交方式及截止时间等请以上方简介与主办方后续通知为准。'
