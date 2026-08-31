@@ -4624,12 +4624,13 @@ async def set_team_second_advisor(
 
     adv_row = _resolve_advisor_row_from_refs(
         adb,
+        advisor_username=getattr(body, "second_advisor_username", None),
         advisor_id=body.second_advisor_id,
         advisor_name=body.second_advisor_name,
         label=target_label,
     )
     if adv_row is None:
-        raise HTTPException(status_code=400, detail=f"请填写{target_label}姓名或用户 ID")
+        raise HTTPException(status_code=400, detail=f"请填写{target_label}用户名")
 
     new_id = int(adv_row.id)
     new_name = _display_user_name(adv_row, adv_row.id)
@@ -6880,10 +6881,11 @@ async def create_team(
         self_name = _display_user_name(identity, identity.id)
 
         other_row = None
-        # 另一位老师：first 时来自 second_advisor_*；second 时来自 advisor_*（作为第一指导老师）
+        # 另一位老师：仅支持用户名（advisor_username / second_advisor_username）
         if my_role == "first":
             other_row = _resolve_advisor_row_from_refs(
                 adb,
+                advisor_username=getattr(team_create, "second_advisor_username", None),
                 advisor_id=team_create.second_advisor_id,
                 advisor_name=team_create.second_advisor_name,
                 label="第二指导老师",
@@ -6895,28 +6897,18 @@ async def create_team(
                 _display_user_name(other_row, other_row.id) if other_row else None
             )
         else:
-            # 担任第二：第一指导老师选填（可只填姓名，或留空）
-            first_advisor_id = None
-            first_advisor_name = None
-            if team_create.advisor_id is not None:
-                other_row = _ensure_alt_principal_is_advisor(adb, int(team_create.advisor_id))
-                first_advisor_id = int(other_row.id)
-                first_advisor_name = _display_user_name(other_row, other_row.id)
-            else:
-                raw = (team_create.advisor_name or "").strip()
-                if raw:
-                    nid = _looks_like_eight_digit_id(raw)
-                    if nid is not None:
-                        other_row = _ensure_alt_principal_is_advisor(adb, nid)
-                        first_advisor_id = int(other_row.id)
-                        first_advisor_name = _display_user_name(other_row, other_row.id)
-                    else:
-                        other_row = _try_resolve_advisor_by_name(adb, raw)
-                        if other_row:
-                            first_advisor_id = int(other_row.id)
-                            first_advisor_name = _display_user_name(other_row, other_row.id)
-                        else:
-                            first_advisor_name = raw
+            # 担任第二：第一指导老师选填（用户名）
+            other_row = _resolve_advisor_row_from_refs(
+                adb,
+                advisor_username=getattr(team_create, "advisor_username", None),
+                advisor_id=team_create.advisor_id,
+                advisor_name=team_create.advisor_name,
+                label="第一指导老师",
+            )
+            first_advisor_id = int(other_row.id) if other_row else None
+            first_advisor_name = (
+                _display_user_name(other_row, other_row.id) if other_row else None
+            )
             second_advisor_id = self_id
             second_advisor_name = self_name
 
@@ -6974,42 +6966,44 @@ async def create_team(
 
         team_school = _resolve_team_school(adb, identity.id)
 
-        def _resolve_student_picked_advisor(
+        def _resolve_student_picked_advisor_by_username(
             *,
-            advisor_id: Optional[int],
-            advisor_name: Optional[str],
+            advisor_username: Optional[str],
             label: str,
         ) -> Tuple[Optional[int], Optional[str]]:
-            if advisor_id is not None:
-                if int(advisor_id) == int(identity.id):
-                    raise HTTPException(status_code=400, detail=f"不能将自己指定为{label}")
-                adv_row = _ensure_alt_principal_is_advisor(adb, int(advisor_id))
-                return int(adv_row.id), _display_user_name(adv_row, adv_row.id)
-            raw = (advisor_name or "").strip()
+            # 学生添加指导老师：仅支持用户名，不再接受姓名或 8 位用户 ID
+            raw = (advisor_username or "").strip()
             if not raw:
                 return None, None
-            nid = _looks_like_eight_digit_id(raw)
-            if nid is not None:
-                adv_row = _ensure_alt_principal_is_advisor(adb, nid)
-                if int(adv_row.id) == int(identity.id):
-                    raise HTTPException(status_code=400, detail=f"不能将自己指定为{label}")
-                return int(adv_row.id), _display_user_name(adv_row, adv_row.id)
-            display = raw
-            advisor_row = _try_resolve_advisor_by_name(adb, display)
-            if advisor_row:
-                if int(advisor_row.id) == int(identity.id):
-                    raise HTTPException(status_code=400, detail=f"不能将自己指定为{label}")
-                return int(advisor_row.id), _display_user_name(advisor_row, advisor_row.id)
-            return None, display
+            adv_row = _resolve_alt_user_by_username(adb, raw, label=label)
+            if _effective_alt_role(adv_row.role) not in {"advisor", "teacher"}:
+                raise HTTPException(status_code=400, detail=f"「{raw}」须为指导老师账号")
+            if int(adv_row.id) == int(identity.id):
+                raise HTTPException(status_code=400, detail=f"不能将自己指定为{label}")
+            return int(adv_row.id), _display_user_name(adv_row, adv_row.id)
 
-        primary_id, primary_name = _resolve_student_picked_advisor(
-            advisor_id=team_create.advisor_id,
-            advisor_name=team_create.advisor_name,
+        legacy_advisor_input = (
+            team_create.advisor_id is not None
+            or bool((team_create.advisor_name or "").strip())
+            or team_create.second_advisor_id is not None
+            or bool((team_create.second_advisor_name or "").strip())
+        )
+        username_advisor_input = bool(
+            (getattr(team_create, "advisor_username", None) or "").strip()
+            or (getattr(team_create, "second_advisor_username", None) or "").strip()
+        )
+        if legacy_advisor_input and not username_advisor_input:
+            raise HTTPException(
+                status_code=400,
+                detail="学生添加指导老师请填写用户名，不支持姓名或用户 ID",
+            )
+
+        primary_id, primary_name = _resolve_student_picked_advisor_by_username(
+            advisor_username=getattr(team_create, "advisor_username", None),
             label="第一指导老师",
         )
-        secondary_id, secondary_name = _resolve_student_picked_advisor(
-            advisor_id=team_create.second_advisor_id,
-            advisor_name=team_create.second_advisor_name,
+        secondary_id, secondary_name = _resolve_student_picked_advisor_by_username(
+            advisor_username=getattr(team_create, "second_advisor_username", None),
             label="第二指导老师",
         )
         # 学生建队：第一/第二均为选填，栏位固定，不做互换

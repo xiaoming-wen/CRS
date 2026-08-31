@@ -863,21 +863,31 @@ class TeamCreate(BaseModel):
     )
     advisor_id: Optional[EightDigitAltUserId] = Field(
         None,
-        description="第一指导老师用户 ID（学生自建队选填，与 advisor_name 二选一）；须为 advisor/teacher 角色",
+        description="第一指导老师用户 ID（指导老师建队选填；学生请用 advisor_username）",
+    )
+    advisor_username: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="第一指导老师用户名（学生自建队选填，仅支持用户名）",
     )
     advisor_name: Optional[str] = Field(
         None,
         max_length=100,
-        description="第一指导老师姓名/用户名/8位ID（学生自建队选填）；写入队伍展示字段；匹配系统账号时同时关联 created_by_advisor_id",
+        description="第一指导老师姓名/用户名/8位ID（指导老师建队选填；学生请用 advisor_username）",
     )
     second_advisor_id: Optional[EightDigitAltUserId] = Field(
         None,
-        description="第二指导老师用户 ID（选填）",
+        description="第二指导老师用户 ID（指导老师建队选填；学生请用 second_advisor_username）",
+    )
+    second_advisor_username: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="第二指导老师用户名（学生自建队选填，仅支持用户名）",
     )
     second_advisor_name: Optional[str] = Field(
         None,
         max_length=100,
-        description="第二指导老师姓名/用户名/8位ID（选填）",
+        description="第二指导老师姓名/用户名/8位ID（指导老师建队选填；学生请用 second_advisor_username）",
     )
     first_advisor_slot: Optional[Literal["primary", "secondary"]] = Field(
         None,
@@ -1210,6 +1220,9 @@ class SchoolAdminSetTeamAdvisorResult(BaseModel):
 class TeamSetSecondAdvisorRequest(BaseModel):
     """指导老师在队务管理中添加/更换「另一位」指导老师（第一或第二）。"""
 
+    second_advisor_username: Optional[str] = Field(
+        None, max_length=100, description="目标指导老师用户名（推荐）"
+    )
     second_advisor_id: Optional[EightDigitAltUserId] = Field(
         None, description="目标指导老师用户 ID（字段名历史兼容）"
     )

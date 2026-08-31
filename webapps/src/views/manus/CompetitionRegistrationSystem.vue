@@ -913,16 +913,14 @@
                     :label="advisorCreateForm.creator_advisor_role === 'second' ? '第一指导老师（选填）' : '第二指导老师（选填）'"
                   >
                     <a-input
-                      v-model="advisorCreateForm.other_advisor_name"
-                      :placeholder="advisorCreateForm.creator_advisor_role === 'second'
-                        ? '选填第一指导老师（姓名或 8 位用户 ID）；也可建队后由校管补充'
-                        : '选填另一位指导老师；也可建队后在队务中添加'"
+                      v-model="advisorCreateForm.other_advisor_username"
+                      placeholder="选填：另一位指导老师用户名"
                       :maxLength="100"
                       :disabled="advisorTeamActionsDisabled || !allowTeam"
                       allow-clear
                     />
                     <div class="muted" style="margin-top: 4px; font-size: 12px">
-                      当前账号：{{ altCurrentUserDisplayName || '—' }}
+                      仅支持用户名；当前账号：{{ altCurrentUserDisplayName || '—' }}
                     </div>
                   </a-form-item>
                 </a-col>
@@ -1040,11 +1038,15 @@
               </a-descriptions>
 
               <div class="advisor-manage-team-ops">
-                <a-form layout="inline" style="margin-top: 12px">
+                <a-form
+                  v-if="!advisorSelectedTeamHasBothAdvisors"
+                  layout="inline"
+                  style="margin-top: 12px"
+                >
                   <a-form-item :label="advisorPeerAdvisorFormLabel">
                     <a-input
                       v-model="advisorSecondAdvisorRef"
-                      placeholder="姓名或 8 位用户 ID"
+                      placeholder="指导老师用户名"
                       style="width: 220px"
                       :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled"
                       allow-clear
@@ -1071,6 +1073,22 @@
                     </a-button>
                   </a-form-item>
                 </a-form>
+                <div
+                  v-else-if="advisorSelectedTeamHasPeerAdvisor"
+                  style="margin-top: 12px"
+                >
+                  <a-button
+                    size="small"
+                    :loading="advisorTeamOpLoading"
+                    :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled"
+                    @click="handleAdvisorClearPeerAdvisor"
+                  >
+                    清除{{ advisorPeerAdvisorFormLabel }}
+                  </a-button>
+                  <div class="muted" style="margin: 4px 0 0; font-size: 12px">
+                    第一与第二指导老师均已设置，无需再添加；如需更换请先清除其中一位。
+                  </div>
+                </div>
                 <div class="muted" style="margin: 4px 0 8px; font-size: 12px">
                   您当前为{{ advisorSelectedTeamMyRoleLabel }}，此处管理另一位指导老师。同一组别+赛道：每位老师指导总数不超过 4 支，其中作为第一指导老师不超过 2 支。
                 </div>
@@ -2040,22 +2058,22 @@
         </a-form-item>
         <a-form-item label="第一指导老师（选填）">
           <a-input
-            v-model="studentCreateTeamForm.advisor_name"
-            placeholder="姓名或 8 位用户 ID"
+            v-model="studentCreateTeamForm.advisor_username"
+            placeholder="请输入指导老师用户名"
             :maxLength="100"
             allow-clear
           />
         </a-form-item>
         <a-form-item label="第二指导老师（选填）">
           <a-input
-            v-model="studentCreateTeamForm.second_advisor_name"
-            placeholder="姓名或 8 位用户 ID"
+            v-model="studentCreateTeamForm.second_advisor_username"
+            placeholder="请输入指导老师用户名"
             :maxLength="100"
             allow-clear
           />
         </a-form-item>
         <div class="muted" style="margin: 0 0 12px; font-size: 12px; line-height: 1.5">
-          指导老师均为选填，不必填写第一指导老师。同一组别+赛道额度：第一指导老师最多 2 支，指导总数（含第二）最多 4 支。
+          指导老师均为选填，请填写账号用户名（不支持姓名或用户 ID）。同一组别+赛道额度：第一指导老师最多 2 支，指导总数（含第二）最多 4 支。
         </div>
         <p class="muted" style="margin: 0; font-size: 13px">
           您将作为队长创建队伍；创建后状态为「待校审」，须校管理员审核通过后方可提交作品。作品赛道上传压缩包，软件 / 硬件赛道按题上传答案。
@@ -2323,10 +2341,10 @@
         <a-form-item label="简介" required>
           <a-input v-model="createCompetitionForm.description" placeholder="必填" />
         </a-form-item>
-        <a-form-item label="规则说明" required>
+        <a-form-item label="竞赛说明" required>
           <a-textarea v-model="createCompetitionForm.rules_text" :rows="4" placeholder="必填" />
         </a-form-item>
-        <a-form-item label="参赛对象" extra="选填；将展示在竞赛详情「参赛对象」区块。">
+        <a-form-item label="竞赛组织" extra="选填；将展示在竞赛详情「竞赛组织」区块。">
           <a-textarea
             v-model="createCompetitionForm.target_audience"
             :rows="3"
@@ -2474,7 +2492,7 @@
         <a-alert
           type="info"
           show-icon
-          message="仅提交有变化的文本字段（简介/规则/联系人等只改本场，不联动初赛或决赛）。更换二维码须在下方重新上传图片（未上传则不替换）。图片须为 png/jpeg/gif/webp，且能被识别为二维码。初赛/决赛仍会同步同一套二维码与 Logo。"
+          message="仅提交有变化的文本字段（简介/竞赛说明/联系人等只改本场，不联动初赛或决赛）。更换二维码须在下方重新上传图片（未上传则不替换）。图片须为 png/jpeg/gif/webp，且能被识别为二维码。初赛/决赛仍会同步同一套二维码与 Logo。"
           style="margin-bottom: 16px"
         />
         <a-form-item label="竞赛ID">
@@ -2502,11 +2520,11 @@
           <a-input v-model="editCompetitionForm.description" placeholder="修改后保存；与当前一致则不提交" />
         </a-form-item>
 
-        <a-form-item label="规则说明">
+        <a-form-item label="竞赛说明">
           <a-textarea v-model="editCompetitionForm.rules_text" :rows="4" placeholder="修改后保存；与当前一致则不提交" />
         </a-form-item>
 
-        <a-form-item label="参赛对象">
+        <a-form-item label="竞赛组织">
           <a-textarea
             v-model="editCompetitionForm.target_audience"
             :rows="3"
@@ -2673,7 +2691,6 @@
             <a-input type="datetime-local" v-model="editCompetitionForm.end_at" />
           </a-form-item>
         </template>
-
       </a-form>
     </a-modal>
 
@@ -3328,9 +3345,8 @@ export default {
       studentCreateTeamModalLoading: false,
       studentCreateTeamForm: {
         name: '',
-        advisor_name: '',
-        second_advisor_name: '',
-        first_advisor_slot: 'primary',
+        advisor_username: '',
+        second_advisor_username: '',
         work_track: 'works',
         division: 'undergraduate'
       },
@@ -3396,7 +3412,7 @@ export default {
         captain_student: '',
         initial_members_text: '',
         creator_advisor_role: '',
-        other_advisor_name: '',
+        other_advisor_username: '',
         work_track: 'works',
         division: 'undergraduate'
       },
@@ -5091,6 +5107,14 @@ export default {
         return !!(t.created_by_advisor_id || (t.advisor_name && String(t.advisor_name).trim()))
       }
       return !!(t.second_advisor_id || (t.second_advisor_name && String(t.second_advisor_name).trim()))
+    },
+    /** 第一、第二指导老师均已设置时，不再展示「添加指导老师」 */
+    advisorSelectedTeamHasBothAdvisors () {
+      const t = this.advisorSelectedTeam
+      if (!t) return false
+      const hasFirst = !!(t.created_by_advisor_id || (t.advisor_name && String(t.advisor_name).trim()))
+      const hasSecond = !!(t.second_advisor_id || (t.second_advisor_name && String(t.second_advisor_name).trim()))
+      return hasFirst && hasSecond
     },
     advisorSelectedTeamMembers () {
       const t = this.advisorSelectedTeam
@@ -7621,9 +7645,8 @@ export default {
       const lockedDiv = this.activeCompetitionEnrolledDivision
       this.studentCreateTeamForm = {
         name: '',
-        advisor_name: '',
-        second_advisor_name: '',
-        first_advisor_slot: 'primary',
+        advisor_username: '',
+        second_advisor_username: '',
         work_track: defaultTrack,
         division: lockedDiv || (this.enrollProfileForm && this.enrollProfileForm.division) || 'undergraduate'
       }
@@ -7635,9 +7658,8 @@ export default {
       this.studentCreateTeamModalLoading = false
       this.studentCreateTeamForm = {
         name: '',
-        advisor_name: '',
-        second_advisor_name: '',
-        first_advisor_slot: 'primary',
+        advisor_username: '',
+        second_advisor_username: '',
         work_track: 'works',
         division: 'undergraduate'
       }
@@ -7645,14 +7667,13 @@ export default {
 
     async submitStudentCreateTeamModal () {
       const name = (this.studentCreateTeamForm.name || '').trim()
-      const advisorName = (this.studentCreateTeamForm.advisor_name || '').trim()
       if (!name) {
         this.$message.warning('请填写队名')
         return Promise.reject(new Error('empty team name'))
       }
       this.studentCreateTeamModalLoading = true
       try {
-        await this.createStudentTeamWithName(name, advisorName)
+        await this.createStudentTeamWithName(name)
         this.closeStudentCreateTeamModal()
       } catch (e) {
         if (e && (e.message === 'empty team name' || e.message === 'missing division' || e.message === 'missing work_track')) {
@@ -7669,7 +7690,7 @@ export default {
       }
     },
 
-    async createStudentTeamWithName (teamName, advisorName) {
+    async createStudentTeamWithName (teamName) {
       const name = (teamName || '').trim()
       const division = (this.studentCreateTeamForm.division || this.enrollDivisionForApi || '').trim()
       const workTrack = (this.studentCreateTeamForm.work_track || '').trim()
@@ -7692,21 +7713,13 @@ export default {
         work_track: workTrack
       }
       if (name) teamPayload.name = name
-      const advisor = (advisorName != null ? String(advisorName) : (this.studentCreateTeamForm.advisor_name || '')).trim()
-      if (advisor) {
-        if (isEightDigitId(advisor)) {
-          teamPayload.advisor_id = Number(advisor)
-        } else {
-          teamPayload.advisor_name = advisor
-        }
+      const advisorUsername = String(this.studentCreateTeamForm.advisor_username || '').trim()
+      if (advisorUsername) {
+        teamPayload.advisor_username = advisorUsername
       }
-      const secondAdvisor = String(this.studentCreateTeamForm.second_advisor_name || '').trim()
-      if (secondAdvisor) {
-        if (isEightDigitId(secondAdvisor)) {
-          teamPayload.second_advisor_id = Number(secondAdvisor)
-        } else {
-          teamPayload.second_advisor_name = secondAdvisor
-        }
+      const secondAdvisorUsername = String(this.studentCreateTeamForm.second_advisor_username || '').trim()
+      if (secondAdvisorUsername) {
+        teamPayload.second_advisor_username = secondAdvisorUsername
       }
       const team = await createCompetitionTeam(teamPayload)
       const teamId = team && (team.id || team.team_id)
@@ -8264,12 +8277,12 @@ export default {
       const targetRole = this.advisorPeerAdvisorTargetRole
       const label = targetRole === 'first' ? '第一指导老师' : '第二指导老师'
       if (!ref) {
-        this.$message.warning(`请填写${label}`)
+        this.$message.warning(`请填写${label}用户名`)
         return
       }
       const payload = { target_role: targetRole }
-      if (isEightDigitId(ref)) payload.second_advisor_id = Number(ref)
-      else payload.second_advisor_name = ref
+      // 仅按用户名添加另一位指导老师
+      payload.second_advisor_username = ref
       this.advisorTeamOpLoading = true
       try {
         await setTeamSecondAdvisor(t.id, payload)
@@ -8340,7 +8353,7 @@ export default {
         this.$message.warning('请选择您担任第一指导老师还是第二指导老师')
         return
       }
-      const otherAdvisor = String(this.advisorCreateForm.other_advisor_name || '').trim()
+      const otherAdvisor = String(this.advisorCreateForm.other_advisor_username || '').trim()
       const payload = {
         competition_id: Number(this.activeCompetitionId),
         division,
@@ -8352,11 +8365,9 @@ export default {
       if (memberRefs.length) payload.initial_members = memberRefs
       if (otherAdvisor) {
         if (myRole === 'first') {
-          if (isEightDigitId(otherAdvisor)) payload.second_advisor_id = Number(otherAdvisor)
-          else payload.second_advisor_name = otherAdvisor
+          payload.second_advisor_username = otherAdvisor
         } else {
-          if (isEightDigitId(otherAdvisor)) payload.advisor_id = Number(otherAdvisor)
-          else payload.advisor_name = otherAdvisor
+          payload.advisor_username = otherAdvisor
         }
       }
 
@@ -8396,7 +8407,7 @@ export default {
           captain_student: '',
           initial_members_text: '',
           creator_advisor_role: '',
-          other_advisor_name: '',
+          other_advisor_username: '',
           work_track: 'works',
           division: 'undergraduate'
         }
@@ -9422,7 +9433,7 @@ export default {
         return
       }
       if (!rulesText) {
-        this.$message.warning('请填写规则说明')
+        this.$message.warning('请填写竞赛说明')
         return
       }
       if (this.createCompetitionNeedsSharedQr && !this.createCompetitionQrFile) {

@@ -205,7 +205,7 @@
         <a-form-item label="第一指导老师">
           <a-input
             v-model="advisorForm.advisor_ref"
-            placeholder="姓名、用户名或 8 位用户 ID；可清空后勾选清除"
+            placeholder="请输入指导老师用户名；可清空后勾选清除"
             allow-clear
             :disabled="advisorForm.clear_first_advisor"
           />
@@ -216,7 +216,7 @@
         <a-form-item label="第二指导老师">
           <a-input
             v-model="advisorForm.second_advisor_ref"
-            placeholder="姓名、用户名或 8 位用户 ID；可清空后勾选清除"
+            placeholder="请输入指导老师用户名；可清空后勾选清除"
             allow-clear
             :disabled="advisorForm.clear_second_advisor"
           />
@@ -226,7 +226,7 @@
         </a-form-item>
       </a-form>
       <p class="muted" style="margin: 0; font-size: 12px; line-height: 1.5">
-        可任意设置或清除第一/第二指导老师。同一组别+赛道：每位老师指导总数不超过 4 支，其中作为第一指导老师不超过 2 支。
+        仅支持用户名添加/更换。同一组别+赛道：每位老师指导总数不超过 4 支，其中作为第一指导老师不超过 2 支。
       </p>
     </a-modal>
 
@@ -649,15 +649,9 @@ export default {
         return
       }
       this.advisorModalTeam = record
-      const firstRef = (record && record.advisor_id != null)
-        ? String(record.advisor_id)
-        : ((record && record.advisor_name) ? String(record.advisor_name).trim() : '')
-      const secondRef = (record && record.second_advisor_id != null)
-        ? String(record.second_advisor_id)
-        : ((record && record.second_advisor_name) ? String(record.second_advisor_name).trim() : '')
       this.advisorForm = {
-        advisor_ref: firstRef,
-        second_advisor_ref: secondRef,
+        advisor_ref: '',
+        second_advisor_ref: '',
         clear_first_advisor: false,
         clear_second_advisor: false
       }
@@ -687,45 +681,28 @@ export default {
       if (!this.advisorModalTeam || this.advisorModalTeam.team_id == null) {
         return Promise.reject(new Error('cancelled'))
       }
-      const t = this.advisorModalTeam
       const ref = String(this.advisorForm.advisor_ref || '').trim()
       const secondRef = String(this.advisorForm.second_advisor_ref || '').trim()
       const clearFirst = !!this.advisorForm.clear_first_advisor
       const clearSecond = !!this.advisorForm.clear_second_advisor
-      const origFirst = (t.advisor_id != null)
-        ? String(t.advisor_id)
-        : ((t.advisor_name && String(t.advisor_name).trim()) || '')
-      const origSecond = (t.second_advisor_id != null)
-        ? String(t.second_advisor_id)
-        : ((t.second_advisor_name && String(t.second_advisor_name).trim()) || '')
-      const firstChanged = clearFirst || ref !== origFirst
-      const secondChanged = clearSecond || secondRef !== origSecond
-      if (!firstChanged && !secondChanged) {
-        this.$message.warning('请修改或勾选清除第一/第二指导老师')
+      if (!clearFirst && !clearSecond && !ref && !secondRef) {
+        this.$message.warning('请填写指导老师用户名，或勾选清除')
         return Promise.reject(new Error('cancelled'))
       }
       const payload = {}
       if (clearFirst) {
         payload.clear_first_advisor = true
-      } else if (ref !== origFirst) {
-        if (!ref) {
-          payload.clear_first_advisor = true
-        } else if (/^\d{8}$/.test(ref)) {
-          payload.advisor_id = Number(ref)
-        } else {
-          payload.advisor_name = ref
-        }
+      } else if (ref) {
+        payload.advisor_username = ref
       }
       if (clearSecond) {
         payload.clear_second_advisor = true
-      } else if (secondRef !== origSecond) {
-        if (!secondRef) {
-          payload.clear_second_advisor = true
-        } else if (/^\d{8}$/.test(secondRef)) {
-          payload.second_advisor_id = Number(secondRef)
-        } else {
-          payload.second_advisor_name = secondRef
-        }
+      } else if (secondRef) {
+        payload.second_advisor_username = secondRef
+      }
+      if (!payload.clear_first_advisor && !payload.clear_second_advisor && !payload.advisor_username && !payload.second_advisor_username) {
+        this.$message.warning('请修改或勾选清除第一/第二指导老师')
+        return Promise.reject(new Error('cancelled'))
       }
       this.advisorModalLoading = true
       try {
