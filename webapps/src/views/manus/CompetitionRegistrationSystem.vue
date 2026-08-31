@@ -549,7 +549,7 @@
                     <a-input-number v-model="transferTeamId" :min="eightDigitIdMin" :max="eightDigitIdMax" placeholder="8 位队伍ID" style="width: 180px" :disabled="competitionTeamRosterLocked" />
                     <a-input
                       v-model="newCaptainRef"
-                      placeholder="新队长姓名或用户 ID"
+                      placeholder="新队长用户名"
                       style="width: 200px"
                       allow-clear
                       :disabled="competitionTeamRosterLocked"
@@ -581,7 +581,7 @@
                     <div class="row">
                       <a-input
                         v-model="studentTeamInviteRef"
-                        placeholder="队员姓名或用户 ID"
+                        placeholder="队员用户名"
                         style="width: 220px"
                         allow-clear
                         :disabled="competitionTeamCreateInviteBlocked"
@@ -600,7 +600,7 @@
                     <div class="row">
                       <a-input
                         v-model="studentTeamRemoveRef"
-                        placeholder="队员姓名或用户 ID"
+                        placeholder="队员用户名"
                         style="width: 220px"
                         allow-clear
                         :disabled="competitionTeamRemoveMemberBlocked"
@@ -788,7 +788,7 @@
                 :disabled="!canFormalSubmitQuestionAnswers"
                 @click="submitAllQuestionAnswers"
               >
-                上传作品
+                提交作品
               </a-button>
             </div>
             <p class="muted" style="margin: 8px 0 0; font-size: 12px; text-align: right">
@@ -951,20 +951,20 @@
                   </a-form-item>
                 </a-col>
                 <a-col :xs="24" :sm="12">
-                  <a-form-item label="队长（姓名或 ID）">
+                  <a-form-item label="队长（用户名）">
                     <a-input
                       v-model="advisorCreateForm.captain_student"
-                      placeholder="学生姓名或 8 位用户 ID"
+                      placeholder="学生用户名"
                       :disabled="advisorTeamActionsDisabled || !allowTeam"
                       allow-clear
                     />
                   </a-form-item>
                 </a-col>
                 <a-col :span="24">
-                  <a-form-item label="初始队员（选填，姓名或 ID，逗号分隔）">
+                  <a-form-item label="初始队员（选填，用户名，逗号分隔）">
                     <a-input
                       v-model="advisorCreateForm.initial_members_text"
-                      placeholder="选填；如：张三,李四 或 12345678,87654321"
+                      placeholder="选填；如：stu1,stu2"
                       :disabled="advisorTeamActionsDisabled || !allowTeam"
                       allow-clear
                     />
@@ -1117,7 +1117,7 @@
                   <a-form-item label="邀请学生">
                     <a-input
                       v-model="advisorInviteStudent"
-                      placeholder="姓名或 8 位用户 ID"
+                      placeholder="学生用户名"
                       style="width: 220px"
                       :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled"
                       allow-clear
@@ -1549,11 +1549,11 @@
             <div class="row" style="flex-wrap: wrap; gap: 8px">
               <a-button
                 type="primary"
-                :loading="participantsTeamsLoading"
-                @click="refreshParticipantsTeams"
+                :loading="participantsTeamsExportLoading"
+                @click="downloadParticipantsExcel"
                 :disabled="!activeCompetitionId"
               >
-                查看参赛者
+                下载参赛者信息
               </a-button>
               <a-button
                 v-if="canManageCompetitions"
@@ -1565,8 +1565,11 @@
                 导出参赛表格
               </a-button>
             </div>
-            <p v-if="canManageCompetitions" class="muted" style="margin: 8px 0 0; font-size: 12px">
-              导出为压缩包：内含作品 / 软件 / 硬件赛道各一份 Excel。表头含学校、竞赛、组别项目、队伍、队员；「队员」之后的分题列取自该赛道发布试卷时的题名配置，最后为总分。
+            <p class="muted" style="margin: 8px 0 0; font-size: 12px">
+              下载参赛者信息：按作品 / 软件 / 硬件各一份 Excel（压缩包），表头为学校、竞赛、组别项目、队伍、队员（不含分数）。
+              <template v-if="canManageCompetitions">
+                「导出参赛表格」额外含分题列与总分。
+              </template>
             </p>
           </a-card>
 
@@ -1929,7 +1932,7 @@
                 />
                 <a-input
                   v-model="newCaptainRef"
-                  placeholder="新队长姓名或用户 ID"
+                  placeholder="新队长用户名"
                   style="width: 200px"
                   allow-clear
                   :disabled="competitionTeamRosterLocked"
@@ -1948,7 +1951,7 @@
                 <div class="row">
                   <a-input
                     v-model="studentTeamInviteRef"
-                    placeholder="队员姓名或用户 ID"
+                    placeholder="队员用户名"
                     style="width: 220px"
                     allow-clear
                     :disabled="competitionTeamCreateInviteBlocked"
@@ -1968,7 +1971,7 @@
                 <div class="row">
                   <a-input
                     v-model="studentTeamRemoveRef"
-                    placeholder="队员姓名或用户 ID"
+                    placeholder="队员用户名"
                     style="width: 220px"
                     allow-clear
                     :disabled="competitionTeamRemoveMemberBlocked"
@@ -2296,7 +2299,7 @@
               :disabled="!canFormalSubmitQuestionAnswers"
               @click="submitAllQuestionAnswers"
             >
-              上传作品
+              提交作品
             </a-button>
           </div>
           <p class="muted" style="margin: 0 0 12px; font-size: 12px; text-align: right">
@@ -4671,7 +4674,7 @@ export default {
       if (this.hasFormalSubmittedQuestionAnswers) {
         return '本队作品已正式提交，全队都不能再上传、删除或再次提交。'
       }
-      return '同一队伍内队员上传的题目文件彼此可见，同题后传覆盖先传。请先确认各题文件齐全，再点击「上传作品」；在弹窗中确认后正式提交，提交后全队都不能再上传、删除或再次提交。'
+      return '同一队伍内队员上传的题目文件彼此可见，同题后传覆盖先传。请先确认各题文件齐全，再点击「提交作品」；在弹窗中确认后正式提交，提交后全队都不能再上传、删除或再次提交。'
     },
     currentSubmissionTrackContext () {
       const scope = this.submissionMode === 'team' ? 'team' : 'individual'
@@ -7950,16 +7953,12 @@ export default {
       }
       const captainRef = String(this.newCaptainRef || '').trim()
       if (!captainRef) {
-        this.$message.warning('请填写新队长姓名或用户 ID')
+        this.$message.warning('请填写新队长用户名')
         return
       }
       const payload = {
-        team_id: this.transferTeamId
-      }
-      if (isEightDigitId(captainRef)) {
-        payload.new_captain_id = Number(captainRef)
-      } else {
-        payload.new_captain = captainRef
+        team_id: this.transferTeamId,
+        new_captain: captainRef
       }
       this.teamLoading = true
       try {
@@ -8083,18 +8082,12 @@ export default {
       if (!this.assertCompetitionOpenForTeamCreateOrInvite()) return
       const studentRef = String(this.studentTeamInviteRef || '').trim()
       if (!studentRef) {
-        this.$message.warning('请填写队员姓名或用户 ID')
+        this.$message.warning('请填写队员用户名')
         return
-      }
-      if (isEightDigitId(studentRef)) {
-        if (!(await this.assertInviteeSameDivisionAsView(Number(studentRef)))) return
       }
       this.teamLoading = true
       try {
-        const invitePayload = isEightDigitId(studentRef)
-          ? { student_id: Number(studentRef) }
-          : { student: studentRef }
-        await inviteCompetitionTeamMember(this.myTeamId, invitePayload)
+        await inviteCompetitionTeamMember(this.myTeamId, { student: studentRef })
         this.$message.success('邀请已发送，对方同意后才会入队')
         this.studentTeamInviteRef = ''
         this.studentDivisionIndexCompetitionId = null
@@ -8112,27 +8105,25 @@ export default {
     async resolveTeamMemberUserIdByRef (ref, label = '队员') {
       const raw = String(ref || '').trim()
       if (!raw) {
-        this.$message.warning(`请填写${label}姓名或用户 ID`)
+        this.$message.warning(`请填写${label}用户名`)
         return null
       }
-      if (isEightDigitId(raw)) return Number(raw)
       await this.refreshMyTeamMembers()
       const key = raw.toLowerCase()
       const matches = (this.myTeamMembers || []).filter(m => {
         if (!m) return false
-        const fn = String(m.full_name || m.name || '').trim().toLowerCase()
         const un = String(m.username || '').trim().toLowerCase()
-        return (fn && fn === key) || (un && un === key)
+        return un && un === key
       })
       if (matches.length === 1) {
         const uid = Number(matches[0].user_id)
         return Number.isFinite(uid) ? uid : null
       }
       if (matches.length > 1) {
-        this.$message.warning(`队内存在多名同名${label}，请改用 8 位用户 ID`)
+        this.$message.warning(`队内存在多个相同用户名的${label}，请核对`)
         return null
       }
-      this.$message.warning(`队内未找到该${label}，请确认姓名或改用用户 ID`)
+      this.$message.warning(`队内未找到该${label}，请确认用户名`)
       return null
     },
 
@@ -8326,7 +8317,7 @@ export default {
       const memberRefs = parseNameOrIdTokens(this.advisorCreateForm.initial_members_text)
       const captainRef = String(this.advisorCreateForm.captain_student || '').trim()
       if (!captainRef && !memberRefs.length) {
-        this.$message.warning('请填写队长（姓名或用户 ID），或至少一名初始队员')
+        this.$message.warning('请填写队长用户名，或至少一名初始队员')
         return
       }
       const division = (this.advisorCreateForm.division || '').trim()
@@ -8459,18 +8450,12 @@ export default {
       if (!this.assertCompetitionOpenForTeamCreateOrInvite()) return
       const studentRef = String(this.advisorInviteStudent || '').trim()
       if (!studentRef) {
-        this.$message.warning('请填写学生姓名或用户 ID')
+        this.$message.warning('请填写学生用户名')
         return
-      }
-      if (isEightDigitId(studentRef)) {
-        if (!(await this.assertInviteeSameDivisionAsView(Number(studentRef)))) return
       }
       this.advisorTeamOpLoading = true
       try {
-        const invitePayload = isEightDigitId(studentRef)
-          ? { student_id: Number(studentRef) }
-          : { student: studentRef }
-        await inviteCompetitionTeamMember(team.id, invitePayload)
+        await inviteCompetitionTeamMember(team.id, { student: studentRef })
         this.$message.success('邀请已发送，学生同意后才会入队并完成报名')
         this.advisorInviteStudent = ''
         this.studentDivisionIndexCompetitionId = null
@@ -8742,6 +8727,18 @@ export default {
         this.$message.error('队伍提交需要 team_id（请填写队伍ID或先创建队伍）')
         return
       }
+
+      const confirmed = await new Promise((resolve) => {
+        this.$confirm({
+          title: '确认提交作品',
+          content: '确认后将正式提交本队作品压缩包。提交后本报名周期内不可再次提交，是否继续？',
+          okText: '确认提交',
+          cancelText: '取消',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false)
+        })
+      })
+      if (!confirmed) return
 
       const requestBody = this.buildSubmissionRequestBody(title, contentText)
 
@@ -11106,6 +11103,53 @@ export default {
       }
     },
 
+    async downloadParticipantsExcel () {
+      if (!this.canViewParticipantsRoster) return
+      if (!this.activeCompetitionId) {
+        this.$message.warning('请先选择竞赛')
+        return
+      }
+      if (!this.assertCompetitionDivisionQueryContext()) return
+      this.participantsTeamsExportLoading = true
+      try {
+        const divOpts = this.buildCompetitionDivisionQueryOptions()
+        const rawBlob = await exportCompetitionTeamsExcel(this.activeCompetitionId, {
+          ...divOpts,
+          scope: 'current',
+          includeScores: false
+        })
+        if (!rawBlob || (typeof rawBlob.size === 'number' && rawBlob.size <= 0)) {
+          throw new Error('导出结果为空')
+        }
+        if (rawBlob.type && String(rawBlob.type).indexOf('application/json') >= 0) {
+          const text = await rawBlob.text()
+          let msg = '下载失败'
+          try {
+            const j = JSON.parse(text)
+            msg = (j && (j.detail || j.message)) || msg
+          } catch (_) {
+            msg = text || msg
+          }
+          throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
+        }
+        const blob = new Blob([rawBlob], { type: 'application/zip' })
+        const filename = `competition_${this.activeCompetitionId}_participants.zip`
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+        this.$message.success('已下载参赛者信息（作品/软件/硬件赛道各一份 Excel，不含分数）')
+      } catch (e) {
+        this.$message.error('下载参赛者信息失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.participantsTeamsExportLoading = false
+      }
+    },
+
     async exportTeamsExcel () {
       if (!this.canManageCompetitions) return
       if (!this.activeCompetitionId) {
@@ -11279,7 +11323,7 @@ export default {
       try {
         await this.$confirm({
           title: '确认删除',
-          content: `确定删除${qLabel}的答案吗？删除后可重新选择文件并再次上传作品。`,
+          content: `确定删除${qLabel}的答案吗？删除后可重新选择文件并再次提交作品。`,
           okText: '删除',
           okType: 'danger',
           cancelText: '取消'

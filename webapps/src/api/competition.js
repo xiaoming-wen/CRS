@@ -210,6 +210,7 @@ export function getCompetitionParticipantsTeams (competitionId, options = {}) {
 
 // 8.11.1 导出参赛对照表（按赛道拆成多份 Excel，打成 zip）
 // options.scope: current | paired | both
+// options.includeScores: false 时不含分题列与总分（参赛者信息）
 export function exportCompetitionTeamsExcel (competitionId, options = {}) {
   const params = {
     ...buildCompetitionDivisionParams(options)
@@ -217,6 +218,9 @@ export function exportCompetitionTeamsExcel (competitionId, options = {}) {
   const scope = options && options.scope
   if (scope != null && String(scope).trim() !== '') {
     params.scope = String(scope).trim()
+  }
+  if (options && options.includeScores === false) {
+    params.include_scores = false
   }
   return axios({
     url: `/v1/competitions/${competitionId}/teams/export`,

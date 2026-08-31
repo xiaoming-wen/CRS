@@ -3059,8 +3059,9 @@ def _append_team_mapping_rows(
     users_by_id: dict[int, AltAuthUserRecord],
     grades_by_team: Optional[dict] = None,
     question_count: int = 5,
+    include_scores: bool = True,
 ) -> None:
-    """对照表：一行一支队伍，含组别项目、分题分（题数随配置）、总分。"""
+    """对照表：一行一支队伍；include_scores 时含分题分与总分。"""
     grades_by_team = grades_by_team or {}
     q_count = max(1, min(COMPETITION_QUESTION_COUNT, int(question_count) or 5))
     for team in teams:
@@ -3079,7 +3080,6 @@ def _append_team_mapping_rows(
             member_name = _display_user_name(u, m.user_id)
             member_labels.append(member_name)
         members_cell = "、".join(member_labels) if member_labels else "-"
-        grade = grades_by_team.get(int(team.id))
         row = [
             school,
             competition.name or "-",
@@ -3091,8 +3091,10 @@ def _append_team_mapping_rows(
             name_and_advisor,
             members_cell,
         ]
-        row.extend(_grade_score_cells(grade, q_count))
-        row.append(grade.total_score if grade else "")
+        if include_scores:
+            grade = grades_by_team.get(int(team.id))
+            row.extend(_grade_score_cells(grade, q_count))
+            row.append(grade.total_score if grade else "")
         ws.append(row)
 
 
@@ -3195,14 +3197,18 @@ async def export_team_roster_excel(
         "current",
         description="current=仅本场；paired=仅关联场次；both=初赛+决赛对照表",
     ),
+    include_scores: bool = Query(
+        True,
+        description="是否包含分题列与总分；false 时仅导出参赛者基础信息",
+    ),
     db: Session = Depends(get_db),
     adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
     管理员导出参赛对照表：按作品/软件/硬件赛道各生成一份 Excel，打成 zip。
-    每份表格列：学校名称、竞赛名称、组别项目、队伍编码、队伍名称指导老师、队员、
-    分题列（表头取自该赛道发布试卷时的分题配置名称）、总分。
+    基础列：学校名称、竞赛名称、组别项目、队伍编码、队伍名称指导老师、队员。
+    include_scores=true 时追加分题列（表头取自该赛道发布试卷时的分题配置名称）与总分。
     scope=both 时导出初赛+决赛全部队伍。
     """
     from app.competition_exam_config import WORK_TRACKS
@@ -3249,19 +3255,20 @@ async def export_team_roster_excel(
             for m in t.members:
                 all_uids.add(m.user_id)
         users_by_comp[comp.id] = _alt_users_by_id(adb, all_uids)
-        grade_rows = (
-            db.query(CompetitionTeamQuestionGrade)
-            .filter(CompetitionTeamQuestionGrade.competition_id == comp.id)
-            .all()
-        )
-        grades_by_comp[comp.id] = {int(g.team_id): g for g in grade_rows}
+        if include_scores:
+            grade_rows = (
+                db.query(CompetitionTeamQuestionGrade)
+                .filter(CompetitionTeamQuestionGrade.competition_id == comp.id)
+                .all()
+            )
+            grades_by_comp[comp.id] = {int(g.team_id): g for g in grade_rows}
 
     zip_buf = BytesIO()
     with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for track in WORK_TRACKS:
             # 表头以当前请求竞赛的该赛道分题配置为准（发布试卷时填写的题名）
-            q_headers = _question_score_headers_for_track(competition, track)
-            q_count = len(q_headers)
+            q_headers = _question_score_headers_for_track(competition, track) if include_scores else []
+            q_count = len(q_headers) if include_scores else 0
 
             wb = Workbook()
             ws = wb.active
@@ -3273,9 +3280,9 @@ async def export_team_roster_excel(
                 "队伍编码",
                 "队伍名称指导老师",
                 "队员",
-                *q_headers,
-                "总分",
             ]
+            if include_scores:
+                headers.extend([*q_headers, "总分"])
             ws.append(headers)
 
             for comp in comps:
@@ -3294,6 +3301,7 @@ async def export_team_roster_excel(
                     users_by_id=users_by_comp.get(comp.id) or {},
                     grades_by_team=grades_by_comp.get(comp.id) or {},
                     question_count=q_count,
+                    include_scores=include_scores,
                 )
 
             xlsx_buf = BytesIO()
@@ -3307,7 +3315,8 @@ async def export_team_roster_excel(
             zf.writestr(info, xlsx_buf.getvalue())
 
     payload = zip_buf.getvalue()
-    zip_name = f"competition_{competition_id}_roster_{scope_norm}.zip"
+    suffix = "roster" if include_scores else "participants"
+    zip_name = f"competition_{competition_id}_{suffix}_{scope_norm}.zip"
     return Response(
         content=payload,
         media_type="application/zip",
