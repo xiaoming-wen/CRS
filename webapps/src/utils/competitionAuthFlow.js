@@ -10,13 +10,14 @@ const COMPETITION_ALT_GATE_ROUTES = [
 ]
 
 /**
- * 学生 / 指导老师主页登录成功后的默认竞赛详情（可用环境变量覆盖）
+ * 学生 / 指导老师主页登录成功后的默认竞赛详情
  * 对应：/#/manu/competition-detail?id=…&share=1
+ * 改此常量即可热更新生效；仅改 .env 需重启 devServer
  */
+const STUDENT_ADVISOR_LANDING_COMPETITION_ID = 80024817
+
 export function getStudentAdvisorLandingCompetitionId () {
-  const raw = process.env.VUE_APP_STUDENT_ADVISOR_LANDING_COMPETITION_ID
-  const n = raw != null && String(raw).trim() !== '' ? Number(String(raw).trim()) : 80024817
-  return Number.isFinite(n) && n > 0 ? n : 80024817
+  return STUDENT_ADVISOR_LANDING_COMPETITION_ID
 }
 
 /** @returns {{ path: string, query: { id: string, share: string } }} */
