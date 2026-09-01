@@ -517,7 +517,7 @@
                   type="error"
                   show-icon
                   message="校审已驳回"
-                  description="该队伍未通过校审，相关组队报名已退赛。可重新「创建队伍」或「加入已有队伍」后再等待校审。"
+                  :description="teamSchoolReviewRejectedAlertDescription"
                   style="margin-bottom: 12px"
                 />
                 <a-form-item v-if="showStudentTeamCreateJoinOps" label="加入已有队伍（输入队长提供的队伍ID）">
@@ -1032,6 +1032,13 @@
                 <a-descriptions-item label="队名">{{ advisorSelectedTeam.name || '（未设置）' }}</a-descriptions-item>
                 <a-descriptions-item label="队长">{{ advisorSelectedTeamCaptainLabel }}</a-descriptions-item>
                 <a-descriptions-item label="状态">{{ participantTeamStatusText(advisorSelectedTeam.status) }}</a-descriptions-item>
+                <a-descriptions-item
+                  v-if="advisorSelectedTeam.status === 'rejected' && advisorSelectedTeamReviewFeedback"
+                  label="驳回原因"
+                  :span="2"
+                >
+                  {{ advisorSelectedTeamReviewFeedback }}
+                </a-descriptions-item>
                 <a-descriptions-item label="我的身份">{{ advisorSelectedTeamMyRoleLabel }}</a-descriptions-item>
                 <a-descriptions-item label="第一指导老师">{{ advisorSelectedTeamAdvisorLabel }}</a-descriptions-item>
                 <a-descriptions-item label="第二指导老师">{{ advisorSelectedTeamSecondAdvisorLabel }}</a-descriptions-item>
@@ -1913,7 +1920,7 @@
               v-else-if="showTeamSchoolReviewStatusInEnrollModal && isMyTeamSchoolReviewRejected"
               class="muted team-school-review-status-hint"
             >
-              校审未通过，相关组队报名已退赛；请重新建队并等待校审。
+              {{ myTeamSchoolReviewRejectedHint }}
             </p>
           </a-form>
 
@@ -3025,6 +3032,26 @@
       </div>
     </a-modal>
 
+    <!-- 学生：校审驳回原因（弹窗，关闭后本浏览器不再提示同一次驳回） -->
+    <a-modal
+      :visible="showStudentRejectedTeamTopAlert"
+      title="校审已驳回"
+      okText="我知道了"
+      :cancelButtonProps="{ style: { display: 'none' } }"
+      :maskClosable="false"
+      width="480px"
+      wrap-class-name="student-rejected-team-modal-wrap"
+      @ok="dismissStudentRejectedTeamTopAlert"
+      @cancel="dismissStudentRejectedTeamTopAlert"
+    >
+      <a-alert
+        type="error"
+        show-icon
+        message="队伍未通过校审"
+        :description="studentRejectedTeamTopAlertDescription"
+      />
+    </a-modal>
+
     <!-- 双组别竞赛：选择本科组 / 高职组后进入对应详情（§8.7 division 由详情页隐式带入报名） -->
     <a-modal
       :visible="showDivisionPickModal"
@@ -3223,6 +3250,7 @@ import {
   getCompetitionRankings,
   getMyCompetitionScores,
   getMyCompetitionEnrollments,
+  getMyRejectedTeamsInCompetition,
   getCompetitionQrCode,
   getCompetitionLogo,
   withdrawCompetition,
@@ -3342,6 +3370,12 @@ export default {
       myTeamAdvisorName: null,
       /** 当前队伍校审状态：pending_school_review | active | rejected */
       myTeamStatus: null,
+      /** 校审驳回原因（review_feedback） */
+      myTeamReviewFeedback: null,
+      /** 本竞赛下与用户相关的已驳回队伍（供顶部一次性提示） */
+      studentRejectedTeamNotices: [],
+      /** 已关闭的驳回提示键（localStorage 同步） */
+      dismissedRejectedTeamNoticeKeys: new Set(),
       myTeamWorkTrack: null,
       joinTeamName: '',
       showStudentCreateTeamModal: false,
@@ -4503,12 +4537,62 @@ export default {
     },
     teamSchoolReviewBlockedDescription () {
       if (this.isMyTeamSchoolReviewRejected) {
-        return '该队伍未通过校管理员审核，相关组队报名已退赛。请重新建队并等待校审通过后再提交。'
+        return this.appendTeamReviewFeedback(
+          '该队伍未通过校管理员审核，相关组队报名已退赛。请重新建队并等待校审通过后再提交。',
+          this.myTeamReviewFeedback
+        )
       }
       if (this.usesQuestionAnswerSubmission) {
         return '队伍已创建/报名，须本校校管理员在「校审」中审核通过后，队员方可上传题目答案。'
       }
       return '队伍已创建/报名，须本校校管理员在「校审」中审核通过后，队长方可提交作品压缩包。'
+    },
+    teamSchoolReviewRejectedAlertDescription () {
+      return this.appendTeamReviewFeedback(
+        '该队伍未通过校审，相关组队报名已退赛。可重新「创建队伍」或「加入已有队伍」后再等待校审。',
+        this.myTeamReviewFeedback
+      )
+    },
+    myTeamSchoolReviewRejectedHint () {
+      return this.appendTeamReviewFeedback(
+        '校审未通过，相关组队报名已退赛；请重新建队并等待校审。',
+        this.myTeamReviewFeedback
+      )
+    },
+    /** 顶部一次性展示的最近一条驳回通知（已关闭的不再显示） */
+    studentRejectedTeamTopNotice () {
+      if (!this.isStudent || !this.activeCompetitionId) return null
+      const dismissed = this.dismissedRejectedTeamNoticeKeys || new Set()
+      const list = (this.studentRejectedTeamNotices || []).filter(t => {
+        if (!t || t.id == null) return false
+        if (dismissed.has(this.rejectionNoticeDismissKey(t))) return false
+        if (this.isActiveCompetitionDualDivision && this.activeViewDivision) {
+          return this.teamMatchesActiveViewDivision(t)
+        }
+        return true
+      })
+      return list.length ? list[0] : null
+    },
+    showStudentRejectedTeamTopAlert () {
+      return !!this.studentRejectedTeamTopNotice
+    },
+    studentRejectedTeamTopAlertDescription () {
+      const dismissed = this.dismissedRejectedTeamNoticeKeys || new Set()
+      const list = (this.studentRejectedTeamNotices || []).filter(t => {
+        if (!t || t.id == null) return false
+        if (dismissed.has(this.rejectionNoticeDismissKey(t))) return false
+        if (this.isActiveCompetitionDualDivision && this.activeViewDivision) {
+          return this.teamMatchesActiveViewDivision(t)
+        }
+        return true
+      })
+      if (!list.length) return ''
+      const parts = list.map(t => {
+        const track = t.work_track ? this.workTrackSectionLabel(t.work_track) : '组队'
+        const fb = t.review_feedback != null ? String(t.review_feedback).trim() : ''
+        return fb ? `${track}：${fb}` : `${track}（未填写原因）`
+      })
+      return `相关组队报名已退赛，可重新建队。驳回原因 — ${parts.join('；')}`
     },
     /** 队员已队伍报名后：仍可报其它赛道；决赛全程不可创建/加入 */
     showStudentTeamCreateJoinOps () {
@@ -5058,6 +5142,11 @@ export default {
       if (this.advisorSelectedTeamId == null) return null
       return this.advisorTeamsForCurrentView.find(t => Number(t.id) === Number(this.advisorSelectedTeamId)) || null
     },
+    advisorSelectedTeamReviewFeedback () {
+      const t = this.advisorSelectedTeam
+      if (!t || t.review_feedback == null) return ''
+      return String(t.review_feedback).trim()
+    },
     advisorSelectedTeamAdvisorLabel () {
       const t = this.advisorSelectedTeam
       if (!t) return '—'
@@ -5359,6 +5448,7 @@ export default {
       this.myTeamName = null
       this.myTeamAdvisorName = null
       this.myTeamStatus = null
+      this.myTeamReviewFeedback = null
       this.myTeamWorkTrack = null
       this.joinTeamId = null
       this.joinTeamName = ''
@@ -5471,6 +5561,7 @@ export default {
         void this.syncEnrollModalTeamContextForCurrentTrack()
       } else if (!newId) {
         this.myTeamStatus = null
+        this.myTeamReviewFeedback = null
         this.myTeamName = null
         this.myTeamAdvisorName = null
         this.myTeamWorkTrack = null
@@ -5530,6 +5621,7 @@ export default {
     }
   },
   mounted () {
+    this.loadDismissedRejectedTeamNoticeKeys()
     this.applyAdminSubmissionsPaginationFromRoute(true)
     window.addEventListener('alt-identity-changed', this.onAltIdentityChanged)
     if (this.standaloneDetailMode && this.initialCompetitionId != null && String(this.initialCompetitionId).trim() !== '') {
@@ -7361,6 +7453,7 @@ export default {
         Number(this.myTeamId) !== Number(nextTeamId)
       ) {
         this.myTeamStatus = null
+        this.myTeamReviewFeedback = null
         this.myTeamName = null
         this.myTeamAdvisorName = null
         this.myTeamWorkTrack = null
@@ -7426,6 +7519,7 @@ export default {
         this.preferredEnrollmentWorkTrack = null
         this.activeCompetitionEnrollmentRows = { individual: null, team: null, teams: [] }
         this.activeCompetitionEnrolledDivision = null
+        this.studentRejectedTeamNotices = []
         this.notifyEnrollBlockChanged()
         return
       }
@@ -7449,9 +7543,11 @@ export default {
           await this.refreshMyTeamStatus()
         } else {
           this.myTeamStatus = null
+          this.myTeamReviewFeedback = null
           this.myTeamWorkTrack = null
         }
         void this.refreshExamPaperTeamStatusesForStudent()
+        void this.refreshStudentRejectedTeamNotices()
         // 须在 myEnrolled* 更新后再通知父页，否则「提交作品」会按旧状态隐藏
         this.notifyEnrollBlockChanged()
       } catch {
@@ -7462,7 +7558,9 @@ export default {
         this.activeCompetitionEnrollmentRows = { individual: null, team: null, teams: [] }
         this.activeCompetitionEnrolledDivision = null
         this.myTeamStatus = null
+        this.myTeamReviewFeedback = null
         this.myTeamWorkTrack = null
+        this.studentRejectedTeamNotices = []
         this.notifyEnrollBlockChanged()
       }
     },
@@ -7990,6 +8088,7 @@ export default {
           this.myTeamName = null
           this.myTeamAdvisorName = null
           this.myTeamStatus = null
+          this.myTeamReviewFeedback = null
           this.myTeamWorkTrack = null
         }
         await this.refreshActiveCompetitionMyEnrollKind()
@@ -10974,12 +11073,90 @@ export default {
       return map[status] || (status || '-')
     },
 
+    appendTeamReviewFeedback (baseText, feedback) {
+      const base = baseText != null ? String(baseText).trim() : ''
+      const fb = feedback != null ? String(feedback).trim() : ''
+      if (!fb) return base
+      return base ? `${base} 驳回原因：${fb}` : `驳回原因：${fb}`
+    },
+
+    loadDismissedRejectedTeamNoticeKeys () {
+      try {
+        const raw = localStorage.getItem('crs_team_rejection_dismissed')
+        if (!raw) {
+          this.dismissedRejectedTeamNoticeKeys = new Set()
+          return
+        }
+        const arr = JSON.parse(raw)
+        this.dismissedRejectedTeamNoticeKeys = Array.isArray(arr)
+          ? new Set(arr.map(x => String(x)))
+          : new Set()
+      } catch {
+        this.dismissedRejectedTeamNoticeKeys = new Set()
+      }
+    },
+
+    rejectionNoticeDismissKey (team) {
+      if (!team || team.id == null) return ''
+      const cid = this.activeCompetitionId != null ? String(this.activeCompetitionId) : ''
+      const reviewed = team.reviewed_at != null ? String(team.reviewed_at) : String(team.id)
+      return `${cid}:${team.id}:${reviewed}`
+    },
+
+    persistDismissedRejectedTeamNoticeKeys () {
+      try {
+        const arr = [...(this.dismissedRejectedTeamNoticeKeys || new Set())]
+        localStorage.setItem('crs_team_rejection_dismissed', JSON.stringify(arr))
+      } catch {
+        /* ignore quota / private mode */
+      }
+    },
+
+    dismissStudentRejectedTeamTopAlert () {
+      const dismissed = new Set(this.dismissedRejectedTeamNoticeKeys || [])
+      const list = (this.studentRejectedTeamNotices || []).filter(t => {
+        if (!t || t.id == null) return false
+        if (this.isActiveCompetitionDualDivision && this.activeViewDivision) {
+          return this.teamMatchesActiveViewDivision(t)
+        }
+        return true
+      })
+      for (const t of list) {
+        const dk = this.rejectionNoticeDismissKey(t)
+        if (dk) dismissed.add(dk)
+      }
+      this.dismissedRejectedTeamNoticeKeys = dismissed
+      this.persistDismissedRejectedTeamNoticeKeys()
+    },
+
+    async refreshStudentRejectedTeamNotices () {
+      if (!this.isStudent || !this.activeCompetitionId || !getStoredAltToken()) {
+        this.studentRejectedTeamNotices = []
+        return
+      }
+      try {
+        const res = await getMyRejectedTeamsInCompetition(this.activeCompetitionId)
+        const list = Array.isArray(res)
+          ? res
+          : (res && Array.isArray(res.items)
+            ? res.items
+            : (res && Array.isArray(res.data) ? res.data : []))
+        this.studentRejectedTeamNotices = list.filter(
+          t => t && String(t.status || '').trim().toLowerCase() === 'rejected'
+        )
+      } catch {
+        this.studentRejectedTeamNotices = []
+      }
+    },
+
     applyMyTeamStatusFromTeam (team) {
       if (!team || typeof team !== 'object') return
       const st = team.status
       this.myTeamStatus = st != null && String(st).trim() !== ''
         ? String(st).trim()
         : 'pending_school_review'
+      const fb = team.review_feedback != null ? String(team.review_feedback).trim() : ''
+      this.myTeamReviewFeedback = fb || null
     },
 
     applyMyTeamInfoFromTeam (team, fallbackName) {
@@ -11002,6 +11179,7 @@ export default {
     async refreshMyTeamStatus () {
       if (!this.myTeamId) {
         this.myTeamStatus = null
+        this.myTeamReviewFeedback = null
       this.myTeamWorkTrack = null
         this.myTeamName = null
         this.myTeamAdvisorName = null
@@ -11011,6 +11189,7 @@ export default {
       const tid = Number(this.myTeamId)
       if (!Number.isFinite(tid) || tid <= 0) {
         this.myTeamStatus = null
+        this.myTeamReviewFeedback = null
       this.myTeamWorkTrack = null
         this.myTeamName = null
         this.myTeamAdvisorName = null

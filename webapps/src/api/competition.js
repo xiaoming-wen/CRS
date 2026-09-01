@@ -190,6 +190,14 @@ export function getMyCompetitionEnrollments () {
   })
 }
 
+// 8.6.1 本竞赛下当前用户被校审驳回的队伍（学生端顶部一次性提示）
+export function getMyRejectedTeamsInCompetition (competitionId) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/teams/my-rejected`,
+    method: 'get'
+  })
+}
+
 // 8.10 查看个人参赛者花名册（dual 须传 division）
 export function getCompetitionParticipantsIndividual (competitionId, options = {}) {
   return axios({

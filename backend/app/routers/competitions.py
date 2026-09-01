@@ -64,6 +64,7 @@ from app.schemas import (
     CompetitionPromotionCandidateTeam,
     CompetitionPromotionCandidatesResponse,
     MyEnrollmentResponse,
+    MyRejectedTeamItem,
     TeamCreate,
     TeamResponse,
     TeamPatch,
@@ -2933,6 +2934,7 @@ def _team_detail_response(
             division=division,
             work_track=work_track,
             status=TeamStatus(team.status),
+            review_feedback=getattr(team, "review_feedback", None),
             created_at=team.created_at,
             members=members_out,
         )
@@ -2951,6 +2953,7 @@ def _team_detail_response(
         division=division,
         work_track=work_track,
         status=TeamStatus(team.status),
+        review_feedback=getattr(team, "review_feedback", None),
         created_at=team.created_at,
         members=members_out,
     )
@@ -3740,6 +3743,56 @@ async def my_enrollments(
             data.competition = CompetitionResponse.model_validate(comp)
         results.append(data)
     return results
+
+
+@router.get("/{competition_id}/teams/my-rejected", response_model=List[MyRejectedTeamItem])
+async def my_rejected_teams_in_competition(
+    competition_id: int,
+    db: Session = Depends(get_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """当前用户在本竞赛下被校审驳回的队伍（队长或队员），供学生端顶部一次性提示驳回原因。"""
+    require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+    _get_competition(db, competition_id)
+    member_team_ids = [
+        int(r[0])
+        for r in db.query(TeamMember.team_id)
+        .filter(TeamMember.user_id == identity.id)
+        .all()
+    ]
+    q = db.query(Team).filter(
+        Team.competition_id == competition_id,
+        Team.status == TeamStatus.REJECTED,
+    )
+    if member_team_ids:
+        q = q.filter(
+            or_(
+                Team.captain_id == identity.id,
+                Team.id.in_(member_team_ids),
+            )
+        )
+    else:
+        q = q.filter(Team.captain_id == identity.id)
+    teams = q.order_by(Team.reviewed_at.desc(), Team.id.desc()).all()
+    out: List[MyRejectedTeamItem] = []
+    for team in teams:
+        out.append(
+            MyRejectedTeamItem(
+                id=int(team.id),
+                competition_id=int(team.competition_id),
+                name=getattr(team, "name", None),
+                division=CompetitionDivision(getattr(team, "division", None) or CompetitionDivision.DEFAULT),
+                work_track=(
+                    CompetitionWorkTrack(team.work_track)
+                    if getattr(team, "work_track", None)
+                    else None
+                ),
+                status=TeamStatus(team.status),
+                review_feedback=getattr(team, "review_feedback", None),
+                reviewed_at=getattr(team, "reviewed_at", None),
+            )
+        )
+    return out
 
 
 @router.put("/{competition_id}/publish", response_model=CompetitionResponse)

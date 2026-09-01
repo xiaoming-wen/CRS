@@ -1005,10 +1005,31 @@ class TeamDetailResponse(BaseModel):
         None, description="works / software / hardware"
     )
     status: TeamStatus
+    review_feedback: Optional[str] = Field(
+        None,
+        description="校审备注或驳回原因（status=rejected 时由校管/超管填写）",
+    )
     created_at: UtcDatetime
     members: List[TeamMemberWithUserResponse] = []
 
     model_config = {"from_attributes": False}
+
+
+class MyRejectedTeamItem(BaseModel):
+    """学生查看本竞赛下已驳回且仍与自己相关的队伍（队长或队员）。"""
+
+    id: int
+    competition_id: int
+    name: Optional[str] = None
+    division: CompetitionDivision = CompetitionDivision.DEFAULT
+    work_track: Optional[CompetitionWorkTrack] = Field(
+        None, description="works / software / hardware"
+    )
+    status: TeamStatus
+    review_feedback: Optional[str] = Field(
+        None, description="校审驳回原因（status=rejected 时）",
+    )
+    reviewed_at: OptionalUtcDatetime = None
 
 
 class IndividualParticipantItem(BaseModel):
