@@ -980,6 +980,10 @@ export function getSchoolAdminTeams (options = {}) {
   if (username != null && String(username).trim() !== '') {
     params.username = String(username).trim()
   }
+  const workTrack = options && options.work_track
+  if (workTrack != null && String(workTrack).trim() !== '' && String(workTrack).trim().toLowerCase() !== 'all') {
+    params.work_track = String(workTrack).trim().toLowerCase()
+  }
   const competitionId = options && options.competition_id
   const cid = Number(competitionId)
   if (Number.isFinite(cid) && cid > 0) {
@@ -1006,6 +1010,10 @@ export function listAdminTeamReviews (options = {}) {
   const keyword = options && options.keyword
   if (keyword != null && String(keyword).trim() !== '') {
     params.keyword = String(keyword).trim()
+  }
+  const workTrack = options && options.work_track
+  if (workTrack != null && String(workTrack).trim() !== '' && String(workTrack).trim().toLowerCase() !== 'all') {
+    params.work_track = String(workTrack).trim().toLowerCase()
   }
   const competitionId = options && options.competition_id
   const cid = Number(competitionId)

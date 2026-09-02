@@ -4297,6 +4297,47 @@ async def review_school_admin_application(
     )
 
 
+def _normalize_team_review_work_track_filter(raw: Optional[str]) -> Optional[str]:
+    """校审列表赛道筛选：合法值返回 works/software/hardware；空/all 返回 None；非法抛 400。"""
+    track = (raw or "").strip().lower()
+    if not track or track in ("all", "*"):
+        return None
+    if track not in ("works", "software", "hardware"):
+        raise HTTPException(
+            status_code=400,
+            detail="work_track must be works, software, hardware, or all",
+        )
+    return track
+
+
+def _team_matches_review_keyword(
+    team: Team,
+    keyword: str,
+    users_by_id: dict,
+) -> bool:
+    """学校 / 队名 / 第一·第二指导老师用户名 模糊匹配（不区分大小写）。"""
+    kw = (keyword or "").strip().casefold()
+    if not kw:
+        return True
+    school_name = _normalize_school_name(getattr(team, "school", None)).casefold()
+    if kw in school_name:
+        return True
+    team_name = (getattr(team, "name", None) or "").strip().casefold()
+    if team_name and kw in team_name:
+        return True
+    advisor_ids = []
+    if getattr(team, "created_by_advisor_id", None):
+        advisor_ids.append(int(team.created_by_advisor_id))
+    if getattr(team, "second_advisor_id", None):
+        advisor_ids.append(int(team.second_advisor_id))
+    for aid in advisor_ids:
+        u = users_by_id.get(aid) if users_by_id else None
+        uname = ((u.username or "") if u else "").strip().casefold()
+        if uname and kw in uname:
+            return True
+    return False
+
+
 @router.get("/school-admin/teams", response_model=SchoolAdminTeamReviewListResponse)
 async def list_school_admin_teams(
     status_filter: Optional[str] = Query(
@@ -4310,7 +4351,11 @@ async def list_school_admin_teams(
     ),
     school: Optional[str] = Query(
         None,
-        description="按队伍学校名称模糊搜索",
+        description="模糊搜索：学校名 / 队伍名 / 指导老师用户名",
+    ),
+    work_track: Optional[str] = Query(
+        None,
+        description="赛道筛选：works / software / hardware；不传或 all 表示全部",
     ),
     competition_id: Optional[int] = Query(None, description="按竞赛 id 筛选"),
     db: Session = Depends(get_db),
@@ -4344,19 +4389,14 @@ async def list_school_admin_teams(
                 detail="status must be pending_school_review, active, rejected, or all",
             )
         q = q.filter(Team.status == status_norm)
+    track_filter = _normalize_team_review_work_track_filter(work_track)
+    if track_filter:
+        q = q.filter(Team.work_track == track_filter)
     if competition_id is not None:
         q = q.filter(Team.competition_id == competition_id)
 
     teams = q.order_by(Team.created_at.desc(), Team.id.desc()).all()
     teams = [t for t in teams if _team_matches_school(t, admin_school)]
-
-    school_kw = (school or "").strip().casefold()
-    if school_kw:
-        teams = [
-            t
-            for t in teams
-            if school_kw in _normalize_school_name(getattr(t, "school", None)).casefold()
-        ]
 
     all_uids: set[int] = set()
     for t in teams:
@@ -4368,6 +4408,10 @@ async def list_school_admin_teams(
         for m in t.members:
             all_uids.add(m.user_id)
     users_by_id = _alt_users_by_id(adb, all_uids)
+
+    school_kw = (school or "").strip()
+    if school_kw:
+        teams = [t for t in teams if _team_matches_review_keyword(t, school_kw, users_by_id)]
 
     username_kw = (username or "").strip().lower()
     if username_kw:
@@ -4900,8 +4944,18 @@ async def list_admin_team_reviews(
         alias="status",
         description="队伍状态筛选：pending_school_review / active / rejected；不传或 all 表示全部",
     ),
-    school: Optional[str] = Query(None, description="按队伍学校名称模糊搜索"),
-    keyword: Optional[str] = Query(None, description="学校模糊搜索（与 school 同义，任一即可）"),
+    school: Optional[str] = Query(
+        None,
+        description="模糊搜索：学校名 / 队伍名 / 指导老师用户名",
+    ),
+    keyword: Optional[str] = Query(
+        None,
+        description="与 school 同义：学校名 / 队伍名 / 指导老师用户名",
+    ),
+    work_track: Optional[str] = Query(
+        None,
+        description="赛道筛选：works / software / hardware；不传或 all 表示全部",
+    ),
     competition_id: Optional[int] = Query(None, description="按竞赛 id 筛选"),
     db: Session = Depends(get_db),
     adb: Session = Depends(get_alt_auth_db),
@@ -4930,18 +4984,13 @@ async def list_admin_team_reviews(
                 detail="status must be pending_school_review, active, rejected, or all",
             )
         q = q.filter(Team.status == status_norm)
+    track_filter = _normalize_team_review_work_track_filter(work_track)
+    if track_filter:
+        q = q.filter(Team.work_track == track_filter)
     if competition_id is not None:
         q = q.filter(Team.competition_id == competition_id)
 
     teams = q.order_by(Team.created_at.desc(), Team.id.desc()).all()
-
-    school_kw = (school or keyword or "").strip().casefold()
-    if school_kw:
-        teams = [
-            t
-            for t in teams
-            if school_kw in _normalize_school_name(getattr(t, "school", None)).casefold()
-        ]
 
     all_uids: set[int] = set()
     for t in teams:
@@ -4953,6 +5002,10 @@ async def list_admin_team_reviews(
         for m in t.members:
             all_uids.add(m.user_id)
     users_by_id = _alt_users_by_id(adb, all_uids)
+
+    school_kw = (school or keyword or "").strip()
+    if school_kw:
+        teams = [t for t in teams if _team_matches_review_keyword(t, school_kw, users_by_id)]
 
     submitted_ids = _team_ids_with_submitted_work(db, teams)
     items = [

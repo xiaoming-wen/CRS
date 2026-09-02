@@ -32,11 +32,21 @@
               <a-select-option value="active">已通过</a-select-option>
               <a-select-option value="rejected">已驳回</a-select-option>
             </a-select>
+            <a-select
+              v-model="workTrackFilter"
+              style="width: 140px; margin-right: 8px"
+              @change="loadTeams"
+            >
+              <a-select-option value="all">全部赛道</a-select-option>
+              <a-select-option value="works">作品</a-select-option>
+              <a-select-option value="software">软件</a-select-option>
+              <a-select-option value="hardware">硬件</a-select-option>
+            </a-select>
             <a-input-search
               v-model="schoolKeyword"
               allow-clear
-              placeholder="搜索学校"
-              style="width: 220px; margin-right: 8px"
+              placeholder="搜索学校 / 队伍名 / 指导老师用户名"
+              style="width: 300px; margin-right: 8px"
               @search="loadTeams"
               @pressEnter="loadTeams"
             />
@@ -372,6 +382,7 @@ export default {
       canReviewTeams: false,
       teamsLoading: false,
       teamStatusFilter: 'all',
+      workTrackFilter: 'all',
       schoolKeyword: '',
       teamItems: [],
       reviewLoadingId: null,
@@ -547,6 +558,7 @@ export default {
       try {
         const params = {
           status: this.teamStatusFilter,
+          work_track: this.workTrackFilter,
           school: (this.schoolKeyword || '').trim() || undefined
         }
         const res = this.isSchoolMode
