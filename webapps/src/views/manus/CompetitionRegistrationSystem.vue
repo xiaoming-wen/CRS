@@ -914,7 +914,7 @@
                   >
                     <a-input
                       v-model="advisorCreateForm.other_advisor_username"
-                      placeholder="选填：另一位指导老师用户名"
+                      placeholder="请输入指导老师用户名，注意不是姓名"
                       :maxLength="100"
                       :disabled="advisorTeamActionsDisabled || !allowTeam"
                       allow-clear
@@ -1053,7 +1053,7 @@
                   <a-form-item :label="advisorPeerAdvisorFormLabel">
                     <a-input
                       v-model="advisorSecondAdvisorRef"
-                      placeholder="指导老师用户名"
+                      placeholder="请输入指导老师用户名，注意不是姓名"
                       style="width: 220px"
                       :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled"
                       allow-clear
@@ -2069,7 +2069,7 @@
         <a-form-item label="第一指导老师（选填）">
           <a-input
             v-model="studentCreateTeamForm.advisor_username"
-            placeholder="请输入指导老师用户名"
+            placeholder="请输入指导老师用户名，注意不是姓名"
             :maxLength="100"
             allow-clear
           />
@@ -2077,7 +2077,7 @@
         <a-form-item label="第二指导老师（选填）">
           <a-input
             v-model="studentCreateTeamForm.second_advisor_username"
-            placeholder="请输入指导老师用户名"
+            placeholder="请输入指导老师用户名，注意不是姓名"
             :maxLength="100"
             allow-clear
           />

@@ -215,7 +215,7 @@
         <a-form-item label="第一指导老师">
           <a-input
             v-model="advisorForm.advisor_ref"
-            placeholder="请输入指导老师用户名；可清空后勾选清除"
+            placeholder="请输入指导老师用户名，注意不是姓名"
             allow-clear
             :disabled="advisorForm.clear_first_advisor"
           />
@@ -226,7 +226,7 @@
         <a-form-item label="第二指导老师">
           <a-input
             v-model="advisorForm.second_advisor_ref"
-            placeholder="请输入指导老师用户名；可清空后勾选清除"
+            placeholder="请输入指导老师用户名，注意不是姓名"
             allow-clear
             :disabled="advisorForm.clear_second_advisor"
           />
@@ -330,7 +330,7 @@
           />
         </a-form-item>
         <a-form-item label="指导老师用户名">
-          <a-input v-model="proxyTeamForm.advisor_username" placeholder="选填" />
+          <a-input v-model="proxyTeamForm.advisor_username" placeholder="请输入指导老师用户名，注意不是姓名" />
         </a-form-item>
       </a-form>
     </a-modal>
