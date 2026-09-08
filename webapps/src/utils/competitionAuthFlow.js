@@ -14,7 +14,7 @@ const COMPETITION_ALT_GATE_ROUTES = [
  * 对应：/#/manu/competition-detail?id=…&share=1
  * 改此常量即可热更新生效；仅改 .env 需重启 devServer
  */
-const STUDENT_ADVISOR_LANDING_COMPETITION_ID = 58582342
+const STUDENT_ADVISOR_LANDING_COMPETITION_ID = 80024817
 
 export function getStudentAdvisorLandingCompetitionId () {
   return STUDENT_ADVISOR_LANDING_COMPETITION_ID
@@ -31,7 +31,7 @@ export function getStudentAdvisorLandingRouteLocation () {
   }
 }
 
-/** @returns {string} 如 /manu/competition-detail?id=58582342&share=1 */
+/** @returns {string} 如 /manu/competition-detail?id=80024817&share=1 */
 export function getStudentAdvisorLandingFullPath () {
   const loc = getStudentAdvisorLandingRouteLocation()
   return `${loc.path}?id=${encodeURIComponent(loc.query.id)}&share=1`
