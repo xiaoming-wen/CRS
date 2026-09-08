@@ -404,6 +404,68 @@ def _team_second_advisor_display_name(
 
 ADVISOR_MAX_TEAMS_PER_DIVISION_TRACK = 4
 ADVISOR_MAX_FIRST_TEAMS_PER_DIVISION_TRACK = 2
+# 每队正式成员上限（含队长）
+MAX_TEAM_MEMBERS = 3
+
+
+def _count_team_members(db: Session, team_id: int) -> int:
+    return (
+        db.query(TeamMember)
+        .filter(TeamMember.team_id == int(team_id))
+        .count()
+    )
+
+
+def _count_pending_invites_reserving_slots(
+    db: Session,
+    team_id: int,
+    *,
+    exclude_invitee_id: Optional[int] = None,
+) -> int:
+    """待处理邀请占用名额（已是队员的邀请不重复计）。"""
+    member_ids = {
+        int(m.user_id)
+        for m in db.query(TeamMember).filter(TeamMember.team_id == int(team_id)).all()
+    }
+    q = db.query(TeamInvite).filter(
+        TeamInvite.team_id == int(team_id),
+        TeamInvite.status == TeamInviteStatus.PENDING,
+    )
+    if exclude_invitee_id is not None:
+        q = q.filter(TeamInvite.invitee_id != int(exclude_invitee_id))
+    return sum(1 for inv in q.all() if int(inv.invitee_id) not in member_ids)
+
+
+def _assert_team_roster_count_allowed(count: int) -> None:
+    if count > MAX_TEAM_MEMBERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"每队最多 {MAX_TEAM_MEMBERS} 人（含队长）",
+        )
+
+
+def _assert_team_has_member_room(
+    db: Session,
+    team_id: int,
+    *,
+    adding: int = 1,
+    reserve_pending_invites: bool = False,
+    exclude_invitee_id: Optional[int] = None,
+) -> None:
+    """校验加入 adding 人后不超过上限；可选把待处理邀请算作已占名额。"""
+    members = _count_team_members(db, team_id)
+    pending = (
+        _count_pending_invites_reserving_slots(
+            db, team_id, exclude_invitee_id=exclude_invitee_id
+        )
+        if reserve_pending_invites
+        else 0
+    )
+    if members + pending + max(0, int(adding)) > MAX_TEAM_MEMBERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"每队最多 {MAX_TEAM_MEMBERS} 人（含队长），当前已满或剩余名额不足",
+        )
 
 
 def _advisor_quota_team_statuses() -> Tuple[str, ...]:
@@ -667,6 +729,16 @@ def _add_student_to_team(
     *,
     is_captain: bool = False,
 ) -> TeamMember:
+    existing = (
+        db.query(TeamMember)
+        .filter(TeamMember.team_id == team.id, TeamMember.user_id == student_id)
+        .first()
+    )
+    if existing:
+        if is_captain:
+            existing.is_captain = True
+        return existing
+    _assert_team_has_member_room(db, team.id, adding=1)
     member = TeamMember(team_id=team.id, user_id=student_id, is_captain=is_captain)
     db.add(member)
     team_division = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).lower()
@@ -5227,6 +5299,8 @@ async def school_admin_proxy_create_team(
             raise
         _assert_final_stage_participant(db, competition, sid, team_id=None)
 
+    _assert_team_roster_count_allowed(len(ordered_ids))
+
     captain_row = _resolve_alt_user_by_username(adb, captain_username, label="队长")
     if _effective_alt_role(captain_row.role) != "student":
         raise HTTPException(status_code=400, detail=f"队长「{captain_username}」须为学生账号")
@@ -6976,6 +7050,8 @@ async def create_team(
         if identity.id in ordered_ids:
             raise HTTPException(status_code=400, detail="指导老师不能以队员身份写入队伍名单")
 
+        _assert_team_roster_count_allowed(len(ordered_ids))
+
         for sid in ordered_ids:
             _ensure_alt_principal_is_student(adb, sid)
             _assert_student_can_enroll_work_track(
@@ -7169,6 +7245,7 @@ async def create_team(
 
         extras = team_create.initial_member_ids or []
         extras = [x for x in extras if x != identity.id]
+        _assert_team_roster_count_allowed(1 + len(extras))
         if extras:
             _assert_student_ids_same_school(adb, [identity.id] + list(extras))
         for sid in extras:
@@ -7322,6 +7399,23 @@ async def invite_team_member(
 
     if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == sid).first():
         raise HTTPException(status_code=400, detail="Already a team member")
+
+    existing_pending_invite = (
+        db.query(TeamInvite)
+        .filter(
+            TeamInvite.team_id == team.id,
+            TeamInvite.invitee_id == sid,
+            TeamInvite.status == TeamInviteStatus.PENDING,
+        )
+        .first()
+    )
+    if not existing_pending_invite:
+        _assert_team_has_member_room(
+            db,
+            team.id,
+            adding=1,
+            reserve_pending_invites=True,
+        )
 
     invite_track = _normalize_optional_work_track(getattr(team, "work_track", None))
     invite_div = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).lower()
@@ -7596,6 +7690,12 @@ async def request_join_team(
 
     if db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == identity.id).first():
         raise HTTPException(status_code=400, detail="Already a team member")
+
+    if _count_team_members(db, team.id) >= MAX_TEAM_MEMBERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"每队最多 {MAX_TEAM_MEMBERS} 人（含队长），该队已满员",
+        )
 
     _assert_student_same_school_as_team(adb, team, identity.id, label="当前账号")
 

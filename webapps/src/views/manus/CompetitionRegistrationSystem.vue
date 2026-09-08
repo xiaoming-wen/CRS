@@ -595,6 +595,7 @@
                         邀请队员
                       </a-button>
                     </div>
+                    <p class="muted" style="margin: 6px 0 0; font-size: 12px">每队最多 3 人（含队长）。</p>
                   </a-form-item>
                   <a-form-item label="移除队员">
                     <div class="row">
@@ -964,10 +965,13 @@
                   <a-form-item label="初始队员（选填，用户名，逗号分隔）">
                     <a-input
                       v-model="advisorCreateForm.initial_members_text"
-                      placeholder="选填；如：stu1,stu2"
+                      placeholder="选填；如：stu1,stu2（每队最多3人含队长）"
                       :disabled="advisorTeamActionsDisabled || !allowTeam"
                       allow-clear
                     />
+                    <div class="muted" style="margin-top: 4px; font-size: 12px">
+                      每队最多 3 人（含队长）；队长若也写在初始队员中只计 1 人。
+                    </div>
                   </a-form-item>
                 </a-col>
               </a-row>
@@ -1972,7 +1976,7 @@
                     邀请队员
                   </a-button>
                 </div>
-                <p class="muted" style="margin: 6px 0 0; font-size: 12px">发出邀请后，对方须在报名弹窗中同意才会入队。</p>
+                <p class="muted" style="margin: 6px 0 0; font-size: 12px">发出邀请后，对方须在报名弹窗中同意才会入队。每队最多 3 人（含队长）。</p>
               </a-form-item>
               <a-form-item label="移除队员">
                 <div class="row">
@@ -5893,6 +5897,9 @@ export default {
       if (t.includes('already enrolled in division')) {
         return '该学生已在另一学历组别报名，不能跨组入队'
       }
+      if (/每队最多|已满员|剩余名额不足|max.*team.*member|team.*full/i.test(detailText || '')) {
+        return String(detailText || '').trim() || '每队最多 3 人（含队长）'
+      }
       if (/同一学校|same school|学校不一致|must.*same.*school|未配置学校.*组队/i.test(detailText || '')) {
         return String(detailText || '').trim() || '仅允许同一学校的学生组队'
       }
@@ -6916,6 +6923,10 @@ export default {
 
       if (/队名已存在|team name already exists|duplicate.*team.?name/i.test(text)) {
         return '队名已存在，请更换其他队名'
+      }
+
+      if (/每队最多|已满员|剩余名额不足/i.test(text)) {
+        return text.includes('每队最多') ? text : '每队最多 3 人（含队长）'
       }
 
       if (/already enrolled in the individual track/i.test(text)) {
@@ -8434,6 +8445,20 @@ export default {
         this.$warning({
           title: '请填写队名',
           content: '创建队伍须填写队名，且同竞赛内队名不可重复。',
+          okText: '知道了'
+        })
+        return
+      }
+      const rosterKeys = new Set()
+      for (const ref of memberRefs) {
+        const k = String(ref || '').trim().toLowerCase()
+        if (k) rosterKeys.add(k)
+      }
+      if (captainRef) rosterKeys.add(captainRef.toLowerCase())
+      if (rosterKeys.size > 3) {
+        this.$warning({
+          title: '队伍人数超限',
+          content: '每队最多 3 人（含队长），请减少初始队员后再创建。',
           okText: '知道了'
         })
         return

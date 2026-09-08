@@ -326,7 +326,7 @@
           <a-textarea
             v-model="proxyTeamForm.member_usernames_text"
             :rows="3"
-            placeholder="多名用逗号或换行分隔；可含队长"
+            placeholder="多名用逗号或换行分隔；可含队长。每队最多3人（含队长）"
           />
         </a-form-item>
         <a-form-item label="指导老师用户名">
@@ -805,6 +805,19 @@ export default {
         if (!hasCaptain) {
           memberUsernames = [captainUsername, ...memberUsernames]
         }
+      }
+      const uniqueMembers = []
+      const seen = new Set()
+      for (const u of memberUsernames) {
+        const key = String(u || '').trim().toLowerCase()
+        if (!key || seen.has(key)) continue
+        seen.add(key)
+        uniqueMembers.push(String(u).trim())
+      }
+      memberUsernames = uniqueMembers
+      if (memberUsernames.length > 3) {
+        this.$message.warning('每队最多 3 人（含队长），请减少队员后再提交')
+        return Promise.reject(new Error('cancelled'))
       }
       const payload = {
         competition_id: competitionId,
