@@ -9,6 +9,7 @@ class CompetitionStatus(str):
     DRAFT = "draft"
     PUBLISHED = "published"
     CLOSED = "closed"
+    ENDED = "ended"
 
 
 class CompetitionDivisionMode(str):

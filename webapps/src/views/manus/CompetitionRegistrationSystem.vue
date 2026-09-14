@@ -47,9 +47,20 @@
               ghost
               :loading="adminLockLoading"
               @click="handleLockCompetition"
-              :disabled="!selectedCompetitionId"
+              :disabled="!canLockSelectedCompetition"
             >
-              锁定竞赛
+              报名截止
+            </a-button>
+
+            <a-button
+              style="margin-left: 8px"
+              type="danger"
+              ghost
+              :loading="adminEndLoading"
+              @click="handleEndCompetition"
+              :disabled="!canEndSelectedCompetition"
+            >
+              结束竞赛
             </a-button>
 
             <a-button
@@ -75,7 +86,7 @@
         </div>
 
         <div v-if="canManageCompetitions" class="muted" style="margin-top: 8px; font-size: 13px">
-          请在表格左侧勾选一条竞赛，以便使用顶部「发布 / 修改 / 锁定 / 删除 / 发布试卷」等操作；完整管理与评阅请在「操作」列点击「查看详情」在新标签页打开。专家核验与按赛指派请使用左侧目录「专家指派」。竞赛发布后才可「发布试卷」与复制分享 URL。
+          请在表格左侧勾选一条竞赛，以便使用顶部「发布 / 修改 / 报名截止 / 结束竞赛 / 删除 / 发布试卷」等操作；完整管理与评阅请在「操作」列点击「查看详情」在新标签页打开。专家核验与按赛指派请使用左侧目录「专家指派」。竞赛发布后才可「发布试卷」与复制分享 URL。
         </div>
         <div v-else-if="isStudent" class="muted" style="margin-top: 8px; font-size: 13px">
           学生请在「操作」列点击「查看详情」；分本科/高职的竞赛需先选择组别，再在新标签页中报名与提交作品（不可跨组报名）。
@@ -175,7 +186,7 @@
                   class="competition-hero-banner__capsule"
                   :class="'competition-hero-banner__capsule--status-' + (activeCompetition.status || 'unknown')"
                 >
-                  {{ getStatusText(activeCompetition.status) }}
+                  {{ activeCompetitionHeroStatusText }}
                 </span>
                 <span
                   v-if="activeCompetitionStageLabel"
@@ -706,7 +717,7 @@
               style="margin-bottom: 12px"
             />
             <a-alert
-              v-if="teamSchoolReviewSubmissionBlocked"
+              v-else-if="teamSchoolReviewSubmissionBlocked"
               type="warning"
               show-icon
               :message="teamSchoolReviewBlockedTitle"
@@ -1109,14 +1120,14 @@
                       v-model="advisorRenameName"
                       placeholder="可留空表示清空展示名"
                       style="width: 220px"
-                      :disabled="!canOperateAdvisorSelectedTeam"
+                      :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled"
                     />
                   </a-form-item>
                   <a-form-item>
                     <a-button
                       type="primary"
                       :loading="advisorTeamOpLoading"
-                      :disabled="!canOperateAdvisorSelectedTeam"
+                      :disabled="!canOperateAdvisorSelectedTeam || advisorTeamActionsDisabled"
                       @click="handleAdvisorRenameTeam"
                     >
                       保存队名
@@ -2230,6 +2241,22 @@
           <h4 class="standalone-modal-section-title">
             {{ currentEnrollmentTrackLabel }}赛道 · 按题提交（共{{ submissionQuestionCount }}题）
           </h4>
+          <a-alert
+            v-if="competitionSubmissionBlocked"
+            type="warning"
+            show-icon
+            :message="competitionSubmissionBlockedTitle"
+            :description="competitionSubmissionBlockedDescription"
+            style="margin-bottom: 12px"
+          />
+          <a-alert
+            v-else-if="teamSchoolReviewSubmissionBlocked"
+            type="warning"
+            show-icon
+            :message="teamSchoolReviewBlockedTitle"
+            :description="teamSchoolReviewBlockedDescription"
+            style="margin-bottom: 12px"
+          />
           <div class="row" style="margin-bottom: 12px; flex-wrap: wrap; gap: 8px">
             <a-button
               :loading="questionAnswersLoading"
@@ -2243,15 +2270,7 @@
             v-if="!questionAnswerTeamId"
             description="请先完成组队报名并等待校审通过"
           />
-          <a-alert
-            v-else-if="teamSchoolReviewSubmissionBlocked"
-            type="warning"
-            show-icon
-            :message="teamSchoolReviewBlockedTitle"
-            :description="teamSchoolReviewBlockedDescription"
-            style="margin-bottom: 12px"
-          />
-          <div v-else class="question-answer-slots" style="margin-bottom: 16px">
+          <div v-else-if="!competitionSubmissionBlocked && !teamSchoolReviewSubmissionBlocked" class="question-answer-slots" style="margin-bottom: 16px">
             <div
               v-for="slot in displayQuestionAnswerSlots"
               :key="'works-q-slot-' + slot.question_no"
@@ -3213,6 +3232,7 @@ import {
   updateCompetitionMultipart,
   deleteCompetition,
   lockCompetition,
+  endCompetition,
   getCompetitionParticipantsIndividual,
   getCompetitionParticipantsTeams,
   exportCompetitionTeamsExcel,
@@ -3676,6 +3696,7 @@ export default {
 
       adminDeleteLoading: false,
       adminLockLoading: false,
+      adminEndLoading: false,
 
       // 管理员：参赛者名单（个人/队伍）
       participantsIndividualLoading: false,
@@ -3900,6 +3921,19 @@ export default {
       if (id == null || id === '') return null
       return this.competitions.find(c => String(c.id) === String(id)) || null
     },
+    selectedCompetitionStatus () {
+      const c = this.selectedCompetitionRecord
+      return c && c.status != null ? String(c.status).toLowerCase() : ''
+    },
+    canLockSelectedCompetition () {
+      if (!this.selectedCompetitionId) return false
+      const s = this.selectedCompetitionStatus
+      return s !== 'closed' && s !== 'ended'
+    },
+    canEndSelectedCompetition () {
+      if (!this.selectedCompetitionId) return false
+      return this.selectedCompetitionStatus !== 'ended'
+    },
     canPublishExamPaperForSelected () {
       if (!this.canManageCompetitions || !this.selectedCompetitionRecord) return false
       return this.isCompetitionShareableStatus(this.selectedCompetitionRecord.status)
@@ -4020,6 +4054,7 @@ export default {
     },
     canShowExamPaperDownload () {
       if (!this.standaloneDetailMode || !this.isUsingAltIdentity) return false
+      if (this.competitionEnded) return false
       if (!this.isCompetitionShareableStatus(this.activeCompetition && this.activeCompetition.status)) {
         return false
       }
@@ -4759,6 +4794,12 @@ export default {
       return !!(this.canUploadQuestionAnswers && !this.hasFormalSubmittedQuestionAnswers)
     },
     questionAnswersSubmitHintText () {
+      if (this.competitionEnded) {
+        return '竞赛已结束，无法提交作品。'
+      }
+      if (this.competitionSubmissionBlocked) {
+        return this.competitionSubmissionBlockedTitle
+      }
       if (this.hasFormalSubmittedQuestionAnswers) {
         return '本队作品已正式提交，全队都不能再上传、删除或再次提交。'
       }
@@ -5006,13 +5047,13 @@ export default {
     enrollProfileLockedAfterSuccess () {
       return this.hasAnyEnrollment
     },
-    /** 竞赛为草稿或未发布时，报名区域不可用 */
+    /** 竞赛为草稿或未发布时，报名区域不可用（closed=报名截止，ended=已结束，不算未发布） */
     competitionEnrollPublishBlocked () {
       const c = this.activeCompetition
       if (!c) return false
       const s = c.status != null ? String(c.status).toLowerCase() : ''
       if (s === 'draft') return true
-      return s !== 'published' && s !== 'open'
+      return s !== 'published' && s !== 'open' && s !== 'closed' && s !== 'ended'
     },
     competitionEnrollBlockedAlertTitle () {
       const c = this.activeCompetition
@@ -5028,38 +5069,47 @@ export default {
       }
       return '暂无法报名；主办方发布竞赛或重新开放报名后即可重新报名。'
     },
-    /** §8.16：draft 不可提交；published / closed（锁定报名后）可提交 */
+    /** §8.16：draft / ended 不可提交；published / closed（报名截止）可提交 */
     competitionSubmissionBlocked () {
       const c = this.activeCompetition
       if (!c) return false
       const s = c.status != null ? String(c.status).toLowerCase() : ''
-      if (s === 'draft') return true
+      if (s === 'draft' || s === 'ended') return true
       if (s === 'published' || s === 'closed' || s === 'open') return false
       return true
     },
     competitionSubmissionBlockedTitle () {
       const c = this.activeCompetition
       const s = c && c.status != null ? String(c.status).toLowerCase() : ''
+      if (s === 'ended') return '当前竞赛已结束，无法提交作品'
       return s === 'draft' ? '当前竞赛为草稿，无法提交作品' : '竞赛尚未发布，无法提交作品'
     },
     competitionSubmissionBlockedDescription () {
-      return '作品提交须在竞赛发布后进行；锁定报名（closed）后仍可提交作品。'
+      const c = this.activeCompetition
+      const s = c && c.status != null ? String(c.status).toLowerCase() : ''
+      if (s === 'ended') return '超级管理员已结束竞赛，不可再提交作品或下载试卷。'
+      return '作品提交须在竞赛发布后进行；报名截止后仍可提交作品，结束竞赛后不可提交。'
     },
     /** 报名弹窗/内联作品表单禁用（已提交锁定、竞赛不可提交或队伍待校审） */
     submissionFormDisabled () {
       return this.enrollModalSubmissionLocked || this.competitionSubmissionBlocked || this.teamSchoolReviewSubmissionBlocked
     },
-    /** 停止报名：closed 或已过 end_at（与 §8.5 一致；退赛等仍可进行） */
+    /** 停止报名：closed / ended 或已过 end_at */
     competitionEnrollmentClosed () {
       const c = this.activeCompetition
       if (!c) return false
       const s = c.status != null ? String(c.status).toLowerCase() : ''
-      if (s === 'closed') return true
+      if (s === 'closed' || s === 'ended') return true
       if (c.end_at) {
         const endMs = new Date(c.end_at).getTime()
         if (Number.isFinite(endMs) && Date.now() >= endMs) return true
       }
       return false
+    },
+    competitionEnded () {
+      const c = this.activeCompetition
+      const s = c && c.status != null ? String(c.status).toLowerCase() : ''
+      return s === 'ended'
     },
     /** 队伍已正式提交作品后，禁止转让/邀请/移除/退队 */
     competitionTeamRosterLocked () {
@@ -5093,18 +5143,22 @@ export default {
       if (this.competitionTeamRosterLocked) {
         return this.competitionTeamRosterLockedMessage
       }
-      if (this.competitionEnrollPublishBlocked) {
-        return '竞赛尚未发布，暂无法建队或邀请队员；已发布且报名开放后可操作。'
+      if (this.competitionEnded) {
+        return '竞赛已结束。此时无法创建队伍、加入队伍、下载试卷或提交作品。'
       }
       if (this.competitionEnrollmentClosed) {
         return '报名已关闭（竞赛被锁定，或已过结束时间）。指导老师此时无法代建队伍或邀请队员；学生也无法创建/加入队伍。请联系管理员延长结束时间或重新开放报名后再试。'
+      }
+      if (this.competitionEnrollPublishBlocked) {
+        return '竞赛尚未发布，暂无法建队或邀请队员；已发布且报名开放后可操作。'
       }
       return ''
     },
     competitionTeamCreateInviteBlockedTitle () {
       if (this.competitionTeamRosterLocked) return '作品已提交'
-      if (this.competitionEnrollPublishBlocked) return '竞赛尚未发布'
+      if (this.competitionEnded) return '当前竞赛已结束'
       if (this.competitionEnrollmentClosed) return '当前竞赛已停止报名'
+      if (this.competitionEnrollPublishBlocked) return '竞赛尚未发布'
       return '当前不可新建队伍或邀请队员'
     },
     /** 已停止报名、未发布或已提交作品时不可移除队员 */
@@ -5115,11 +5169,11 @@ export default {
       if (this.competitionTeamRosterLocked) {
         return this.competitionTeamRosterLockedMessage
       }
-      if (this.competitionEnrollPublishBlocked) {
-        return '竞赛尚未发布，暂无法移除队员'
-      }
       if (this.competitionEnrollmentClosed) {
         return '竞赛已停止报名，暂无法移除队员'
+      }
+      if (this.competitionEnrollPublishBlocked) {
+        return '竞赛尚未发布，暂无法移除队员'
       }
       return ''
     },
@@ -5308,6 +5362,15 @@ export default {
       const c = this.activeCompetition
       if (!c) return '-'
       return this.formatHeroDateRange(c.start_at, c.end_at)
+    },
+    /** 详情页顶部状态胶囊 */
+    activeCompetitionHeroStatusText () {
+      const c = this.activeCompetition
+      if (!c) return '未知'
+      const s = c.status != null ? String(c.status).toLowerCase() : ''
+      if (s === 'ended') return '已结束'
+      if (s === 'closed' || this.competitionEnrollmentClosed) return '报名截止'
+      return this.getStatusText(c.status)
     },
     /** 活动时间状态：未开始 / 即将截止 / 已结束 */
     competitionHeroTimeHint () {
@@ -6345,6 +6408,10 @@ export default {
         this.$message.warning('请先选择竞赛')
         return
       }
+      if (this.competitionEnded) {
+        this.$message.warning('竞赛已结束，不可下载试卷')
+        return
+      }
       if (!this.isStudent) {
         this.$message.warning('指导老师不可下载试卷')
         return
@@ -6373,6 +6440,10 @@ export default {
     },
 
     async downloadExamPaperByOption (opt) {
+      if (this.competitionEnded) {
+        this.$message.warning('竞赛已结束，不可下载试卷')
+        return
+      }
       if (!opt || !opt.published) {
         this.$message.warning('该赛道试卷尚未发布')
         return
@@ -7153,11 +7224,11 @@ export default {
       this.selectedCompetitionId = m !== null && m !== undefined && m !== '' ? m : null
     },
     getStatusColor (status) {
-      const map = { draft: 'default', published: 'green', open: 'green', closed: 'red', upcoming: 'blue' }
+      const map = { draft: 'default', published: 'green', open: 'green', closed: 'orange', ended: 'red', upcoming: 'blue' }
       return map[status] || 'default'
     },
     getStatusText (status) {
-      const map = { draft: '草稿', published: '已发布', open: '报名中', closed: '已结束', upcoming: '即将开始' }
+      const map = { draft: '草稿', published: '已发布', open: '报名中', closed: '报名截止', ended: '已结束', upcoming: '即将开始' }
       return map[status] || (status || '未知')
     },
     getSubmissionStatusColor (status) {
@@ -8543,6 +8614,12 @@ export default {
     async handleAdvisorRenameTeam () {
       const team = this.advisorSelectedTeam
       if (!team || !this.canOperateAdvisorSelectedTeam) return
+      if (this.advisorTeamActionsDisabled) {
+        this.$message.warning(
+          this.competitionTeamCreateInviteBlockedDescription || '当前竞赛已停止报名，无法修改队名'
+        )
+        return
+      }
       this.advisorTeamOpLoading = true
       try {
         const name = this.advisorRenameName != null ? String(this.advisorRenameName) : ''
@@ -8776,6 +8853,9 @@ export default {
 
     mapSubmissionDetailToUserMessage (detailText) {
       const t = (detailText || '').toLowerCase()
+      if (t.includes('竞赛已结束') || t.includes('competition has ended')) {
+        return '竞赛已结束，不可提交作品'
+      }
       if (t.includes('division is required')) {
         return '该竞赛分本科组与高职组，请从对应组别详情页进入后再提交作品'
       }
@@ -10213,12 +10293,41 @@ export default {
       this.adminLockLoading = true
       try {
         await lockCompetition(id)
-        this.$message.success('锁定成功（停止报名）')
+        this.$message.success('已设置为报名截止')
         this.fetchCompetitions()
       } catch (e) {
-        this.$message.error('锁定失败：' + (e && e.message ? e.message : '未知错误'))
+        this.$message.error('设置报名截止失败：' + (e && e.message ? e.message : '未知错误'))
       } finally {
         this.adminLockLoading = false
+      }
+    },
+
+    async handleEndCompetition () {
+      if (!this.canManageCompetitions) return
+      const id = this.activeCompetitionId || this.publishCompetitionId
+      if (!id) return
+      // ant-design-vue 1.x 的 $confirm 不返回 Promise，必须用 onOk 等待用户确认
+      const confirmed = await new Promise((resolve) => {
+        this.$confirm({
+          title: '确认结束竞赛',
+          content: '结束后将停止报名，且不可再下载试卷、提交作品。确定要结束该竞赛吗？',
+          okText: '结束竞赛',
+          okType: 'danger',
+          cancelText: '取消',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false)
+        })
+      })
+      if (!confirmed) return
+      this.adminEndLoading = true
+      try {
+        await endCompetition(id)
+        this.$message.success('竞赛已结束')
+        this.fetchCompetitions()
+      } catch (e) {
+        this.$message.error('结束竞赛失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.adminEndLoading = false
       }
     },
 
@@ -12543,6 +12652,12 @@ export default {
   color: #ffe4e4;
   background: rgba(185, 28, 28, 0.32);
   border-color: rgba(252, 165, 165, 0.45);
+}
+
+.competition-hero-banner__capsule--status-ended {
+  color: #ffe4e4;
+  background: rgba(127, 29, 29, 0.42);
+  border-color: rgba(252, 165, 165, 0.55);
 }
 
 .competition-hero-banner__capsule--status-upcoming {

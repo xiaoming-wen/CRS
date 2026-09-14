@@ -18,6 +18,9 @@
               <div v-if="isSchoolMode" style="margin-top: 6px">
                 校管「代建队报名」创建后队伍直接为「已通过」；学生/老师自建仍进入待校审。
               </div>
+              <div v-if="isSchoolMode && proxyCreateBlocked" style="margin-top: 6px">
+                当前竞赛已停止报名，暂不可代建队报名。
+              </div>
             </template>
           </a-alert>
 
@@ -31,6 +34,15 @@
               <a-select-option value="pending_school_review">待校审</a-select-option>
               <a-select-option value="active">已通过</a-select-option>
               <a-select-option value="rejected">已驳回</a-select-option>
+            </a-select>
+            <a-select
+              v-model="divisionFilter"
+              style="width: 140px; margin-right: 8px"
+              @change="loadTeams"
+            >
+              <a-select-option value="all">全部组别</a-select-option>
+              <a-select-option value="undergraduate">本科</a-select-option>
+              <a-select-option value="vocational">高职</a-select-option>
             </a-select>
             <a-select
               v-model="workTrackFilter"
@@ -55,6 +67,8 @@
               v-if="isSchoolMode"
               type="primary"
               style="margin-left: 8px"
+              :disabled="proxyCreateBlocked"
+              :title="proxyCreateBlocked ? '当前竞赛已停止报名，不可代建队报名' : ''"
               @click="openProxyTeamModal"
             >
               代建队报名
@@ -295,7 +309,7 @@
             style="width: 100%"
           >
             <a-select-option
-              v-for="c in teamCompetitions"
+              v-for="c in openTeamCompetitions"
               :key="c.id"
               :value="c.id"
             >
@@ -382,6 +396,7 @@ export default {
       canReviewTeams: false,
       teamsLoading: false,
       teamStatusFilter: 'all',
+      divisionFilter: 'all',
       workTrackFilter: 'all',
       schoolKeyword: '',
       teamItems: [],
@@ -430,6 +445,13 @@ export default {
     teamCompetitions () {
       return (this.competitions || []).filter(c => c && c.allow_team !== false)
     },
+    openTeamCompetitions () {
+      return this.teamCompetitions.filter(c => !this.isCompetitionEnrollmentClosed(c))
+    },
+    proxyCreateBlocked () {
+      if (this.competitionsLoading) return true
+      return this.openTeamCompetitions.length === 0
+    },
     advisorModalCurrentAdvisorLabel () {
       const t = this.advisorModalTeam
       if (!t) return ''
@@ -473,7 +495,7 @@ export default {
       if (this.isSchoolMode) {
         await this.checkReviewPermission()
         if (this.canReviewTeams) {
-          await this.loadTeams()
+          await Promise.all([this.loadTeams(), this.ensureCompetitionsLoaded()])
         }
       } else {
         this.canReviewTeams = true
@@ -490,6 +512,17 @@ export default {
         return raw.map(item => (item && item.msg) ? item.msg : String(item)).join('；')
       }
       return typeof raw === 'string' ? raw : (raw ? JSON.stringify(raw) : fallback)
+    },
+    isCompetitionEnrollmentClosed (c) {
+      if (!c) return true
+      const s = c.status != null ? String(c.status).toLowerCase() : ''
+      if (s === 'closed') return true
+      if (s === 'ended') return true
+      if (c.end_at) {
+        const endMs = new Date(c.end_at).getTime()
+        if (Number.isFinite(endMs) && Date.now() >= endMs) return true
+      }
+      return false
     },
     formatDateTime (value) {
       if (!value) return '—'
@@ -558,6 +591,7 @@ export default {
       try {
         const params = {
           status: this.teamStatusFilter,
+          division: this.divisionFilter,
           work_track: this.workTrackFilter,
           school: (this.schoolKeyword || '').trim() || undefined
         }
@@ -774,6 +808,10 @@ export default {
       }
     },
     async openProxyTeamModal () {
+      if (this.proxyCreateBlocked) {
+        this.$message.warning('当前竞赛已停止报名，不可代建队报名')
+        return
+      }
       this.proxyTeamForm = emptyProxyTeamForm()
       this.proxyTeamVisible = true
       await this.ensureCompetitionsLoaded()
@@ -790,6 +828,11 @@ export default {
       let memberUsernames = this.parseUsernameList(form.member_usernames_text)
       if (!Number.isFinite(competitionId) || competitionId <= 0) {
         this.$message.warning('请选择竞赛')
+        return Promise.reject(new Error('cancelled'))
+      }
+      const selectedComp = (this.competitions || []).find(c => Number(c.id) === competitionId)
+      if (this.isCompetitionEnrollmentClosed(selectedComp)) {
+        this.$message.warning('该竞赛已停止报名，不可代建队报名')
         return Promise.reject(new Error('cancelled'))
       }
       if (!captainUsername) {

@@ -83,6 +83,17 @@ export function lockCompetition (competitionId) {
   })
 }
 
+// 结束竞赛（报名截止 + 禁止下载试卷/提交作品；仅 super_admin）
+export function endCompetition (competitionId) {
+  return axios({
+    url: `/v1/competitions/${competitionId}/end`,
+    method: 'put',
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
 // 列表：文档未显式列出，但前端需要竞赛列表（GET competitions）
 export function getCompetitions () {
   return axios({
@@ -983,6 +994,10 @@ export function getSchoolAdminTeams (options = {}) {
   if (workTrack != null && String(workTrack).trim() !== '' && String(workTrack).trim().toLowerCase() !== 'all') {
     params.work_track = String(workTrack).trim().toLowerCase()
   }
+  const division = options && options.division
+  if (division != null && String(division).trim() !== '' && String(division).trim().toLowerCase() !== 'all') {
+    params.division = String(division).trim().toLowerCase()
+  }
   const competitionId = options && options.competition_id
   const cid = Number(competitionId)
   if (Number.isFinite(cid) && cid > 0) {
@@ -1013,6 +1028,10 @@ export function listAdminTeamReviews (options = {}) {
   const workTrack = options && options.work_track
   if (workTrack != null && String(workTrack).trim() !== '' && String(workTrack).trim().toLowerCase() !== 'all') {
     params.work_track = String(workTrack).trim().toLowerCase()
+  }
+  const division = options && options.division
+  if (division != null && String(division).trim() !== '' && String(division).trim().toLowerCase() !== 'all') {
+    params.division = String(division).trim().toLowerCase()
   }
   const competitionId = options && options.competition_id
   const cid = Number(competitionId)

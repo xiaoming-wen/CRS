@@ -1544,13 +1544,15 @@ def _promote_prelim_team_to_final(
     return promo
 
 
-# 分享链接匿名可读：仅已发布或已锁定（closed）的竞赛
+# 分享链接匿名可读：已发布、报名截止、已结束
+_VIEWABLE_ANON_COMPETITION_STATUSES = ("published", "closed", "ended")
+# 发布/下载试卷、分享管理：已发布或报名截止（已结束不可再下试卷）
 _SHAREABLE_COMPETITION_STATUSES = ("published", "closed")
 
 
 def _ensure_competition_shareable(competition: Competition) -> None:
-    """未登录访客仅可查看已发布/已结束竞赛，草稿等返回 404 避免泄露。"""
-    if competition.status not in _SHAREABLE_COMPETITION_STATUSES:
+    """未登录访客仅可查看已发布/报名截止/已结束竞赛，草稿等返回 404 避免泄露。"""
+    if competition.status not in _VIEWABLE_ANON_COMPETITION_STATUSES:
         raise HTTPException(status_code=404, detail="Competition not found")
 
 
@@ -1855,10 +1857,11 @@ def _resolve_identity_work_track_for_paper(
 def _is_enrollment_closed(competition: Competition) -> bool:
     """
     「停止报名」条件（与业务上“锁定竞赛”含义一致）：
-    1) 状态为 closed（管理员手动关闭报名）
-    2) 到达/超过 end_at（自动停止报名）
+    1) 状态为 closed（管理员手动报名截止）
+    2) 状态为 ended（管理员结束竞赛）
+    3) 到达/超过 end_at（自动停止报名）
     """
-    if competition.status == "closed":
+    if competition.status in ("closed", "ended"):
         return True
     if competition.end_at is None:
         return False
@@ -1876,9 +1879,11 @@ def _ensure_enrollment_open(competition: Competition) -> None:
 
 def _ensure_competition_allows_submissions(competition: Competition) -> None:
     """
-    作品提交：已发布（published）或已锁定报名（closed）均允许已参赛用户继续提交；
-    草稿（draft）不允许。
+    作品提交：已发布（published）或报名截止（closed）均允许已参赛用户继续提交；
+    草稿（draft）与已结束（ended）不允许。
     """
+    if getattr(competition, "status", None) == "ended":
+        raise HTTPException(status_code=400, detail="竞赛已结束，不可提交作品")
     if competition.status not in ("published", "closed"):
         raise HTTPException(
             status_code=400,
@@ -3965,6 +3970,24 @@ async def lock_competition(
     return competition
 
 
+@router.put("/{competition_id}/end", response_model=CompetitionResponse)
+async def end_competition(
+    competition_id: int,
+    db: Session = Depends(get_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """
+    结束竞赛：将竞赛标记为 ended。
+    含报名截止全部限制，并禁止下载试卷与提交作品。
+    """
+    require_permission(identity.role, Permission.MANAGE_COMPETITIONS)
+    competition = _get_competition(db, competition_id)
+    competition.status = "ended"
+    db.commit()
+    db.refresh(competition)
+    return competition
+
+
 @router.post("/{competition_id}/exam-papers", response_model=CompetitionExamPapers)
 async def publish_competition_exam_paper(
     competition_id: int,
@@ -4074,6 +4097,8 @@ async def download_competition_exam_paper(
 
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
     competition = _get_competition(db, competition_id)
+    if getattr(competition, "status", None) == "ended":
+        raise HTTPException(status_code=400, detail="竞赛已结束，不可下载试卷")
     _ensure_competition_published_for_papers(competition)
     div = _normalize_exam_paper_division(competition, division)
     track = _resolve_identity_work_track_for_paper(db, competition, identity, div, work_track)
@@ -4451,6 +4476,19 @@ def _normalize_team_review_work_track_filter(raw: Optional[str]) -> Optional[str
     return track
 
 
+def _normalize_team_review_division_filter(raw: Optional[str]) -> Optional[str]:
+    """校审列表组别筛选：合法值返回 undergraduate/vocational；空/all 返回 None；非法抛 400。"""
+    div = (raw or "").strip().lower()
+    if not div or div in ("all", "*"):
+        return None
+    if div not in ("undergraduate", "vocational"):
+        raise HTTPException(
+            status_code=400,
+            detail="division must be undergraduate, vocational, or all",
+        )
+    return div
+
+
 def _team_matches_review_keyword(
     team: Team,
     keyword: str,
@@ -4498,6 +4536,10 @@ async def list_school_admin_teams(
         None,
         description="赛道筛选：works / software / hardware；不传或 all 表示全部",
     ),
+    division: Optional[str] = Query(
+        None,
+        description="组别筛选：undergraduate / vocational；不传或 all 表示全部",
+    ),
     competition_id: Optional[int] = Query(None, description="按竞赛 id 筛选"),
     db: Session = Depends(get_db),
     adb: Session = Depends(get_alt_auth_db),
@@ -4533,6 +4575,9 @@ async def list_school_admin_teams(
     track_filter = _normalize_team_review_work_track_filter(work_track)
     if track_filter:
         q = q.filter(Team.work_track == track_filter)
+    division_filter = _normalize_team_review_division_filter(division)
+    if division_filter:
+        q = q.filter(Team.division == division_filter)
     if competition_id is not None:
         q = q.filter(Team.competition_id == competition_id)
 
@@ -5097,6 +5142,10 @@ async def list_admin_team_reviews(
         None,
         description="赛道筛选：works / software / hardware；不传或 all 表示全部",
     ),
+    division: Optional[str] = Query(
+        None,
+        description="组别筛选：undergraduate / vocational；不传或 all 表示全部",
+    ),
     competition_id: Optional[int] = Query(None, description="按竞赛 id 筛选"),
     db: Session = Depends(get_db),
     adb: Session = Depends(get_alt_auth_db),
@@ -5128,6 +5177,9 @@ async def list_admin_team_reviews(
     track_filter = _normalize_team_review_work_track_filter(work_track)
     if track_filter:
         q = q.filter(Team.work_track == track_filter)
+    division_filter = _normalize_team_review_division_filter(division)
+    if division_filter:
+        q = q.filter(Team.division == division_filter)
     if competition_id is not None:
         q = q.filter(Team.competition_id == competition_id)
 
@@ -7405,6 +7457,9 @@ async def patch_team(
     )
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
+
+    competition = team.competition
+    _ensure_enrollment_open(competition)
 
     if team.captain_id != identity.id and not (
         _effective_alt_role(identity.role) in {"advisor", "teacher"} and _team_advisor_managed(team, identity.id)

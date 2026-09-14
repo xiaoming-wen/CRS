@@ -431,6 +431,7 @@ class CompetitionStatus(str, Enum):
     DRAFT = "draft"
     PUBLISHED = "published"
     CLOSED = "closed"
+    ENDED = "ended"
 
 
 class TeamStatus(str, Enum):
