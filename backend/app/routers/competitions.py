@@ -3126,6 +3126,43 @@ def _grade_score_cells(grade: Optional[CompetitionTeamQuestionGrade], question_c
     return [getattr(grade, attrs[i], None) for i in range(n)]
 
 
+def _team_advisors_export_label(
+    team: Team,
+    users_by_id: Optional[dict[int, AltAuthUserRecord]] = None,
+) -> str:
+    """导出用：一/二前缀标记第一、第二指导老师，多人用顿号连接。"""
+    parts: list[str] = []
+    first = _team_advisor_display_name(team, users_by_id)
+    if first and str(first).strip() and str(first).strip() != "-":
+        parts.append(f"一{str(first).strip()}")
+    second = _team_second_advisor_display_name(team, users_by_id)
+    if second and str(second).strip() and str(second).strip() != "-":
+        parts.append(f"二{str(second).strip()}")
+    return "、".join(parts) if parts else "-"
+
+
+def _team_review_yes_no_cells(
+    team: Team,
+    users_by_id: dict[int, AltAuthUserRecord],
+) -> Tuple[str, str]:
+    """
+    按最终审核人角色返回 (超级管理员审核, 校管理员审核)，取值为「是」/「否」。
+    依据 teams.reviewed_by_id 对应用户当前角色；无审核人或角色不匹配时均为「否」。
+    """
+    rid = getattr(team, "reviewed_by_id", None)
+    if rid is None:
+        return "否", "否"
+    reviewer = users_by_id.get(int(rid))
+    if reviewer is None:
+        return "否", "否"
+    role = _effective_alt_role(getattr(reviewer, "role", None))
+    if role == "super_admin":
+        return "是", "否"
+    if role == "school_admin":
+        return "否", "是"
+    return "否", "否"
+
+
 def _append_team_mapping_rows(
     ws,
     *,
@@ -3135,25 +3172,27 @@ def _append_team_mapping_rows(
     grades_by_team: Optional[dict] = None,
     question_count: int = 5,
     include_scores: bool = True,
+    include_review_columns: bool = False,
 ) -> None:
-    """对照表：一行一支队伍；表头含分题列与总分，include_scores=false 时分数单元格留空。"""
+    """对照表：一行一支队伍。include_scores / include_review_columns 分别控制分题总分与审核列。"""
     grades_by_team = grades_by_team or {}
     q_count = max(1, min(COMPETITION_QUESTION_COUNT, int(question_count) or 5))
     for team in teams:
-        advisor = _team_advisor_display_name(team, users_by_id) or "-"
         school = (getattr(team, "school", None) or "").strip() or "-"
         team_name = (team.name or "").strip() or f"队伍{team.id}"
-        name_and_advisor = team_name if advisor in ("", "-") else f"{team_name} / {advisor}"
+        advisors_cell = _team_advisors_export_label(team, users_by_id)
         members = sorted(team.members, key=lambda x: (0 if x.is_captain else 1, x.id))
         member_labels = []
         for m in members:
-            if m.is_captain:
-                continue
-            if team.captain_id is not None and int(m.user_id) == int(team.captain_id):
-                continue
             u = users_by_id.get(m.user_id)
             member_name = _display_user_name(u, m.user_id)
-            member_labels.append(member_name)
+            # 队长排在最前，姓名后标注「（队长）」便于区分
+            if m.is_captain or (
+                team.captain_id is not None and int(m.user_id) == int(team.captain_id)
+            ):
+                member_labels.append(f"{member_name}（队长）")
+            else:
+                member_labels.append(member_name)
         members_cell = "、".join(member_labels) if member_labels else "-"
         row = [
             school,
@@ -3163,16 +3202,17 @@ def _append_team_mapping_rows(
                 getattr(team, "work_track", None),
             ),
             team.id,
-            name_and_advisor,
+            team_name,
+            advisors_cell,
             members_cell,
         ]
+        if include_review_columns:
+            super_review, school_review = _team_review_yes_no_cells(team, users_by_id)
+            row.extend([super_review, school_review])
         if include_scores:
             grade = grades_by_team.get(int(team.id))
             row.extend(_grade_score_cells(grade, q_count))
             row.append(grade.total_score if grade else "")
-        else:
-            row.extend([""] * q_count)
-            row.append("")
         ws.append(row)
 
 
@@ -3277,7 +3317,7 @@ async def export_team_roster_excel(
     ),
     include_scores: bool = Query(
         True,
-        description="是否填充分题分数与总分；false 时仍保留题目名称与总分表头，分数单元格留空",
+        description="true=导出参赛表格（含分题与总分）；false=下载参赛者信息（含审核列，不含分数）",
     ),
     db: Session = Depends(get_db),
     adb: Session = Depends(get_alt_auth_db),
@@ -3285,9 +3325,10 @@ async def export_team_roster_excel(
 ):
     """
     管理员导出参赛对照表：按作品/软件/硬件赛道各生成一份 Excel，打成 zip。
-    每份表格列：学校名称、竞赛名称、组别项目、队伍编码、队伍名称指导老师、队员、
-    分题列（表头取自该赛道发布试卷时的分题配置名称）、总分。
-    include_scores=false 时分题列与总分表头保留，单元格不填分数。
+    公共列：学校名称、竞赛名称、组别项目、队伍编码、队伍名称、指导老师、队员。
+    include_scores=false（下载参赛者信息）：追加超级管理员审核、校管理员审核。
+    include_scores=true（导出参赛表格）：追加分题列与总分。
+    指导老师列用「一」「二」前缀区分第一/第二指导老师。
     scope=both 时导出初赛+决赛全部队伍。
     """
     from app.competition_exam_config import WORK_TRACKS
@@ -3319,6 +3360,8 @@ async def export_team_roster_excel(
             else:
                 comps = [competition, other]
 
+    include_review_columns = not include_scores
+
     # 预加载各场次队伍、用户、成绩
     teams_by_comp: dict[int, list[Team]] = {}
     users_by_comp: dict[int, dict[int, AltAuthUserRecord]] = {}
@@ -3331,6 +3374,13 @@ async def export_team_roster_excel(
             all_uids.add(t.captain_id)
             if t.created_by_advisor_id:
                 all_uids.add(t.created_by_advisor_id)
+            second_adv = getattr(t, "second_advisor_id", None)
+            if second_adv is not None:
+                all_uids.add(int(second_adv))
+            if include_review_columns:
+                reviewed_by = getattr(t, "reviewed_by_id", None)
+                if reviewed_by is not None:
+                    all_uids.add(int(reviewed_by))
             for m in t.members:
                 all_uids.add(m.user_id)
         users_by_comp[comp.id] = _alt_users_by_id(adb, all_uids)
@@ -3345,9 +3395,14 @@ async def export_team_roster_excel(
     zip_buf = BytesIO()
     with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for track in WORK_TRACKS:
-            # 表头以当前请求竞赛的该赛道分题配置为准（发布试卷时填写的题名）
-            q_headers = _question_score_headers_for_track(competition, track)
-            q_count = len(q_headers)
+            q_headers: List[str] = []
+            q_count = 0
+            if include_scores:
+                # 表头以当前请求竞赛的该赛道分题配置为准（发布试卷时填写的题名）
+                q_headers = _question_score_headers_for_track(competition, track)
+                if not q_headers:
+                    q_headers = [f"第{i}题" for i in range(1, 6)]
+                q_count = len(q_headers)
 
             wb = Workbook()
             ws = wb.active
@@ -3357,11 +3412,14 @@ async def export_team_roster_excel(
                 "竞赛名称",
                 "组别项目",
                 "队伍编码",
-                "队伍名称指导老师",
+                "队伍名称",
+                "指导老师",
                 "队员",
-                *q_headers,
-                "总分",
             ]
+            if include_review_columns:
+                headers.extend(["超级管理员审核", "校管理员审核"])
+            if include_scores:
+                headers.extend([*q_headers, "总分"])
             ws.append(headers)
 
             for comp in comps:
@@ -3379,8 +3437,9 @@ async def export_team_roster_excel(
                     teams=track_teams,
                     users_by_id=users_by_comp.get(comp.id) or {},
                     grades_by_team=grades_by_comp.get(comp.id) or {},
-                    question_count=q_count,
+                    question_count=q_count or 5,
                     include_scores=include_scores,
+                    include_review_columns=include_review_columns,
                 )
 
             xlsx_buf = BytesIO()
