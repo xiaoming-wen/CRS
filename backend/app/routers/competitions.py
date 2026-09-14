@@ -3431,6 +3431,16 @@ async def export_team_roster_excel(
                 ]
                 if not track_teams:
                     continue
+                # 同一学校的队伍排在一起；同校内按队伍名称，再按队伍 ID 稳定排序
+                track_teams = sorted(
+                    track_teams,
+                    key=lambda t: (
+                        (getattr(t, "school", None) or "").strip() == "",
+                        (getattr(t, "school", None) or "").strip(),
+                        (t.name or "").strip() or f"队伍{t.id}",
+                        int(t.id),
+                    ),
+                )
                 _append_team_mapping_rows(
                     ws,
                     competition=comp,
