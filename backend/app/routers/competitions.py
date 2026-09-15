@@ -9,7 +9,7 @@ from openpyxl import Workbook, load_workbook
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from sqlalchemy import func, and_, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, object_session
 from typing import List, Optional, Tuple, Union
 from app.datetime_utils import utc_now, ensure_utc
 import os
@@ -1325,6 +1325,31 @@ def _normalize_optional_work_track(raw) -> Optional[str]:
     s = str(v).strip().lower() if v is not None else ""
     if s in ("works", "software", "hardware"):
         return s
+    return None
+
+
+def _peek_team_division(db: Optional[Session], competition_id: int, team: Optional[Team]) -> Optional[str]:
+    """队伍组别：优先 team.division，否则取该队有效报名上的 division。"""
+    if team is None:
+        return None
+    raw = str(getattr(team, "division", None) or "").strip().lower()
+    if raw in ("undergraduate", "vocational"):
+        return raw
+    if db is None:
+        return None
+    row = (
+        db.query(CompetitionEnrollment)
+        .filter(
+            CompetitionEnrollment.competition_id == int(competition_id),
+            CompetitionEnrollment.team_id == int(team.id),
+            CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
+        )
+        .order_by(CompetitionEnrollment.id.asc())
+        .first()
+    )
+    enr = str(getattr(row, "division", None) or "").strip().lower() if row else ""
+    if enr in ("undergraduate", "vocational"):
+        return enr
     return None
 
 
@@ -2986,16 +3011,22 @@ def _team_detail_response(
     members_out = _build_team_member_user_responses(
         team.members, users_by_id, anonymize=anonymize
     )
-    raw_div = str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value).strip().lower()
+    db = object_session(team)
+    peeked_div = _peek_team_division(db, team.competition_id, team)
+    raw_div = (peeked_div or str(getattr(team, "division", None) or CompetitionDivision.DEFAULT.value)).strip().lower()
     try:
         division = CompetitionDivision(raw_div)
     except ValueError:
         division = CompetitionDivision.DEFAULT
-    raw_track = getattr(team, "work_track", None)
+    peeked_track = (
+        _peek_team_work_track(db, team.competition_id, team)
+        if db is not None
+        else _normalize_optional_work_track(getattr(team, "work_track", None))
+    )
     work_track = None
-    if raw_track is not None and str(raw_track).strip():
+    if peeked_track:
         try:
-            work_track = CompetitionWorkTrack(str(raw_track).strip().lower())
+            work_track = CompetitionWorkTrack(str(peeked_track).strip().lower())
         except ValueError:
             work_track = None
     if anonymize:

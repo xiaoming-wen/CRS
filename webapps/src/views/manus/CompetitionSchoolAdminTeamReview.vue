@@ -36,6 +36,7 @@
               <a-select-option value="rejected">已驳回</a-select-option>
             </a-select>
             <a-select
+              v-if="!isSchoolMode"
               v-model="divisionFilter"
               style="width: 140px; margin-right: 8px"
               @change="loadTeams"
@@ -50,7 +51,6 @@
               @change="loadTeams"
             >
               <a-select-option value="all">全部赛道</a-select-option>
-              <a-select-option value="works">作品</a-select-option>
               <a-select-option value="software">软件</a-select-option>
               <a-select-option value="hardware">硬件</a-select-option>
             </a-select>
@@ -584,16 +584,23 @@ export default {
     parseTeamsList (res) {
       if (!res) return []
       const items = Array.isArray(res) ? res : (Array.isArray(res.items) ? res.items : [])
-      return items.filter(Boolean)
+      return items.filter((item) => {
+        if (!item) return false
+        const t = String(item.work_track || '').trim().toLowerCase()
+        return t !== 'works'
+      })
     },
     async loadTeams () {
       this.teamsLoading = true
+      if (this.workTrackFilter === 'works') this.workTrackFilter = 'all'
       try {
         const params = {
           status: this.teamStatusFilter,
-          division: this.divisionFilter,
           work_track: this.workTrackFilter,
           school: (this.schoolKeyword || '').trim() || undefined
+        }
+        if (!this.isSchoolMode) {
+          params.division = this.divisionFilter
         }
         const res = this.isSchoolMode
           ? await getSchoolAdminTeams(params)

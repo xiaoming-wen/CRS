@@ -239,7 +239,6 @@
             button-style="solid"
           >
             <a-radio-button value="all">全部赛道</a-radio-button>
-            <a-radio-button value="works">作品</a-radio-button>
             <a-radio-button value="software">软件</a-radio-button>
             <a-radio-button value="hardware">硬件</a-radio-button>
           </a-radio-group>
@@ -466,15 +465,14 @@ export default {
       const track = this.assignModalTrackFilter
       return list.filter((t) => {
         if (!t) return false
+        const tt = this.normalizeTrack(t.work_track != null ? t.work_track : t.workTrack)
+        // 「全部赛道」也只展示软件 / 硬件
+        if (tt !== 'software' && tt !== 'hardware') return false
         if (div && div !== 'all') {
           const td = this.normalizeDivision(t.division)
-          // 组别仅按本科 / 高职匹配（报名与建队均使用这两类）
           if (td !== div) return false
         }
-        if (track && track !== 'all') {
-          const tt = this.normalizeTrack(t.work_track)
-          if (tt !== track) return false
-        }
+        if (track && track !== 'all' && tt !== track) return false
         return true
       })
     },
@@ -527,8 +525,14 @@ export default {
       return s || ''
     },
     normalizeTrack (raw) {
-      const s = raw != null ? String(raw).trim().toLowerCase() : ''
-      if (s === 'works' || s === 'software' || s === 'hardware') return s
+      let v = raw
+      if (v != null && typeof v === 'object') {
+        v = v.value != null ? v.value : v.work_track
+      }
+      const s = v != null ? String(v).trim().toLowerCase() : ''
+      if (s === 'software' || s === '软件' || s === '软件赛道') return 'software'
+      if (s === 'hardware' || s === '硬件' || s === '硬件赛道') return 'hardware'
+      if (s === 'works' || s === '作品' || s === '作品赛' || s === '作品赛道') return 'works'
       return ''
     },
     divisionLabel (raw) {
@@ -909,11 +913,11 @@ export default {
               id,
               name: t.name || t.team_name || `队伍#${id}`,
               division: t.division != null ? String(t.division) : '',
-              work_track: t.work_track != null ? String(t.work_track) : '',
+              work_track: this.normalizeTrack(t.work_track != null ? t.work_track : t.workTrack),
               alreadyAssigned: already.has(id)
             }
           })
-          .filter(Boolean)
+          .filter(t => t && (t.work_track === 'software' || t.work_track === 'hardware'))
           .sort((a, b) => {
             const order = { undergraduate: 0, vocational: 1 }
             const da = this.normalizeDivision(a.division)

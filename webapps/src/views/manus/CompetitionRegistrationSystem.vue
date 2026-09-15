@@ -492,7 +492,7 @@
                     @change="e => selectPreferredEnrollmentWorkTrack(e && e.target ? e.target.value : e)"
                   >
                     <a-radio
-                      v-for="row in myTeamEnrollmentList"
+                      v-for="row in studentVisibleTeamEnrollmentList"
                       :key="'trk-' + (row.id || row.team_id) + '-' + row.work_track"
                       :value="String(row.work_track || '').trim().toLowerCase()"
                     >
@@ -943,7 +943,6 @@
                       class="advisor-form-radio-white"
                       :disabled="advisorTeamActionsDisabled"
                     >
-                      <a-radio value="works">作品</a-radio>
                       <a-radio value="software">软件</a-radio>
                       <a-radio value="hardware">硬件</a-radio>
                     </a-radio-group>
@@ -1021,7 +1020,7 @@
               :columns="advisorTeamsTableColumns"
               :data-source="advisorTeamsTableData"
               :pagination="{ pageSize: 8, showSizeChanger: true }"
-              :scroll="{ x: 880 }"
+              :scroll="{ x: 1040 }"
             >
               <template slot="teamActions" slot-scope="text, record">
                 <a-button
@@ -1045,6 +1044,8 @@
             >
               <a-descriptions size="small" bordered :column="2">
                 <a-descriptions-item label="队名">{{ advisorSelectedTeam.name || '（未设置）' }}</a-descriptions-item>
+                <a-descriptions-item label="组别">{{ advisorSelectedTeamDivisionLabel }}</a-descriptions-item>
+                <a-descriptions-item label="赛道">{{ advisorSelectedTeamWorkTrackLabel }}</a-descriptions-item>
                 <a-descriptions-item label="队长">{{ advisorSelectedTeamCaptainLabel }}</a-descriptions-item>
                 <a-descriptions-item label="状态">{{ participantTeamStatusText(advisorSelectedTeam.status) }}</a-descriptions-item>
                 <a-descriptions-item
@@ -1782,7 +1783,7 @@
                 @change="e => selectPreferredEnrollmentWorkTrack(e && e.target ? e.target.value : e)"
               >
                 <a-radio
-                  v-for="row in myTeamEnrollmentList"
+                  v-for="row in studentVisibleTeamEnrollmentList"
                   :key="'trk-m-' + (row.id || row.team_id) + '-' + row.work_track"
                   :value="String(row.work_track || '').trim().toLowerCase()"
                 >
@@ -2060,7 +2061,6 @@
         </a-form-item>
         <a-form-item label="赛道" required>
           <a-radio-group v-model="studentCreateTeamForm.work_track">
-            <a-radio value="works" :disabled="isWorkTrackAlreadyEnrolled('works')">作品</a-radio>
             <a-radio value="software" :disabled="isWorkTrackAlreadyEnrolled('software')">软件</a-radio>
             <a-radio value="hardware" :disabled="isWorkTrackAlreadyEnrolled('hardware')">硬件</a-radio>
           </a-radio-group>
@@ -2101,7 +2101,7 @@
           指导老师均为选填，请填写账号用户名（不支持姓名或用户 ID）。同一组别+赛道额度：第一指导老师最多 2 支，指导总数（含第二）最多 4 支。
         </div>
         <p class="muted" style="margin: 0; font-size: 13px">
-          您将作为队长创建队伍；创建后状态为「待校审」，须校管理员审核通过后方可提交作品。作品赛道上传压缩包，软件 / 硬件赛道按题上传答案。
+          您将作为队长创建队伍；创建后状态为「待校审」，须校管理员审核通过后方可提交作品。软件 / 硬件赛道按题上传答案。
         </p>
       </a-form>
     </a-modal>
@@ -3408,13 +3408,13 @@ export default {
         name: '',
         advisor_username: '',
         second_advisor_username: '',
-        work_track: 'works',
+        work_track: 'software',
         division: 'undergraduate'
       },
 
       /** POST /v1/competitions/enroll 选填扩展字段（8.7） */
       enrollProfileForm: {
-        work_track: 'works',
+        work_track: 'software',
         division: 'undergraduate',
         student_no: '',
         real_name: '',
@@ -3474,7 +3474,7 @@ export default {
         initial_members_text: '',
         creator_advisor_role: '',
         other_advisor_username: '',
-        work_track: 'works',
+        work_track: 'software',
         division: 'undergraduate'
       },
       advisorRenameName: '',
@@ -3792,7 +3792,9 @@ export default {
       ],
       advisorTeamsTableColumns: [
         { title: '队伍ID', dataIndex: 'id', key: 'id', width: 88 },
-        { title: '队名', dataIndex: 'name', key: 'name', ellipsis: true },
+        { title: '队名', dataIndex: 'name', key: 'name', ellipsis: true, width: 160 },
+        { title: '组别', dataIndex: 'division_text', key: 'division_text', width: 88 },
+        { title: '赛道', dataIndex: 'work_track_text', key: 'work_track_text', width: 88 },
         { title: '队长ID', dataIndex: 'captain_id', key: 'captain_id', width: 96 },
         { title: '队员数', dataIndex: 'member_count', key: 'member_count', width: 80 },
         { title: '状态', dataIndex: 'status_text', key: 'status_text', width: 96 },
@@ -4264,25 +4266,25 @@ export default {
         return (s === 'works' || s === 'software' || s === 'hardware') ? s : ''
       }
       const prefer = normalize(this.preferredEnrollmentWorkTrack)
-      if (prefer) return prefer
+      if (prefer === 'software' || prefer === 'hardware') return prefer
       const preferTeam = this.enrollMode === 'team' || this.submissionMode === 'team' || this.myEnrolledTeam
       const teamRow = this.activeCompetitionEnrollmentRows && this.activeCompetitionEnrollmentRows.team
       const individualRow = this.activeCompetitionEnrollmentRows && this.activeCompetitionEnrollmentRows.individual
       if (preferTeam && teamRow) {
         const t = normalize(teamRow.work_track)
-        if (t) return t
+        if (t === 'software' || t === 'hardware') return t
       }
       if (individualRow) {
         const t = normalize(individualRow.work_track)
-        if (t) return t
+        if (t === 'software' || t === 'hardware') return t
       }
       if (teamRow) {
         const t = normalize(teamRow.work_track)
-        if (t) return t
+        if (t === 'software' || t === 'hardware') return t
       }
       // 兼容：报名接口未带回 work_track 时，从队伍详情回退
       const teamDetailTrack = normalize(this.myTeamWorkTrack)
-      if (teamDetailTrack) return teamDetailTrack
+      if (teamDetailTrack === 'software' || teamDetailTrack === 'hardware') return teamDetailTrack
       return ''
     },
     /** 本竞赛已报名的作品赛道列表 */
@@ -4302,9 +4304,11 @@ export default {
       }
       return tracks
     },
-    /** 是否还可再报其它作品赛道（最多 3） */
+    /** 是否还可再报其它赛道（学生/指导老师可选：软件、硬件） */
     canEnrollAnotherWorkTrack () {
-      return this.myEnrolledWorkTracks.length < 3
+      const selectable = ['software', 'hardware']
+      const enrolled = this.myEnrolledWorkTracks || []
+      return selectable.some(t => !enrolled.includes(t))
     },
     myTeamEnrollmentList () {
       const rows = this.activeCompetitionEnrollmentRows
@@ -4312,8 +4316,15 @@ export default {
       if (rows && rows.team) return [rows.team]
       return []
     },
+    /** 学生端可见赛道：隐藏作品赛 */
+    studentVisibleTeamEnrollmentList () {
+      return (this.myTeamEnrollmentList || []).filter((row) => {
+        const t = row && row.work_track != null ? String(row.work_track).trim().toLowerCase() : ''
+        return t !== 'works'
+      })
+    },
     showMultiTrackTeamSwitcher () {
-      return this.enrollMode === 'team' && this.myTeamEnrollmentList.length > 1
+      return this.enrollMode === 'team' && this.studentVisibleTeamEnrollmentList.length > 1
     },
     /** 提交作品弹窗空态说明 */
     standaloneMyWorksEmptyDescription () {
@@ -4331,20 +4342,20 @@ export default {
       const track = this.currentEnrollmentTrackLabel
       return track ? `提交作品（${track}赛道）` : '提交作品'
     },
-    /** 已报名可提交的赛道 */
+    /** 已报名可提交的赛道（学生端不含作品赛） */
     submitWorksAvailableTracks () {
-      return this.myEnrolledWorkTracks || []
+      return (this.myEnrolledWorkTracks || []).filter(t => t !== 'works')
     },
     submitWorksTrackOptions () {
-      const teams = this.myTeamEnrollmentList || []
+      const teams = this.studentVisibleTeamEnrollmentList || []
       const byTrack = {}
       teams.forEach((row) => {
         const t = row && row.work_track != null ? String(row.work_track).trim().toLowerCase() : ''
-        if (t === 'works' || t === 'software' || t === 'hardware') {
+        if (t === 'software' || t === 'hardware') {
           byTrack[t] = row
         }
       })
-      const order = ['works', 'software', 'hardware']
+      const order = ['software', 'hardware']
       const tracks = this.submitWorksAvailableTracks.length
         ? this.submitWorksAvailableTracks
         : Object.keys(byTrack)
@@ -4354,7 +4365,7 @@ export default {
           const row = byTrack[t]
           return {
             work_track: t,
-            label: t === 'works' ? '作品' : t === 'software' ? '软件' : '硬件',
+            label: t === 'software' ? '软件' : '硬件',
             team_id: row && row.team_id != null ? row.team_id : null,
             is_captain: !!(row && row.is_captain)
           }
@@ -4533,15 +4544,15 @@ export default {
         return '您已报名多个赛道：请先在上方选择当前操作赛道，下方队伍信息、校审与队长操作均对应该赛道队伍；提交作品也按所选赛道进行。'
       }
       if (this.myEnrolledWorkTracks.length > 0 && this.canEnrollAnotherWorkTrack) {
-        return '同一竞赛可报名作品/软件/硬件各一次（最多 3 个赛道），每赛道对应一支队伍；提交与退赛按赛道分别进行。可继续创建或加入其它赛道的队伍。'
+        return '同一竞赛可报名软件、硬件各一次，每赛道对应一支队伍；提交与退赛按赛道分别进行。可继续创建或加入其它赛道的队伍。'
       }
       if (this.studentTeamEnrolledAsMember && !this.canEnrollAnotherWorkTrack) {
         return '您已完成全部可报赛道的队伍报名。当前赛道为队员身份，队伍由队长统一管理。'
       }
-      if (this.myEnrolledWorkTracks.length >= 3) {
-        return '您已报名作品、软件、硬件三个赛道，不可再新建或加入其它赛道队伍。'
+      if (!this.canEnrollAnotherWorkTrack) {
+        return '您已报名全部可报赛道，不可再新建或加入其它赛道队伍。'
       }
-      return '队伍参赛流程：① 创建队伍或申请加入已有队伍（须队长同意）→ ② 等待本校校管理员校审通过 → ③ 队员按题上传答案。同一竞赛最多可报三个赛道（作品/软件/硬件各一次）。'
+      return '队伍参赛流程：① 创建队伍或申请加入已有队伍（须队长同意）→ ② 等待本校校管理员校审通过 → ③ 队员按题上传答案。同一竞赛可报软件、硬件赛道各一次。'
     },
     myTeamStatusNormalized () {
       const s = this.myTeamStatus
@@ -4677,7 +4688,9 @@ export default {
       return ''
     },
     showCurrentTrackTeamContextHint () {
-      return this.enrollMode === 'team' && this.myTeamEnrollmentList.length === 1 && !!this.currentEnrollmentTrackLabel
+      if (this.enrollMode !== 'team') return false
+      if (this.currentEnrollmentTrackLabel === '作品') return false
+      return this.studentVisibleTeamEnrollmentList.length === 1 && !!this.currentEnrollmentTrackLabel
     },
     myTeamIdFormLabel () {
       const track = this.currentEnrollmentTrackLabel
@@ -5022,7 +5035,7 @@ export default {
       return this.competitionTeamCreateInviteBlocked || this.advisorTeamBlockedByOtherDivision
     },
     advisorTeamsForCurrentView () {
-      const list = this.advisorTeams || []
+      const list = (this.advisorTeams || []).filter((t) => this.normalizeWorkTrackKey(t && t.work_track) !== 'works')
       if (!this.isActiveCompetitionDualDivision || !this.activeViewDivision) return list
       return list.filter(t => this.teamMatchesActiveViewDivision(t))
     },
@@ -5186,6 +5199,8 @@ export default {
         return {
           id: t.id,
           name: t.name != null && String(t.name).trim() !== '' ? String(t.name) : '—',
+          division_text: this.formatAdvisorTeamDivisionLabel(t),
+          work_track_text: this.formatAdvisorTeamWorkTrackLabel(t),
           captain_id: captainInRoster
             ? (joinedCaptain ? joinedCaptain.user_id : t.captain_id)
             : '—',
@@ -5204,6 +5219,12 @@ export default {
       const t = this.advisorSelectedTeam
       if (!t || t.review_feedback == null) return ''
       return String(t.review_feedback).trim()
+    },
+    advisorSelectedTeamDivisionLabel () {
+      return this.formatAdvisorTeamDivisionLabel(this.advisorSelectedTeam)
+    },
+    advisorSelectedTeamWorkTrackLabel () {
+      return this.formatAdvisorTeamWorkTrackLabel(this.advisorSelectedTeam)
     },
     advisorSelectedTeamAdvisorLabel () {
       const t = this.advisorSelectedTeam
@@ -6669,7 +6690,7 @@ export default {
 
     onSubmitWorksTrackChange (track) {
       const t = track != null ? String(track).trim().toLowerCase() : ''
-      if (t !== 'works' && t !== 'software' && t !== 'hardware') return
+      if (t !== 'software' && t !== 'hardware') return
       this.resetSubmissionFormFields()
       this.selectPreferredEnrollmentWorkTrack(t)
     },
@@ -7101,10 +7122,36 @@ export default {
     },
 
     workTrackDisplayLabel (track) {
-      if (track === 'works') return '作品'
-      if (track === 'software') return '软件'
-      if (track === 'hardware') return '硬件'
-      return track || ''
+      const t = this.normalizeWorkTrackKey(track)
+      if (t === 'works') return '作品'
+      if (t === 'software') return '软件'
+      if (t === 'hardware') return '硬件'
+      return t || ''
+    },
+
+    normalizeWorkTrackKey (raw) {
+      if (raw == null || raw === '') return ''
+      if (typeof raw === 'object') {
+        const v = raw.value != null ? raw.value : (raw.work_track != null ? raw.work_track : '')
+        return String(v || '').trim().toLowerCase()
+      }
+      return String(raw).trim().toLowerCase()
+    },
+
+    formatAdvisorTeamDivisionLabel (team) {
+      if (!team) return '—'
+      const fromTeam = this.resolveTeamDivisionWithCache(team)
+      const div = fromTeam || this.activeViewDivision || ''
+      if (div === 'undergraduate') return '本科'
+      if (div === 'vocational') return '高职'
+      const label = divisionToLabel(div)
+      return label || '—'
+    },
+
+    formatAdvisorTeamWorkTrackLabel (team) {
+      if (!team) return '—'
+      const raw = team.work_track != null ? team.work_track : team.workTrack
+      return this.workTrackDisplayLabel(raw) || '—'
     },
 
     isWorkTrackAlreadyEnrolled (track) {
@@ -7114,7 +7161,7 @@ export default {
 
     selectPreferredEnrollmentWorkTrack (track) {
       const t = track != null ? String(track).trim().toLowerCase() : ''
-      if (t !== 'works' && t !== 'software' && t !== 'hardware') return
+      if (t !== 'software' && t !== 'hardware') return
       const prevTeamId = this.myTeamId
       this.preferredEnrollmentWorkTrack = t
       this.applyEnrollmentContextFromRows()
@@ -7506,14 +7553,18 @@ export default {
       const prefer = this.preferredEnrollmentWorkTrack
         ? String(this.preferredEnrollmentWorkTrack).trim().toLowerCase()
         : ''
+      const visibleTeams = teams.filter((r) => {
+        const t = r && r.work_track != null ? String(r.work_track).trim().toLowerCase() : ''
+        return t !== 'works'
+      })
       let teamRow = null
-      if (prefer) {
-        teamRow = teams.find(r => {
+      if (prefer && prefer !== 'works') {
+        teamRow = visibleTeams.find(r => {
           const t = r && r.work_track != null ? String(r.work_track).trim().toLowerCase() : ''
           return t === prefer
         }) || null
       }
-      if (!teamRow) teamRow = teams[0] || this.activeCompetitionEnrollmentRows.team || null
+      if (!teamRow) teamRow = visibleTeams[0] || null
       this.activeCompetitionEnrollmentRows = {
         ...this.activeCompetitionEnrollmentRows,
         team: teamRow,
@@ -7824,7 +7875,7 @@ export default {
         return
       }
       const enrolled = this.myEnrolledWorkTracks
-      const defaultTrack = ['works', 'software', 'hardware'].find(t => !enrolled.includes(t)) || 'works'
+      const defaultTrack = ['software', 'hardware'].find(t => !enrolled.includes(t)) || 'software'
       const lockedDiv = this.activeCompetitionEnrolledDivision
       this.studentCreateTeamForm = {
         name: '',
@@ -7843,7 +7894,7 @@ export default {
         name: '',
         advisor_username: '',
         second_advisor_username: '',
-        work_track: 'works',
+        work_track: 'software',
         division: 'undergraduate'
       }
     },
@@ -7881,8 +7932,8 @@ export default {
         this.$message.warning('请选择组别：本科或高职')
         throw new Error('missing division')
       }
-      if (workTrack !== 'works' && workTrack !== 'software' && workTrack !== 'hardware') {
-        this.$message.warning('请选择赛道：作品、软件或硬件')
+      if (workTrack !== 'software' && workTrack !== 'hardware') {
+        this.$message.warning('请选择赛道：软件或硬件')
         throw new Error('missing work_track')
       }
       if (this.isWorkTrackAlreadyEnrolled(workTrack)) {
@@ -8507,8 +8558,8 @@ export default {
         this.$message.warning('请选择组别：本科或高职')
         return
       }
-      if (workTrack !== 'works' && workTrack !== 'software' && workTrack !== 'hardware') {
-        this.$message.warning('请选择赛道：作品、软件或硬件')
+      if (workTrack !== 'software' && workTrack !== 'hardware') {
+        this.$message.warning('请选择赛道：软件或硬件')
         return
       }
       const teamName = (this.advisorCreateForm.name || '').trim()
@@ -8594,7 +8645,7 @@ export default {
           initial_members_text: '',
           creator_advisor_role: '',
           other_advisor_username: '',
-          work_track: 'works',
+          work_track: 'software',
           division: 'undergraduate'
         }
         await this.refreshAdvisorTeams()
