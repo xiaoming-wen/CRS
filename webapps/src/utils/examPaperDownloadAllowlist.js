@@ -5,5 +5,6 @@
  */
 export const EXAM_PAPER_DOWNLOAD_ALLOWLIST_USERNAMES = [
   'hfu_stu1',
+  'hfu_stu2',
   'hfu_advisor1'
 ]

@@ -3195,16 +3195,20 @@
         >
           <div class="exam-paper-download-item__main">
             <div class="exam-paper-download-item__title">
-              {{ opt.division_label }} · {{ opt.track_label }}
-            </div>
-            <div class="muted" style="font-size: 12px; margin-top: 2px">
               <template v-if="opt.published">
-                {{ opt.filename || '已发布' }}
-                <span v-if="opt.team_count > 1"> · 相关队伍 {{ opt.team_count }} 支</span>
+                {{ opt.track_label }}{{ opt.filename ? ' ' + opt.filename : '' }}
               </template>
               <template v-else>
-                该赛道试卷尚未发布
+                {{ opt.track_label }}试卷未发布
               </template>
+            </div>
+            <div
+              v-if="opt.published && (opt.division_label || opt.team_count > 1)"
+              class="muted"
+              style="font-size: 12px; margin-top: 2px"
+            >
+              <span v-if="opt.division_label">{{ opt.division_label }}</span>
+              <span v-if="opt.team_count > 1"> · 相关队伍 {{ opt.team_count }} 支</span>
             </div>
           </div>
           <a-button
@@ -6532,7 +6536,7 @@ export default {
         return
       }
       if (!opt || !opt.published) {
-        this.$message.warning('该赛道试卷尚未发布')
+        this.$message.warning((opt && opt.track_label ? opt.track_label : '该赛道') + '试卷未发布')
         return
       }
       const id = this.activeCompetitionId

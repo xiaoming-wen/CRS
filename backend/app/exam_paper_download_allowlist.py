@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 _ALLOWLIST_FILE = Path(__file__).with_suffix(".txt")
-_FALLBACK = frozenset({"hfu_stu1", "hfu_advisor1"})
+_FALLBACK = frozenset({"hfu_stu1", "hfu_stu2", "hfu_advisor1"})
 
 
 def exam_paper_download_allowlist_usernames() -> frozenset:
