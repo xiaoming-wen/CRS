@@ -1798,6 +1798,59 @@ def _exam_paper_requires_division_match(competition: Competition) -> bool:
     return True
 
 
+def _exam_paper_download_allowlist_usernames() -> frozenset:
+    """允许下载试卷的用户名（大小写不敏感）；须同时满足报名/组班且校审通过。"""
+    return frozenset({"hfu_stu1", "hfu_advisor1"})
+
+
+def _exam_paper_download_username_allowed(identity: AltAuthUserRecord) -> bool:
+    name = str(getattr(identity, "username", None) or "").strip().casefold()
+    if not name:
+        return False
+    return name in {u.casefold() for u in _exam_paper_download_allowlist_usernames()}
+
+
+def _advisor_active_advised_teams(
+    db: Session,
+    competition_id: int,
+    advisor_id: int,
+) -> list:
+    return (
+        db.query(Team)
+        .filter(
+            Team.competition_id == competition_id,
+            Team.status == TeamStatus.ACTIVE,
+            or_(
+                Team.created_by_advisor_id == advisor_id,
+                Team.second_advisor_id == advisor_id,
+            ),
+        )
+        .order_by(Team.id.desc())
+        .all()
+    )
+
+
+def _advisor_team_matches_exam_paper(
+    db: Session,
+    competition_id: int,
+    team: Team,
+    division: str,
+    work_track: Optional[str],
+    match_division: bool,
+) -> bool:
+    if match_division:
+        team_div = _peek_team_division(db, competition_id, team)
+        if team_div not in ("undergraduate", "vocational"):
+            return False
+        if team_div != division:
+            return False
+    if work_track:
+        team_track = _peek_team_work_track(db, competition_id, team)
+        if team_track != work_track:
+            return False
+    return True
+
+
 def _can_download_exam_paper(
     db: Session,
     competition: Competition,
@@ -1805,6 +1858,8 @@ def _can_download_exam_paper(
     division: str,
     work_track: Optional[str] = None,
 ) -> bool:
+    if not _exam_paper_download_username_allowed(identity):
+        return False
     role = _effective_alt_role(identity.role)
     cid = competition.id
     match_division = _exam_paper_requires_division_match(competition)
@@ -1830,7 +1885,12 @@ def _can_download_exam_paper(
             if team is not None and team.status == TeamStatus.ACTIVE:
                 return True
         return False
-    # 指导老师 / 教师不可下载试卷
+    if role in {"advisor", "teacher"}:
+        # 指导老师无报名记录：须已在本竞赛指导校审通过的队伍，未组班视为未报名
+        for team in _advisor_active_advised_teams(db, cid, identity.id):
+            if _advisor_team_matches_exam_paper(db, cid, team, division, track, match_division):
+                return True
+        return False
     return False
 
 
@@ -1859,20 +1919,14 @@ def _resolve_identity_work_track_for_paper(
         if track in ("works", "software", "hardware"):
             return track
     if role in {"advisor", "teacher"}:
-        q = db.query(Team).filter(
-            Team.competition_id == competition.id,
-            Team.status == TeamStatus.ACTIVE,
-            or_(
-                Team.created_by_advisor_id == identity.id,
-                Team.second_advisor_id == identity.id,
-            ),
-        )
-        if match_division:
-            q = q.filter(Team.division == division)
-        team = q.order_by(Team.id.desc()).first()
-        track = str(getattr(team, "work_track", None) or "").strip().lower() if team else ""
-        if track in ("works", "software", "hardware"):
-            return track
+        for team in _advisor_active_advised_teams(db, competition.id, identity.id):
+            if match_division:
+                team_div = _peek_team_division(db, competition.id, team)
+                if team_div not in ("undergraduate", "vocational") or team_div != division:
+                    continue
+            track = _peek_team_work_track(db, competition.id, team) or ""
+            if track in ("works", "software", "hardware"):
+                return track
     raise HTTPException(
         status_code=400,
         detail="请指定赛道 work_track（works/software/hardware），或先完成对应赛道报名/建队",
@@ -4122,7 +4176,8 @@ async def download_competition_exam_paper(
 ):
     """
     下载已发布试卷。
-    仅学生按有效报名的组别（本科/高职）与赛道下载；指导老师不可下载。
+    仅白名单用户名可下载；学生须对应赛道有效报名且组队已校审通过；
+    指导老师须已在本竞赛指导校审通过的队伍。未报名/未组班不可下载。
     """
     from app.competition_exam_config import get_exam_paper_track_file
 
@@ -4131,14 +4186,22 @@ async def download_competition_exam_paper(
     if getattr(competition, "status", None) == "ended":
         raise HTTPException(status_code=400, detail="竞赛已结束，不可下载试卷")
     _ensure_competition_published_for_papers(competition)
+    if not _exam_paper_download_username_allowed(identity):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "无权下载试卷：仅指定用户名可下载，且须已报名（学生）或已组班（指导老师），"
+                "组队还须校审通过。未报名用户即使在名单中也不可下载。"
+            ),
+        )
     div = _normalize_exam_paper_division(competition, division)
     track = _resolve_identity_work_track_for_paper(db, competition, identity, div, work_track)
     if not _can_download_exam_paper(db, competition, identity, div, track):
         raise HTTPException(
             status_code=403,
             detail=(
-                "无权下载试卷：仅学生在对应赛道有效报名且组队已校审通过后可下载；"
-                "指导老师不可下载试卷。"
+                "无权下载试卷：仅指定用户名可下载，且须已报名（学生）或已组班（指导老师），"
+                "组队还须校审通过。未报名用户即使在名单中也不可下载。"
             ),
         )
     path, filename = get_exam_paper_track_file(competition, div, track)
