@@ -14,7 +14,7 @@ const COMPETITION_ALT_GATE_ROUTES = [
  * 对应：/#/manu/competition-detail?id=…&share=1
  * 改此常量即可热更新生效；仅改 .env 需重启 devServer
  */
-const STUDENT_ADVISOR_LANDING_COMPETITION_ID = 58582342
+const STUDENT_ADVISOR_LANDING_COMPETITION_ID = 80024817
 
 /** 允许下载试卷的用户名（须同时已报名/已组班且校审通过） */
 export const EXAM_PAPER_DOWNLOAD_ALLOWLIST_USERNAMES = ['hfu_stu1', 'hfu_advisor1']
@@ -40,7 +40,7 @@ export function getStudentAdvisorLandingRouteLocation () {
   }
 }
 
-/** @returns {string} 如 /manu/competition-detail?id=58582342&share=1 */
+/** @returns {string} 如 /manu/competition-detail?id=80024817&share=1 */
 export function getStudentAdvisorLandingFullPath () {
   const loc = getStudentAdvisorLandingRouteLocation()
   return `${loc.path}?id=${encodeURIComponent(loc.query.id)}&share=1`
