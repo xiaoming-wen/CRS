@@ -13463,17 +13463,22 @@ export default {
 
 .exam-paper-download-item__title {
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.85);
+  color: #000 !important;
 }
 
 .exam-paper-download-modal-wrap {
   .exam-paper-download-item {
-    border-color: rgba(255, 255, 255, 0.14);
-    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(0, 0, 0, 0.08);
+    background: #fff;
   }
 
   .exam-paper-download-item__title {
-    color: rgba(255, 255, 255, 0.95);
+    color: #000 !important;
   }
+}
+</style>
+<style>
+.exam-paper-download-modal-wrap .exam-paper-download-item__title {
+  color: #000 !important;
 }
 </style>
