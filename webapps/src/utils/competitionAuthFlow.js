@@ -16,8 +16,9 @@ const COMPETITION_ALT_GATE_ROUTES = [
  */
 const STUDENT_ADVISOR_LANDING_COMPETITION_ID = 80024817
 
-/** 允许下载试卷的用户名（须同时已报名/已组班且校审通过） */
-export const EXAM_PAPER_DOWNLOAD_ALLOWLIST_USERNAMES = ['hfu_stu1', 'hfu_advisor1']
+import { EXAM_PAPER_DOWNLOAD_ALLOWLIST_USERNAMES } from '@/utils/examPaperDownloadAllowlist'
+
+export { EXAM_PAPER_DOWNLOAD_ALLOWLIST_USERNAMES }
 
 export function isExamPaperDownloadAllowlistedUsername (username) {
   const u = String(username || '').trim().toLowerCase()

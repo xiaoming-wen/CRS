@@ -1,0 +1,4 @@
+# 允许下载试卷的用户名（一行一个；# 开头为注释）
+# 勿改用 webapps 下的 .json：该目录 *.json 被 gitignore，无法推到服务器
+hfu_stu1
+hfu_advisor1

@@ -17,6 +17,7 @@ import uuid
 import re
 
 from app.eight_digit_id import allocate_eight_digit_id, validate_eight_digit_id
+from app.exam_paper_download_allowlist import exam_paper_download_allowlist_usernames
 from app.database import get_db
 from app.alt_auth.context import get_current_alt_identity, get_optional_alt_identity
 from app.alt_auth.database import get_alt_auth_db
@@ -1800,7 +1801,7 @@ def _exam_paper_requires_division_match(competition: Competition) -> bool:
 
 def _exam_paper_download_allowlist_usernames() -> frozenset:
     """允许下载试卷的用户名（大小写不敏感）；须同时满足报名/组班且校审通过。"""
-    return frozenset({"hfu_stu1", "hfu_advisor1"})
+    return exam_paper_download_allowlist_usernames()
 
 
 def _exam_paper_download_username_allowed(identity: AltAuthUserRecord) -> bool:
