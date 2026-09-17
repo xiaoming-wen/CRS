@@ -17,7 +17,6 @@ import uuid
 import re
 
 from app.eight_digit_id import allocate_eight_digit_id, validate_eight_digit_id
-from app.exam_paper_download_allowlist import exam_paper_download_allowlist_usernames
 from app.database import get_db
 from app.alt_auth.context import get_current_alt_identity, get_optional_alt_identity
 from app.alt_auth.database import get_alt_auth_db
@@ -1379,8 +1378,8 @@ def _resolve_team_work_track(db: Session, competition_id: int, team: Team) -> st
     track = _peek_team_work_track(db, competition_id, team)
     if track:
         return track
-    raise HTTPException(
-        status_code=400,
+        raise HTTPException(
+            status_code=400,
         detail="队伍未设置赛道，请先选择作品 / 软件 / 硬件赛道后再提交",
     )
 
@@ -1396,8 +1395,8 @@ def _resolve_individual_work_track(
     track = _normalize_optional_work_track(getattr(row, "work_track", None))
     if track:
         return track
-    raise HTTPException(
-        status_code=400,
+        raise HTTPException(
+            status_code=400,
         detail="个人报名未设置赛道，请先选择作品 / 软件 / 硬件赛道后再提交",
     )
 
@@ -1755,7 +1754,7 @@ def _build_exam_papers_meta(competition: Competition) -> CompetitionExamPapers:
         return _exam_paper_slot(cid, path, name, div)
 
     # 对外主字段仅本科/高职；by_track 可含 default 供兼容
-    return CompetitionExamPapers(
+        return CompetitionExamPapers(
         undergraduate=_legacy_slot("undergraduate"),
         vocational=_legacy_slot("vocational"),
         default=_legacy_slot("default"),
@@ -1797,18 +1796,6 @@ async def _save_exam_paper_upload(
 def _exam_paper_requires_division_match(competition: Competition) -> bool:
     """试卷已按本科/高职分槽，下载时须与报名/队伍组别一致。"""
     return True
-
-
-def _exam_paper_download_allowlist_usernames() -> frozenset:
-    """允许下载试卷的用户名（大小写不敏感）；须同时满足报名/组班且校审通过。"""
-    return exam_paper_download_allowlist_usernames()
-
-
-def _exam_paper_download_username_allowed(identity: AltAuthUserRecord) -> bool:
-    name = str(getattr(identity, "username", None) or "").strip().casefold()
-    if not name:
-        return False
-    return name in {u.casefold() for u in _exam_paper_download_allowlist_usernames()}
 
 
 def _advisor_active_advised_teams(
@@ -1859,17 +1846,15 @@ def _can_download_exam_paper(
     division: str,
     work_track: Optional[str] = None,
 ) -> bool:
-    if not _exam_paper_download_username_allowed(identity):
-        return False
     role = _effective_alt_role(identity.role)
     cid = competition.id
     match_division = _exam_paper_requires_division_match(competition)
     track = (work_track or "").strip().lower() or None
     if role == "student":
         q = db.query(CompetitionEnrollment).filter(
-            CompetitionEnrollment.competition_id == cid,
-            CompetitionEnrollment.student_id == identity.id,
-            CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
+                CompetitionEnrollment.competition_id == cid,
+                CompetitionEnrollment.student_id == identity.id,
+                CompetitionEnrollment.status == CompetitionEnrollmentStatus.ENROLLED,
         )
         if match_division:
             q = q.filter(CompetitionEnrollment.division == division)
@@ -2842,7 +2827,7 @@ def _has_active_enrollment_in_scope(
         row = _get_enrollment_by_scope(
             db, competition_id, student_id, scope, work_track=work_track
         )
-        return row is not None and row.status == CompetitionEnrollmentStatus.ENROLLED
+    return row is not None and row.status == CompetitionEnrollmentStatus.ENROLLED
     rows = _list_enrollments_for_student(
         db, competition_id, student_id, enrolled_only=True
     )
@@ -3041,14 +3026,14 @@ def _build_team_member_user_responses(
     for m in sorted(members, key=lambda x: (not x.is_captain, x.joined_at or utc_now(), x.id)):
         u = users_by_id.get(m.user_id)
         item = TeamMemberWithUserResponse(
-                id=m.id,
-                team_id=m.team_id,
-                user_id=m.user_id,
+            id=m.id,
+            team_id=m.team_id,
+            user_id=m.user_id,
             username=(u.username if u else "") if not anonymize else "",
             full_name=(u.full_name if u else None) if not anonymize else None,
-                is_captain=m.is_captain,
-                joined_at=m.joined_at,
-            )
+            is_captain=m.is_captain,
+            joined_at=m.joined_at,
+        )
         out.append(item)
     return out
 
@@ -3292,8 +3277,8 @@ def _append_team_mapping_rows(
                 getattr(team, "division", None),
                 getattr(team, "work_track", None),
             ),
-            team.id,
-            team_name,
+                    team.id,
+                    team_name,
             advisors_cell,
             members_cell,
         ]
@@ -3533,8 +3518,8 @@ async def export_team_roster_excel(
                     ),
                 )
                 _append_team_mapping_rows(
-                    ws,
-                    competition=comp,
+            ws,
+            competition=comp,
                     teams=track_teams,
                     users_by_id=users_by_comp.get(comp.id) or {},
                     grades_by_team=grades_by_comp.get(comp.id) or {},
@@ -4177,7 +4162,7 @@ async def download_competition_exam_paper(
 ):
     """
     下载已发布试卷。
-    仅白名单用户名可下载；学生须对应赛道有效报名且组队已校审通过；
+    学生须对应赛道有效报名且组队已校审通过；
     指导老师须已在本竞赛指导校审通过的队伍。未报名/未组班不可下载。
     """
     from app.competition_exam_config import get_exam_paper_track_file
@@ -4187,22 +4172,13 @@ async def download_competition_exam_paper(
     if getattr(competition, "status", None) == "ended":
         raise HTTPException(status_code=400, detail="竞赛已结束，不可下载试卷")
     _ensure_competition_published_for_papers(competition)
-    if not _exam_paper_download_username_allowed(identity):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "无权下载试卷：仅指定用户名可下载，且须已报名（学生）或已组班（指导老师），"
-                "组队还须校审通过。未报名用户即使在名单中也不可下载。"
-            ),
-        )
     div = _normalize_exam_paper_division(competition, division)
     track = _resolve_identity_work_track_for_paper(db, competition, identity, div, work_track)
     if not _can_download_exam_paper(db, competition, identity, div, track):
         raise HTTPException(
             status_code=403,
             detail=(
-                "无权下载试卷：仅指定用户名可下载，且须已报名（学生）或已组班（指导老师），"
-                "组队还须校审通过。未报名用户即使在名单中也不可下载。"
+                "无权下载试卷：须已报名（学生）或已组班（指导老师），组队还须校审通过。"
             ),
         )
     path, filename = get_exam_paper_track_file(competition, div, track)
@@ -5833,11 +5809,11 @@ async def unassign_competition_expert(
         for tr in team_rows:
             db.delete(tr)
         remaining = (
-            db.query(CompetitionExpertTeamAssignment)
-            .filter(
-                CompetitionExpertTeamAssignment.competition_id == competition_id,
-                CompetitionExpertTeamAssignment.expert_id == expert_user_id,
-            )
+        db.query(CompetitionExpertTeamAssignment)
+        .filter(
+            CompetitionExpertTeamAssignment.competition_id == competition_id,
+            CompetitionExpertTeamAssignment.expert_id == expert_user_id,
+        )
             .count()
         )
         # 该竞赛下已无队伍时，同步移除竞赛级指派
@@ -6564,9 +6540,9 @@ async def import_promotions_excel(
                             f"队伍属于{_work_track_section_label(team_track)}，"
                             f"不能导入到{_work_track_section_label(required_track)}"
                         ),
-                    )
                 )
-                continue
+            )
+            continue
         if team.status != TeamStatus.ACTIVE:
             result.failed += 1
             result.items.append(
@@ -6737,7 +6713,7 @@ async def enroll_competition(
     )
     existing_row = _get_enrollment_by_work_track(
         db, competition.id, identity.id, enroll_work_track
-    )
+        )
 
     team: Optional[Team] = None
     if is_team:
@@ -6937,7 +6913,7 @@ async def withdraw_from_competition(
             )
         enrollment = active_rows[0]
 
-    assert enrollment is not None
+        assert enrollment is not None
 
     if enrollment.enrollment_scope == CompetitionEnrollmentScope.INDIVIDUAL or enrollment.team_id is None:
         enrollment.status = CompetitionEnrollmentStatus.WITHDRAWN
@@ -7042,7 +7018,7 @@ async def list_teams(
             q.options(joinedload(Team.members))
             .filter(
                 or_(
-                    Team.created_by_advisor_id == identity.id,
+                Team.created_by_advisor_id == identity.id,
                     Team.second_advisor_id == identity.id,
                 ),
                 Team.status.in_(
@@ -7066,7 +7042,7 @@ async def list_teams(
             if not allowed:
                 return []
             teams_q = (
-            q.options(joinedload(Team.members))
+                q.options(joinedload(Team.members))
                 .filter(Team.status == TeamStatus.ACTIVE, Team.id.in_(allowed))
             )
         else:
@@ -7245,7 +7221,7 @@ async def create_team(
             captain_id = int(_resolve_student_ref(adb, captain_ref, label="队长").id)
             if ordered_ids and captain_id not in ordered_ids:
                 raise HTTPException(status_code=400, detail="队长必须出现在初始队员列表中")
-            if captain_id not in ordered_ids:
+        if captain_id not in ordered_ids:
                 ordered_ids = [captain_id] + ordered_ids
         elif team_create.captain_student_id is not None:
             captain_id = team_create.captain_student_id
@@ -7452,12 +7428,12 @@ async def create_team(
         _upsert_team_enrollment(
             db,
             competition=competition,
-            student_id=identity.id,
+                student_id=identity.id,
             team=team,
             is_captain=True,
-            division=team_division,
-            work_track=team_work_track,
-        )
+                division=team_division,
+                work_track=team_work_track,
+            )
 
         extras = team_create.initial_member_ids or []
         extras = [x for x in extras if x != identity.id]
@@ -7480,12 +7456,12 @@ async def create_team(
             _upsert_team_enrollment(
                 db,
                 competition=competition,
-                student_id=sid,
+                        student_id=sid,
                 team=team,
                 is_captain=False,
-                division=team_division,
-                work_track=team_work_track,
-            )
+                        division=team_division,
+                        work_track=team_work_track,
+                )
 
     else:
         raise HTTPException(status_code=403, detail="Only student, advisor, or teacher can create teams")
@@ -7930,7 +7906,7 @@ async def request_join_team(
         join_div,
         team_id=team.id,
         allow_same_team=True,
-    )
+        )
 
     pending = (
         db.query(TeamJoinRequest)
@@ -8064,7 +8040,7 @@ async def review_team_join_request(
         approve_div,
         team_id=team.id,
         allow_same_team=True,
-    )
+        )
 
     _add_student_to_team(db, competition, team, req.user_id, is_captain=False)
     req.status = TeamJoinRequestStatus.APPROVED

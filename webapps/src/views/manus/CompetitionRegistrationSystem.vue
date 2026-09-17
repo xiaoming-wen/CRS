@@ -165,7 +165,7 @@
                   class="competition-hero-banner__year"
                   aria-hidden="true"
                 >{{ competitionHeroYear }}</span>
-                <h1 class="competition-hero-banner__title">
+              <h1 class="competition-hero-banner__title">
                   <template v-if="competitionHeroTitleParts.base">
                     <span class="competition-hero-banner__title-main">{{ competitionHeroTitleParts.base }}</span>
                     <span
@@ -175,9 +175,9 @@
                     >{{ competitionHeroTitleParts.stage }}</span>
                   </template>
                   <template v-else>
-                    {{ activeCompetition ? activeCompetition.name : `竞赛 #${activeCompetitionId}` }}
+                {{ activeCompetition ? activeCompetition.name : `竞赛 #${activeCompetitionId}` }}
                   </template>
-                </h1>
+              </h1>
               </div>
 
               <div class="competition-hero-banner__capsules">
@@ -205,12 +205,12 @@
                 </span>
               </div>
 
-              <a-alert
-                v-if="finalStageAccessDenied"
-                type="error"
-                show-icon
-                message="决赛仅限晋级队伍"
-                description="您未在初赛晋级名单中，登录后仍无法报名、建队或提交决赛作品。"
+                <a-alert
+                  v-if="finalStageAccessDenied"
+                  type="error"
+                  show-icon
+                  message="决赛仅限晋级队伍"
+                  description="您未在初赛晋级名单中，登录后仍无法报名、建队或提交决赛作品。"
                 style="margin: 12px auto 0; text-align: left; max-width: 560px"
               />
 
@@ -276,7 +276,7 @@
                     <div class="briefing-card__head">
                       <span class="briefing-card__num" aria-hidden="true">{{ block.num }}</span>
                       <h3 class="briefing-card__title">{{ block.title }}</h3>
-                    </div>
+                  </div>
 
                     <!-- 参赛对象：导语 + 赛道分项 -->
                     <div v-if="block.kind === 'tracks' && block.tracks && block.tracks.length" class="briefing-tracks-wrap">
@@ -333,13 +333,13 @@
                 <div class="competition-briefing__col competition-briefing__col--aside">
                   <div class="briefing-aside-panel">
                     <div class="briefing-aside-panel__qr-wrap">
-                      <img
-                        v-if="studentBriefingQrSrc"
-                        :src="studentBriefingQrSrc"
-                        class="competition-briefing__qr"
-                        :alt="studentBriefingQrAlt"
+                    <img
+                      v-if="studentBriefingQrSrc"
+                      :src="studentBriefingQrSrc"
+                      class="competition-briefing__qr"
+                      :alt="studentBriefingQrAlt"
                       >
-                      <div v-else class="competition-briefing__qr-placeholder">暂无二维码</div>
+                    <div v-else class="competition-briefing__qr-placeholder">暂无二维码</div>
                     </div>
                     <div class="briefing-contact-card">
                       <div class="briefing-contact-card__label">联系人信息</div>
@@ -943,10 +943,10 @@
                       class="advisor-form-radio-white"
                       :disabled="advisorTeamActionsDisabled"
                     >
-                      <a-radio value="software">软件</a-radio>
-                      <a-radio value="hardware">硬件</a-radio>
-                    </a-radio-group>
-                  </a-form-item>
+                  <a-radio value="software">软件</a-radio>
+                  <a-radio value="hardware">硬件</a-radio>
+                </a-radio-group>
+              </a-form-item>
                 </a-col>
                 <a-col :xs="24" :sm="12">
                   <a-form-item label="组别" required class="advisor-track-division-item">
@@ -955,11 +955,11 @@
                       class="advisor-form-radio-white"
                       :disabled="advisorTeamActionsDisabled"
                     >
-                      <a-radio value="undergraduate">本科</a-radio>
-                      <a-radio value="vocational">高职</a-radio>
-                    </a-radio-group>
+                  <a-radio value="undergraduate">本科</a-radio>
+                  <a-radio value="vocational">高职</a-radio>
+                </a-radio-group>
                     <div class="division-choice-self-risk">请认真核对组别（本科 / 高职），选错后果自负。</div>
-                  </a-form-item>
+              </a-form-item>
                 </a-col>
                 <a-col :xs="24" :sm="12">
                   <a-form-item label="队长（用户名）">
@@ -1236,8 +1236,8 @@
               :disabled="!activeCompetitionId"
               @click="refreshAdminSubmissions"
             >
-              {{ adminSubmissionsRefreshLabel }}
-            </a-button>
+                {{ adminSubmissionsRefreshLabel }}
+              </a-button>
 
             <a-empty
               v-if="isCompetitionExpert && !adminSubmissionsLoading && !adminHasAnyTrackSubmissions"
@@ -1457,24 +1457,24 @@
                 </template>
                 <template slot="totalScore" slot-scope="text, record">
                   <strong>{{ formatQuestionScoreCell(record.total_score) }}</strong>
-                </template>
+            </template>
                 <template slot="gradeActions" slot-scope="text, record">
                   <a-button
                     v-if="canReviewSubmissions && !record.graded"
-                    size="small"
+            size="small"
                     type="primary"
                     @click.stop="fillTeamQuestionGradeForm(record, false)"
                   >
                     评分
                   </a-button>
-                  <a-button
+                <a-button
                     v-else-if="canReviewSubmissions"
                     size="small"
-                    type="primary"
+                  type="primary"
                     @click.stop="fillTeamQuestionGradeForm(record, true)"
-                  >
+                >
                     修改评分
-                  </a-button>
+                </a-button>
                 </template>
               </a-table>
               </div>
@@ -1514,34 +1514,34 @@
                     :loading="promotionCandidatesLoading && promotionModalWorkTrack === track.value"
                     @click="openPromoteModal(track.value)"
                   >
-                    选择队伍晋级
-                  </a-button>
-                  <a-upload
-                    :show-upload-list="false"
+                选择队伍晋级
+              </a-button>
+              <a-upload
+                :show-upload-list="false"
                     :before-upload="(file) => beforeImportPromotionsExcel(file, track.value)"
-                    accept=".xlsx,.xlsm"
-                  >
+                accept=".xlsx,.xlsm"
+              >
                     <a-button size="small" :loading="promotionImportLoading === track.value">
-                      导入 Excel 晋级
-                    </a-button>
-                  </a-upload>
-                </div>
+                  导入 Excel 晋级
+                </a-button>
+              </a-upload>
+            </div>
               </div>
               <div class="muted" style="margin-bottom: 8px; font-size: 12px">
                 仅显示 {{ track.label }} 已晋级用户。Excel 须含列「队伍ID」；可选「队伍名」。仅导入本赛道初赛队伍。
-              </div>
-              <a-table
-                size="small"
-                row-key="id"
-                :loading="promotionListLoading"
-                :pagination="false"
+            </div>
+            <a-table
+              size="small"
+              row-key="id"
+              :loading="promotionListLoading"
+              :pagination="false"
                 :data-source="promotionsForTrack(track.value)"
-                :columns="promotionListColumns"
-              >
-                <template slot="promoActions" slot-scope="text, record">
-                  <a @click.prevent="handleRevokePromotion(record)">撤销</a>
-                </template>
-              </a-table>
+              :columns="promotionListColumns"
+            >
+              <template slot="promoActions" slot-scope="text, record">
+                <a @click.prevent="handleRevokePromotion(record)">撤销</a>
+              </template>
+            </a-table>
             </div>
             <div v-if="untrackedPromotions.length" class="admin-track-block">
               <div class="admin-track-bar">
@@ -2029,7 +2029,7 @@
                   {{ competitionTeamRosterLockedMessage }}
                 </p>
               </a-form-item>
-            </a-form>
+          </a-form>
           </template>
         </div>
 
@@ -2966,7 +2966,7 @@
         type="info"
         show-icon
         style="margin-bottom: 12px"
-        message="竞赛须已发布。请切换本科 / 高职组别，分别为作品、软件、硬件三赛道上传试卷；仅指定用户名且已报名/已组班（组队须校审通过）可下载对应试卷。"
+        message="竞赛须已发布。请切换本科 / 高职组别，分别为作品、软件、硬件三赛道上传试卷；已报名（学生）或已组班（指导老师）且组队校审通过后，可下载对应赛道试卷。"
       />
 
       <a-tabs
@@ -2988,16 +2988,16 @@
           >
             <div v-if="examPaperTrackPublishedMeta(divKey, track.value)" class="muted" style="margin-bottom: 6px">
               已发布：{{ examPaperTrackPublishedMeta(divKey, track.value).filename || '已有文件' }}
-            </div>
-            <a-upload
+          </div>
+          <a-upload
               :file-list="examPaperTrackFileList(divKey, track.value)"
               :before-upload="(file) => beforeExamPaperTrackUpload(divKey, track.value, file)"
               :remove="() => removeExamPaperTrack(divKey, track.value)"
-              :multiple="false"
-            >
+            :multiple="false"
+          >
               <a-button size="small"><a-icon type="upload" /> 选择文件（pdf/doc/docx/zip）</a-button>
-            </a-upload>
-          </a-form-item>
+          </a-upload>
+        </a-form-item>
         </a-tab-pane>
       </a-tabs>
 
@@ -3169,7 +3169,7 @@
       </a-spin>
     </a-modal>
 
-    <!-- 白名单学生/指导老师：按已报名或已组班且校审通过的赛道选择下载试卷 -->
+    <!-- 学生/指导老师：按已报名或已组班且校审通过的赛道选择下载试卷 -->
     <a-modal
       v-model="showExamPaperDownloadModal"
       title="下载试卷"
@@ -3327,7 +3327,6 @@ import {
   getSubmissionReviewGradeCache
 } from '@/utils/competitionSubmissionCycle'
 import { buildAbsoluteRouteUrl } from '@/utils/openRouteInNewTab'
-import { isExamPaperDownloadAllowlistedUsername } from '@/utils/competitionAuthFlow'
 import {
   getStoredAltToken,
   isAltCompetitionStudent,
@@ -3591,7 +3590,7 @@ export default {
         { value: 'hardware', label: '硬件赛道' }
       ],
 
-      /** 详情页试卷下载（白名单用户名 + 已报名/已组班） */
+      /** 详情页试卷下载（已报名/已组班） */
       examPapersForDetail: null,
       examPaperDownloadLoading: false,
       showExamPaperDownloadModal: false,
@@ -3841,14 +3840,6 @@ export default {
       const id = p.user_id != null ? p.user_id : p.id
       return id != null && Number.isFinite(Number(id)) ? Number(id) : null
     },
-    altCurrentUsername () {
-      if (!this.isUsingAltIdentity) return ''
-      const p = getAltProfileFromStorage() || {}
-      return String(p.username || '').trim()
-    },
-    isExamPaperDownloadAllowlisted () {
-      return isExamPaperDownloadAllowlistedUsername(this.altCurrentUsername)
-    },
     /** 当前登录老师姓名（组班时自动作为指导老师） */
     altCurrentUserDisplayName () {
       if (!this.isUsingAltIdentity) return ''
@@ -4005,7 +3996,7 @@ export default {
       }
       return this.normalizeViewDivision(this.activeViewDivision) || null
     },
-    /** 白名单用户可下载的试卷选项（学生按报名、指导老师按校审通过的组班） */
+    /** 可下载的试卷选项（学生按报名、指导老师按校审通过的组班） */
     examPaperDownloadOptions () {
       const meta = this.examPapersForDetail
       const byTrack = (meta && meta.by_track) || {}
@@ -4022,9 +4013,6 @@ export default {
       }
       const order = ['software', 'hardware']
       const map = new Map()
-      if (!this.isExamPaperDownloadAllowlisted) {
-        return []
-      }
 
       if (this.isStudent) {
         const rows = this.activeCompetitionEnrollmentRows || {}
@@ -4108,7 +4096,6 @@ export default {
       if (!this.isCompetitionShareableStatus(this.activeCompetition && this.activeCompetition.status)) {
         return false
       }
-      if (!this.isExamPaperDownloadAllowlisted) return false
       if (this.isStudent) {
         if (!this.hasAnyEnrollment) return false
         if (Object.keys(this.examPaperTeamStatusById || {}).length > 0) {
@@ -4122,7 +4109,7 @@ export default {
       }
       if (this.isAdvisorOrTeacher) {
         return this.examPaperDownloadOptionsPublished.length > 0
-      }
+        }
       return false
     },
     createCompetitionNeedsSharedQr () {
@@ -4896,13 +4883,13 @@ export default {
       return this.mySubmissionsForCurrentEnrollment.length > 0
     },
     adminSubmissionsPanelTitle () {
-      if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
+        if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
         return `作品提交（${this.activeDivisionLabel} · 按赛道）`
       }
       return '作品提交（按赛道）'
     },
     adminSubmissionsRefreshLabel () {
-      if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
+        if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
         return `刷新${this.activeDivisionLabel}提交`
       }
       return '刷新'
@@ -5250,17 +5237,17 @@ export default {
         const captainInRoster = joinedCaptain
           || members.find(m => m && t.captain_id != null && Number(m.user_id) === Number(t.captain_id))
         return {
-          id: t.id,
-          name: t.name != null && String(t.name).trim() !== '' ? String(t.name) : '—',
+        id: t.id,
+        name: t.name != null && String(t.name).trim() !== '' ? String(t.name) : '—',
           division_text: this.formatAdvisorTeamDivisionLabel(t),
           work_track_text: this.formatAdvisorTeamWorkTrackLabel(t),
           captain_id: captainInRoster
             ? (joinedCaptain ? joinedCaptain.user_id : t.captain_id)
             : '—',
           member_count: members.length,
-          status_text: this.participantTeamStatusText(t.status),
-          can_operate: this.canAdvisorOperateTeam(t),
-          can_operate_text: this.canAdvisorOperateTeam(t) ? '是' : '否'
+        status_text: this.participantTeamStatusText(t.status),
+        can_operate: this.canAdvisorOperateTeam(t),
+        can_operate_text: this.canAdvisorOperateTeam(t) ? '是' : '否'
         }
       })
     },
@@ -6452,7 +6439,7 @@ export default {
     },
 
     async refreshExamPaperTeamStatusesForStudent () {
-      if (!this.isStudent || !this.isExamPaperDownloadAllowlisted) {
+      if (!this.isStudent) {
         this.examPaperTeamStatusById = {}
         return
       }
@@ -6485,10 +6472,6 @@ export default {
       }
       if (this.competitionEnded) {
         this.$message.warning('竞赛已结束，不可下载试卷')
-        return
-      }
-      if (!this.isExamPaperDownloadAllowlisted) {
-        this.$message.warning('当前账号无权下载试卷')
         return
       }
       if (!this.isStudent && !this.isAdvisorOrTeacher) {
@@ -6527,10 +6510,6 @@ export default {
     },
 
     async downloadExamPaperByOption (opt) {
-      if (!this.isExamPaperDownloadAllowlisted) {
-        this.$message.warning('当前账号无权下载试卷')
-        return
-      }
       if (this.competitionEnded) {
         this.$message.warning('竞赛已结束，不可下载试卷')
         return
@@ -6633,7 +6612,7 @@ export default {
         const hasAuth = !!getStoredAltToken() && !this.shareGuestMode
         // 仅首次或登录态从无到有时全量 bootstrap；避免 /me 回写反复触发请求风暴
         if (!this._standaloneDetailBootstrapped || (hasAuth && !this._standaloneBootstrappedWithAuth)) {
-          void this.bootstrapStandaloneDetail()
+        void this.bootstrapStandaloneDetail()
         }
         return
       }
@@ -6660,32 +6639,32 @@ export default {
       if (this._bootstrapStandaloneInFlight) return this._bootstrapStandaloneInFlight
       this._bootstrapStandaloneInFlight = (async () => {
         try {
-          this.manualCompetitionId = null
-          this.applyActiveViewDivisionFromRoute()
-          await this.refreshAltExpertProfile()
+      this.manualCompetitionId = null
+      this.applyActiveViewDivisionFromRoute()
+      await this.refreshAltExpertProfile()
           const hasAlt = !!getStoredAltToken() && !this.shareGuestMode
           if (hasAlt) {
-            await this.fetchCompetitions()
-          } else {
-            this.competitions = []
-            this.competitionsError = ''
-          }
-          const raw = this.initialCompetitionId
-          if (raw != null && String(raw).trim() !== '') {
-            this.selectCompetition(raw)
-            await this.ensureCompetitionDetail(raw)
-          }
+        await this.fetchCompetitions()
+      } else {
+        this.competitions = []
+        this.competitionsError = ''
+      }
+      const raw = this.initialCompetitionId
+      if (raw != null && String(raw).trim() !== '') {
+        this.selectCompetition(raw)
+        await this.ensureCompetitionDetail(raw)
+      }
           if (hasAlt) {
-            void this.refreshExamPapersForDetail()
+      void this.refreshExamPapersForDetail()
           } else {
             this.examPapersForDetail = null
             this.$emit('exam-papers-changed')
           }
-          this.$nextTick(() => {
-            this.syncDualDivisionContextAfterCompetitionSelect()
-            if (this.showStandaloneCompetitionBriefingLayout && this.activeCompetitionId) {
-              void this.fetchStudentBriefingQr()
-            }
+      this.$nextTick(() => {
+        this.syncDualDivisionContextAfterCompetitionSelect()
+        if (this.showStandaloneCompetitionBriefingLayout && this.activeCompetitionId) {
+          void this.fetchStudentBriefingQr()
+        }
             // 登录后竞赛 ID 可能未变，不会触发 activeCompetitionId watcher，需主动拉指导老师队伍列表
             if (hasAlt && this.isAdvisorOrTeacher && this.activeCompetitionId) {
               void this.refreshAdvisorTeams()
@@ -6753,7 +6732,7 @@ export default {
           }
         }
         void this.syncEnrollModalTeamContextForCurrentTrack().finally(() => {
-          this.showStandaloneMyWorksModal = true
+        this.showStandaloneMyWorksModal = true
         })
       })
     },
@@ -8104,7 +8083,7 @@ export default {
       if (!this.activeCompetitionId || !Number.isFinite(targetId) || targetId <= 0) return true
       // 申请入队者尚非队员：getCompetitionTeam 会 403，全局拦截器会误弹「权限不足」，
       // 且 catch 后仍放行，校验无实际作用。竞赛归属由入队接口校验。
-      return true
+          return true
     },
 
     async handleJoinTeam () {
@@ -8725,8 +8704,8 @@ export default {
         if (this.isDuplicateTeamNameError(e)) {
           this.showDuplicateTeamNameModal(e)
         } else {
-          const mapped = this.mapTeamInviteDetailToUserMessage(this.getEnrollDetailRaw(e))
-          this.$message.error(mapped || ('创建队伍失败：' + this.getApiErrorMessage(e, '未知错误')))
+        const mapped = this.mapTeamInviteDetailToUserMessage(this.getEnrollDetailRaw(e))
+        this.$message.error(mapped || ('创建队伍失败：' + this.getApiErrorMessage(e, '未知错误')))
         }
       } finally {
         this.advisorCreateLoading = false
@@ -8753,7 +8732,7 @@ export default {
         if (this.isDuplicateTeamNameError(e)) {
           this.showDuplicateTeamNameModal(e)
         } else {
-          this.$message.error('修改队名失败：' + this.getApiErrorMessage(e, '未知错误'))
+        this.$message.error('修改队名失败：' + this.getApiErrorMessage(e, '未知错误'))
         }
       } finally {
         this.advisorTeamOpLoading = false
@@ -10740,38 +10719,38 @@ export default {
           }
         }
 
-        let detail = sub
-        if (this.gradeFormIsEdit && sub && this.resolveSubmissionScoreRaw(sub) == null) {
-          const cached = getSubmissionReviewGradeCache(submissionId)
-          if (cached) {
-            detail = { ...sub, score: cached.score, feedback: cached.feedback, reviewed_at: cached.reviewed_at }
-          } else {
-            try {
-              const reviewRes = await getCompetitionSubmissionReviewGrade(submissionId)
-              const review = this.normalizeReviewGradeResponse(reviewRes)
-              if (review) {
-                detail = {
-                  ...sub,
-                  score: review.score,
-                  feedback: review.feedback,
-                  reviewed_at: review.reviewed_at
-                }
+      let detail = sub
+      if (this.gradeFormIsEdit && sub && this.resolveSubmissionScoreRaw(sub) == null) {
+        const cached = getSubmissionReviewGradeCache(submissionId)
+        if (cached) {
+          detail = { ...sub, score: cached.score, feedback: cached.feedback, reviewed_at: cached.reviewed_at }
+        } else {
+          try {
+            const reviewRes = await getCompetitionSubmissionReviewGrade(submissionId)
+            const review = this.normalizeReviewGradeResponse(reviewRes)
+            if (review) {
+              detail = {
+                ...sub,
+                score: review.score,
+                feedback: review.feedback,
+                reviewed_at: review.reviewed_at
               }
-            } catch (_) {
-              detail = sub
             }
+          } catch (_) {
+            detail = sub
           }
         }
+      }
 
         if (!this.gradeForm.questionGradeExists) {
-          if (this.gradeFormIsEdit && detail) {
-            const scoreRaw = this.resolveSubmissionScoreRaw(detail)
-            this.gradeForm.score = scoreRaw != null ? String(scoreRaw) : ''
+      if (this.gradeFormIsEdit && detail) {
+        const scoreRaw = this.resolveSubmissionScoreRaw(detail)
+        this.gradeForm.score = scoreRaw != null ? String(scoreRaw) : ''
             if (!this.gradeForm.feedback) {
-              this.gradeForm.feedback = this.resolveSubmissionFeedback(detail)
+        this.gradeForm.feedback = this.resolveSubmissionFeedback(detail)
             }
-          } else {
-            this.gradeForm.score = ''
+      } else {
+        this.gradeForm.score = ''
             if (!this.gradeForm.feedback) this.gradeForm.feedback = ''
           }
         }
@@ -11069,15 +11048,15 @@ export default {
         }
 
         if (loadZip) {
-          const cid = this.activeCompetitionId
-          const divOpts = this.buildCompetitionDivisionQueryOptions()
-          const submissionOpts = this.buildAdminSubmissionsQueryOptions()
-          const expertView = this.expertAnonymizedView
-          const [subRes, indRes, teamRes] = await Promise.all([
-            getCompetitionSubmissions(cid, submissionOpts),
-            expertView ? Promise.resolve([]) : getCompetitionParticipantsIndividual(cid, divOpts).catch(() => []),
-            expertView ? Promise.resolve([]) : getCompetitionParticipantsTeams(cid, divOpts).catch(() => [])
-          ])
+        const cid = this.activeCompetitionId
+        const divOpts = this.buildCompetitionDivisionQueryOptions()
+        const submissionOpts = this.buildAdminSubmissionsQueryOptions()
+        const expertView = this.expertAnonymizedView
+        const [subRes, indRes, teamRes] = await Promise.all([
+          getCompetitionSubmissions(cid, submissionOpts),
+          expertView ? Promise.resolve([]) : getCompetitionParticipantsIndividual(cid, divOpts).catch(() => []),
+          expertView ? Promise.resolve([]) : getCompetitionParticipantsTeams(cid, divOpts).catch(() => [])
+        ])
           const teamTrackMap = {}
           normalizeCompetitionApiList(teamRes).forEach((t) => {
             if (!t || t.id == null) return
@@ -11099,30 +11078,30 @@ export default {
           this.adminTeamWorkTrackById = teamTrackMap
           this.adminIndividualWorkTrackById = indTrackMap
 
-          let raw = this.normalizeSubmissionsListResponse(subRes).map(item =>
-            this.normalizeAdminSubmissionRow(item)
+        let raw = this.normalizeSubmissionsListResponse(subRes).map(item =>
+          this.normalizeAdminSubmissionRow(item)
+        )
+        if (this.isCompetitionExpert && this.isExpertAssignedToActiveCompetition) {
+          const allowed = new Set(getAltAssignedTeamIdsForCompetition(cid))
+          raw = raw.filter(s => s && s.team_id != null && allowed.has(Number(s.team_id)))
+        }
+        let visible = raw
+        if (!expertView) {
+          const enrollIndex = buildEnrollmentVisibilityIndex(
+            normalizeCompetitionApiList(indRes),
+            normalizeCompetitionApiList(teamRes)
           )
-          if (this.isCompetitionExpert && this.isExpertAssignedToActiveCompetition) {
-            const allowed = new Set(getAltAssignedTeamIdsForCompetition(cid))
-            raw = raw.filter(s => s && s.team_id != null && allowed.has(Number(s.team_id)))
-          }
-          let visible = raw
-          if (!expertView) {
-            const enrollIndex = buildEnrollmentVisibilityIndex(
-              normalizeCompetitionApiList(indRes),
-              normalizeCompetitionApiList(teamRes)
-            )
-            visible = filterAdminSubmissionsByActiveEnrollments(raw, enrollIndex)
-            this.adminSubmissionsHiddenByWithdrawCount = Math.max(0, raw.length - visible.length)
-          } else {
-            this.adminSubmissionsHiddenByWithdrawCount = 0
-          }
+          visible = filterAdminSubmissionsByActiveEnrollments(raw, enrollIndex)
+          this.adminSubmissionsHiddenByWithdrawCount = Math.max(0, raw.length - visible.length)
+        } else {
+          this.adminSubmissionsHiddenByWithdrawCount = 0
+        }
           this.adminSubmissions = keepLatestSubmissionPerTeam(visible)
-          const total = Number(subRes && subRes.total)
+        const total = Number(subRes && subRes.total)
           this.adminSubmissionsTotal = Number.isFinite(total) && total >= 0
             ? Math.min(total, this.adminSubmissions.length)
             : this.adminSubmissions.length
-          await this.enrichAdminSubmissionsScores()
+        await this.enrichAdminSubmissionsScores()
         } else {
           this.adminSubmissions = []
           this.adminTeamWorkTrackById = {}

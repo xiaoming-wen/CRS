@@ -16,16 +16,6 @@ const COMPETITION_ALT_GATE_ROUTES = [
  */
 const STUDENT_ADVISOR_LANDING_COMPETITION_ID = 80024817
 
-import { EXAM_PAPER_DOWNLOAD_ALLOWLIST_USERNAMES } from '@/utils/examPaperDownloadAllowlist'
-
-export { EXAM_PAPER_DOWNLOAD_ALLOWLIST_USERNAMES }
-
-export function isExamPaperDownloadAllowlistedUsername (username) {
-  const u = String(username || '').trim().toLowerCase()
-  if (!u) return false
-  return EXAM_PAPER_DOWNLOAD_ALLOWLIST_USERNAMES.some(x => String(x).trim().toLowerCase() === u)
-}
-
 export function getStudentAdvisorLandingCompetitionId () {
   return STUDENT_ADVISOR_LANDING_COMPETITION_ID
 }
