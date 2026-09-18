@@ -109,6 +109,8 @@ class Competition(Base):
     exam_paper_filename_vocational = Column(String(255), nullable=True)
     # JSON：按组别+赛道存试卷 {division:{works|software|hardware:{path,filename}}}
     exam_papers_by_track = Column(Text, nullable=True)
+    # JSON：按赛道倒计时 {software:{enabled,download_open_at,submit_close_at},...}
+    track_time_windows = Column(Text, nullable=True)
     # JSON：分题提交配置（题数、题名、每题/总分 min-max）
     submission_question_config = Column(Text, nullable=True)
 

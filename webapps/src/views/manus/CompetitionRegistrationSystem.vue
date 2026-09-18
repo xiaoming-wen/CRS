@@ -2143,7 +2143,7 @@
       <div class="standalone-modal-scroll">
         <div v-if="submitWorksAvailableTracks.length" style="margin-bottom: 16px">
           <div class="muted" style="margin-bottom: 8px; font-size: 13px">
-            请选择要提交的赛道（仅显示您已报名的赛道；各赛道独立提交）
+            请选择要提交的赛道（列出您已报名的全部赛道；仅当前处于竞赛时间段内的赛道可提交）
           </div>
           <a-radio-group
             :value="activeEnrollmentWorkTrack"
@@ -2166,7 +2166,7 @@
         <template v-if="activeEnrollmentWorkTrack === 'works'">
           <h4 class="standalone-modal-section-title">作品赛道 · 提交压缩包</h4>
           <a-alert
-            v-if="competitionSubmissionBlocked"
+            v-if="competitionSubmissionBlocked || currentTrackSubmitWindowBlocked"
             type="warning"
             show-icon
             :message="competitionSubmissionBlockedTitle"
@@ -2219,8 +2219,8 @@
             <a-button
               type="primary"
               :loading="submitLoading"
-              :disabled="submissionFormDisabled || !canSubmitZipPackage"
-              @click="handleSubmitSubmission"
+              :disabled="zipSubmitButtonDisabled"
+              @click="onStandaloneSubmitWorksClick"
             >
               提交作品
             </a-button>
@@ -2242,7 +2242,7 @@
             {{ currentEnrollmentTrackLabel }}赛道 · 按题提交（共{{ submissionQuestionCount }}题）
           </h4>
           <a-alert
-            v-if="competitionSubmissionBlocked"
+            v-if="competitionSubmissionBlocked || currentTrackSubmitWindowBlocked"
             type="warning"
             show-icon
             :message="competitionSubmissionBlockedTitle"
@@ -2326,8 +2326,8 @@
             <a-button
               type="primary"
               :loading="questionAnswersSubmitLoading"
-              :disabled="!canFormalSubmitQuestionAnswers"
-              @click="submitAllQuestionAnswers"
+              :disabled="questionAnswerSubmitButtonDisabled"
+              @click="onStandaloneSubmitWorksClick"
             >
               提交作品
             </a-button>
@@ -2507,6 +2507,37 @@
             <a-input type="datetime-local" v-model="createCompetitionForm.end_at" />
           </a-form-item>
         </template>
+        <a-form-item label="赛道倒计时">
+          <div class="muted" style="margin-bottom: 8px; font-size: 12px; line-height: 1.5">
+            按赛道设置。到达开始时间后，符合条件的学生端会出现「下载试卷」；倒计时结束后禁止提交作品，并提示比赛结束、无法提交作品。结束前 30 / 20 / 10 / 5 / 1 分钟会在学生端弹窗提醒。
+          </div>
+          <div
+            v-for="trk in trackCountdownTrackOptions"
+            :key="'create-cd-' + trk.value"
+            style="margin-bottom: 10px; padding: 8px 10px; border: 1px solid #f0f0f0; border-radius: 4px"
+          >
+            <a-checkbox v-model="createCompetitionForm.track_countdown[trk.value].enabled">
+              {{ trk.label }}
+            </a-checkbox>
+            <div
+              v-if="createCompetitionForm.track_countdown[trk.value] && createCompetitionForm.track_countdown[trk.value].enabled"
+              style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center"
+            >
+              <span>开始（可下载试卷）</span>
+              <a-input
+                type="datetime-local"
+                style="width: 220px"
+                v-model="createCompetitionForm.track_countdown[trk.value].download_open_at"
+              />
+              <span>结束（禁止提交）</span>
+              <a-input
+                type="datetime-local"
+                style="width: 220px"
+                v-model="createCompetitionForm.track_countdown[trk.value].submit_close_at"
+              />
+            </div>
+          </div>
+        </a-form-item>
       </a-form>
     </a-modal>
 
@@ -2724,6 +2755,37 @@
             <a-input type="datetime-local" v-model="editCompetitionForm.end_at" />
           </a-form-item>
         </template>
+        <a-form-item label="赛道倒计时">
+          <div class="muted" style="margin-bottom: 8px; font-size: 12px; line-height: 1.5">
+            按赛道设置。到达开始时间后学生端出现「下载试卷」；结束后禁止提交并提示比赛结束。结束前 30 / 20 / 10 / 5 / 1 分钟学生端弹窗提醒。
+          </div>
+          <div
+            v-for="trk in trackCountdownTrackOptions"
+            :key="'edit-cd-' + trk.value"
+            style="margin-bottom: 10px; padding: 8px 10px; border: 1px solid #f0f0f0; border-radius: 4px"
+          >
+            <a-checkbox v-model="editCompetitionForm.track_countdown[trk.value].enabled">
+              {{ trk.label }}
+            </a-checkbox>
+            <div
+              v-if="editCompetitionForm.track_countdown[trk.value] && editCompetitionForm.track_countdown[trk.value].enabled"
+              style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center"
+            >
+              <span>开始（可下载试卷）</span>
+              <a-input
+                type="datetime-local"
+                style="width: 220px"
+                v-model="editCompetitionForm.track_countdown[trk.value].download_open_at"
+              />
+              <span>结束（禁止提交）</span>
+              <a-input
+                type="datetime-local"
+                style="width: 220px"
+                v-model="editCompetitionForm.track_countdown[trk.value].submit_close_at"
+              />
+            </div>
+          </div>
+        </a-form-item>
       </a-form>
     </a-modal>
 
@@ -3343,6 +3405,18 @@ import {
   applyAltIdentityMeToStorage
 } from '@/api/altIdentity'
 
+function emptyTrackCountdownSlot () {
+  return { enabled: false, download_open_at: '', submit_close_at: '' }
+}
+
+function emptyTrackCountdownForm () {
+  return {
+    software: emptyTrackCountdownSlot(),
+    hardware: emptyTrackCountdownSlot(),
+    works: emptyTrackCountdownSlot()
+  }
+}
+
 export default {
   name: 'CompetitionRegistrationSystem',
   props: {
@@ -3595,6 +3669,13 @@ export default {
       examPaperDownloadLoading: false,
       showExamPaperDownloadModal: false,
       examPaperDownloadTrackKey: null,
+      countdownNowMs: Date.now(),
+      _countdownTimer: null,
+      _lastDownloadToolbarVisible: null,
+      showExamCountdownWarnModal: false,
+      examCountdownWarnText: '',
+      examCountdownWarnCloseMs: null,
+      examCountdownWarnTrack: null,
       /** 学生下载试卷：报名关联队伍的校审状态 teamId -> status */
       examPaperTeamStatusById: {},
       /** 当前竞赛分题配置（学生提交用） */
@@ -3620,7 +3701,8 @@ export default {
         allow_individual: false,
         allow_team: true,
         division_mode: 'single',
-        qr_layout: 'shared'
+        qr_layout: 'shared',
+        track_countdown: emptyTrackCountdownForm()
       },
       createCompetitionQrFile: null,
       createCompetitionQrUndergraduateFile: null,
@@ -3672,7 +3754,8 @@ export default {
         allow_individual: false,
         allow_team: false,
         division_mode: 'single',
-        qr_layout: 'shared'
+        qr_layout: 'shared',
+        track_countdown: emptyTrackCountdownForm()
       },
       editCompetitionOriginal: null,
       /** 打开编辑弹窗时的原始 stage：single | preliminary | final */
@@ -4026,6 +4109,7 @@ export default {
           if (!row) return
           const track = row.work_track != null ? String(row.work_track).trim().toLowerCase() : ''
           if (!order.includes(track) || track === 'works') return
+          if (!this.isTrackExamDownloadOpen(track)) return
           // 组队报名：仅校审通过的队伍才展示对应赛道试卷
           if (row.team_id != null) {
             const st = String(statusMap[Number(row.team_id)] || '').trim().toLowerCase()
@@ -4057,6 +4141,7 @@ export default {
             team.work_track != null ? team.work_track : team.workTrack
           )
           if (!order.includes(track) || track === 'works') return
+          if (!this.isTrackExamDownloadOpen(track)) return
           const div = this.normalizeViewDivision(this.resolveTeamDivisionWithCache(team))
             || this.normalizeViewDivision(this.activeCompetitionAdvisorTeamDivision)
             || this.normalizeViewDivision(this.activeViewDivision)
@@ -4104,13 +4189,28 @@ export default {
         const byTrack = (this.examPapersForDetail && this.examPapersForDetail.by_track) || {}
         return ['undergraduate', 'vocational', 'default'].some((div) => {
           const m = byTrack[div] || {}
-          return ['software', 'hardware'].some(t => m[t] && m[t].published)
+          return ['software', 'hardware'].some(t => m[t] && m[t].published && this.isTrackExamDownloadOpen(t))
         })
       }
       if (this.isAdvisorOrTeacher) {
         return this.examPaperDownloadOptionsPublished.length > 0
         }
       return false
+    },
+    trackCountdownTrackOptions () {
+      return [
+        { value: 'software', label: '软件赛道' },
+        { value: 'hardware', label: '硬件赛道' },
+        { value: 'works', label: '作品赛道' }
+      ]
+    },
+    currentTrackSubmitClosed () {
+      const t = this.activeEnrollmentWorkTrack
+      if (!t) return false
+      return this.isTrackSubmitClosed(t)
+    },
+    currentTrackSubmitWindowBlocked () {
+      return !!this.getTrackSubmitBlockReason(this.activeEnrollmentWorkTrack)
     },
     createCompetitionNeedsSharedQr () {
       const mode = this.createCompetitionForm.division_mode || 'single'
@@ -4382,9 +4482,9 @@ export default {
       const track = this.currentEnrollmentTrackLabel
       return track ? `提交作品（${track}赛道）` : '提交作品'
     },
-    /** 已报名可提交的赛道（学生端不含作品赛） */
+    /** 已报名可提交的赛道（提交弹窗不展示作品赛道） */
     submitWorksAvailableTracks () {
-      return (this.myEnrolledWorkTracks || []).filter(t => t !== 'works')
+      return (this.myEnrolledWorkTracks || []).filter(t => t === 'software' || t === 'hardware')
     },
     submitWorksTrackOptions () {
       const teams = this.studentVisibleTeamEnrollmentList || []
@@ -4789,7 +4889,7 @@ export default {
       if (this.isStudent && this.activeEnrollmentWorkTrack !== 'works') return false
       if (!this.usesZipPackageSubmission) return false
       if (!this.isStudent) return false
-      if (this.competitionSubmissionBlocked || this.teamSchoolReviewSubmissionBlocked) return false
+      if (this.competitionSubmissionBlocked || this.currentTrackSubmitWindowBlocked || this.teamSchoolReviewSubmissionBlocked) return false
       if (this.enrollMode === 'team') {
         return !!(this.myEnrolledTeam && this.myTeamId && this.isMyTeamSchoolReviewActive && this.isCurrentTeamCaptain)
       }
@@ -4809,6 +4909,7 @@ export default {
         this.questionAnswerTeamId &&
         this.isMyTeamSchoolReviewActive &&
         !this.competitionSubmissionBlocked &&
+        !this.currentTrackSubmitWindowBlocked &&
         !this.teamSchoolReviewSubmissionBlocked
       )
     },
@@ -4832,6 +4933,14 @@ export default {
         }
       })
     },
+    questionAnswerSubmitButtonDisabled () {
+      if (this.currentTrackSubmitWindowBlocked) return false
+      return !this.canFormalSubmitQuestionAnswers
+    },
+    zipSubmitButtonDisabled () {
+      if (this.currentTrackSubmitWindowBlocked) return false
+      return this.submissionFormDisabled || !this.canSubmitZipPackage
+    },
     canFormalSubmitQuestionAnswers () {
       if (!this.canUploadQuestionAnswers) return false
       const slots = this.displayQuestionAnswerSlots
@@ -4847,6 +4956,9 @@ export default {
       return !!(this.canUploadQuestionAnswers && !this.hasFormalSubmittedQuestionAnswers)
     },
     questionAnswersSubmitHintText () {
+      if (this.currentTrackSubmitWindowBlocked) {
+        return this.competitionSubmissionBlockedTitle
+      }
       if (this.competitionEnded) {
         return '竞赛已结束，无法提交作品。'
       }
@@ -5132,15 +5244,19 @@ export default {
       return true
     },
     competitionSubmissionBlockedTitle () {
+      const windowReason = this.getTrackSubmitBlockReason(this.activeEnrollmentWorkTrack)
+      if (windowReason) return windowReason.title
       const c = this.activeCompetition
       const s = c && c.status != null ? String(c.status).toLowerCase() : ''
-      if (s === 'ended') return '当前竞赛已结束，无法提交作品'
+      if (s === 'ended') return '比赛结束，无法提交作品'
       return s === 'draft' ? '当前竞赛为草稿，无法提交作品' : '竞赛尚未发布，无法提交作品'
     },
     competitionSubmissionBlockedDescription () {
+      const windowReason = this.getTrackSubmitBlockReason(this.activeEnrollmentWorkTrack)
+      if (windowReason) return windowReason.content
       const c = this.activeCompetition
       const s = c && c.status != null ? String(c.status).toLowerCase() : ''
-      if (s === 'ended') return '超级管理员已结束竞赛，不可再提交作品或下载试卷。'
+      if (s === 'ended') return '比赛结束，无法提交作品。'
       return '作品提交须在竞赛发布后进行；报名截止后仍可提交作品，结束竞赛后不可提交。'
     },
     /** 报名弹窗/内联作品表单禁用（已提交锁定、竞赛不可提交或队伍待校审） */
@@ -5758,8 +5874,11 @@ export default {
       void this.initCompetitionListPage()
     }
     this.syncEnrollProfileDefaults()
+    this.startTrackCountdownTimer()
   },
   beforeDestroy () {
+    this.closeExamCountdownWarn()
+    this.stopTrackCountdownTimer()
     window.removeEventListener('alt-identity-changed', this.onAltIdentityChanged)
     this.revokeStudentBriefingQrObjectUrl()
     this.revokeCreateQrPreviewUrls()
@@ -6725,7 +6844,11 @@ export default {
         const opts = this.submitWorksTrackOptions
         if (opts.length) {
           const prefer = this.activeEnrollmentWorkTrack
-          const hit = opts.find(o => o.work_track === prefer) || opts[0]
+          const inWindow = opts.filter(o => this.isTrackInSubmitWindow(o.work_track))
+          const hit = opts.find(o => o.work_track === prefer && this.isTrackInSubmitWindow(prefer))
+            || inWindow[0]
+            || opts.find(o => o.work_track === prefer)
+            || opts[0]
           if (hit && hit.work_track) {
             this.preferredEnrollmentWorkTrack = hit.work_track
             this.applyEnrollmentContextFromRows()
@@ -6742,6 +6865,17 @@ export default {
       if (t !== 'software' && t !== 'hardware') return
       this.resetSubmissionFormFields()
       this.selectPreferredEnrollmentWorkTrack(t)
+      this.$nextTick(() => {
+        this.warnIfTrackSubmitBlocked(t)
+      })
+    },
+
+    onStandaloneSubmitWorksClick () {
+      if (this.warnIfTrackSubmitBlocked(this.activeEnrollmentWorkTrack)) return
+      if (this.activeEnrollmentWorkTrack === 'works') {
+        return this.handleSubmitSubmission()
+      }
+      return this.submitAllQuestionAnswers()
     },
 
     /** 参赛对象：拆出导语 + 赛道分项（保留首段总述） */
@@ -7210,7 +7344,7 @@ export default {
 
     selectPreferredEnrollmentWorkTrack (track) {
       const t = track != null ? String(track).trim().toLowerCase() : ''
-      if (t !== 'software' && t !== 'hardware') return
+      if (t !== 'software' && t !== 'hardware' && t !== 'works') return
       const prevTeamId = this.myTeamId
       this.preferredEnrollmentWorkTrack = t
       this.applyEnrollmentContextFromRows()
@@ -8945,6 +9079,17 @@ export default {
     },
 
     assertCompetitionOpenForSubmission (showToast = true) {
+      const reason = this.getTrackSubmitBlockReason(this.activeEnrollmentWorkTrack)
+      if (reason) {
+        if (showToast) {
+          this.$warning({
+            title: reason.title,
+            content: reason.content,
+            okText: '知道了'
+          })
+        }
+        return false
+      }
       if (!this.competitionSubmissionBlocked) return true
       if (showToast) {
         this.$message.warning(this.competitionSubmissionBlockedTitle)
@@ -8954,8 +9099,11 @@ export default {
 
     mapSubmissionDetailToUserMessage (detailText) {
       const t = (detailText || '').toLowerCase()
-      if (t.includes('竞赛已结束') || t.includes('competition has ended')) {
-        return '竞赛已结束，不可提交作品'
+      if (t.includes('不在竞赛时间段') || t.includes('not in competition time')) {
+        return '不在竞赛时间段无法提交'
+      }
+      if (t.includes('比赛结束，无法提交作品') || t.includes('竞赛已结束') || t.includes('competition has ended')) {
+        return '比赛结束，无法提交作品'
       }
       if (t.includes('division is required')) {
         return '该竞赛分本科组与高职组，请从对应组别详情页进入后再提交作品'
@@ -9584,7 +9732,8 @@ export default {
         allow_individual: false,
         allow_team: true,
         division_mode: 'single',
-        qr_layout: 'shared'
+        qr_layout: 'shared',
+        track_countdown: emptyTrackCountdownForm()
       }
     },
 
@@ -9785,6 +9934,8 @@ export default {
         fd.append('allow_team', 'true')
         this.appendCompetitionDivisionFields(fd, this.createCompetitionForm)
         this.appendCreateCompetitionQrFiles(fd)
+        const trackWindows = this.serializeTrackCountdown(this.createCompetitionForm.track_countdown)
+        fd.append('track_time_windows', JSON.stringify(trackWindows))
 
         const res = await createCompetitionMultipart(fd)
         if (stageMode === 'prelim_final') {
@@ -9938,8 +10089,303 @@ export default {
       if (!iso) return ''
       const d = new Date(iso)
       if (Number.isNaN(d.getTime())) return ''
-      // datetime-local 接收：YYYY-MM-DDTHH:mm（不带时区）
-      return d.toISOString().slice(0, 16)
+      const pad = (n) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    },
+
+    parseTrackCountdownFromCompetition (comp) {
+      const form = emptyTrackCountdownForm()
+      const raw = (comp && comp.track_time_windows) || {}
+      ;['software', 'hardware', 'works'].forEach((track) => {
+        const item = raw[track] || {}
+        form[track] = {
+          enabled: item.enabled === true,
+          download_open_at: this.toDateTimeLocalValue(item.download_open_at),
+          submit_close_at: this.toDateTimeLocalValue(item.submit_close_at)
+        }
+      })
+      return form
+    },
+
+    serializeTrackCountdown (formCountdown) {
+      const src = formCountdown || emptyTrackCountdownForm()
+      const out = {}
+      ;['software', 'hardware', 'works'].forEach((track) => {
+        const slot = src[track] || emptyTrackCountdownSlot()
+        out[track] = {
+          enabled: !!slot.enabled,
+          download_open_at: slot.enabled ? this.toISOFromDateTimeLocal(slot.download_open_at) : null,
+          submit_close_at: slot.enabled ? this.toISOFromDateTimeLocal(slot.submit_close_at) : null
+        }
+      })
+      return out
+    },
+
+    trackCountdownFingerprint (windows) {
+      try {
+        return JSON.stringify(windows || {})
+      } catch (e) {
+        return ''
+      }
+    },
+
+    getTrackTimeWindowsMap () {
+      let raw = this.activeCompetition && this.activeCompetition.track_time_windows
+      if (raw == null || raw === '') return {}
+      if (typeof raw === 'string') {
+        try {
+          raw = JSON.parse(raw)
+        } catch (e) {
+          return {}
+        }
+      }
+      return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+    },
+
+    getTrackTimeWindow (track) {
+      const t = track != null ? String(track).trim().toLowerCase() : ''
+      const windows = this.getTrackTimeWindowsMap()
+      const item = windows[t]
+      return item && typeof item === 'object' ? item : {}
+    },
+
+    hasAnyEnabledTrackCountdown () {
+      const windows = this.getTrackTimeWindowsMap()
+      return ['software', 'hardware', 'works'].some((t) => this.isTrackWindowFlagEnabled(windows[t]))
+    },
+
+    isTrackWindowFlagEnabled (w) {
+      if (!w || typeof w !== 'object') return false
+      const v = w.enabled
+      return v === true || v === 1 || String(v).trim().toLowerCase() === 'true' || String(v).trim() === '1'
+    },
+
+    isCompetitionTrackEnabled (track) {
+      if (!this.hasAnyEnabledTrackCountdown()) return true
+      return this.isTrackWindowFlagEnabled(this.getTrackTimeWindow(track))
+    },
+
+    isTrackExamDownloadOpen (track) {
+      void this.countdownNowMs
+      if (!this.isCompetitionTrackEnabled(track)) return false
+      const w = this.getTrackTimeWindow(track)
+      if (!w || w.enabled !== true) return true
+      const openMs = w.download_open_at ? new Date(w.download_open_at).getTime() : NaN
+      if (Number.isFinite(openMs) && this.countdownNowMs < openMs) return false
+      return true
+    },
+
+    isTrackInSubmitWindow (track) {
+      void this.countdownNowMs
+      if (!this.hasAnyEnabledTrackCountdown()) return true
+      if (!this.isCompetitionTrackEnabled(track)) return false
+      if (this.isTrackSubmitClosed(track)) return false
+      const w = this.getTrackTimeWindow(track)
+      const openMs = w && w.download_open_at ? new Date(w.download_open_at).getTime() : NaN
+      if (Number.isFinite(openMs) && this.countdownNowMs < openMs) return false
+      return true
+    },
+
+    getTrackSubmitBlockReason (track) {
+      void this.countdownNowMs
+      const c = this.activeCompetition
+      const s = c && c.status != null ? String(c.status).toLowerCase() : ''
+      if (s === 'ended') {
+        return { title: '比赛结束，无法提交作品', content: '比赛结束，无法提交作品。' }
+      }
+      const t = track != null ? String(track).trim().toLowerCase() : ''
+      if (!t || !this.hasAnyEnabledTrackCountdown()) return null
+      if (this.isTrackSubmitClosed(t)) {
+        return { title: '比赛结束，无法提交作品', content: '比赛结束，无法提交作品。' }
+      }
+      if (!this.isTrackInSubmitWindow(t)) {
+        return { title: '不在竞赛时间段无法提交', content: '不在竞赛时间段无法提交。' }
+      }
+      return null
+    },
+
+    warnIfTrackSubmitBlocked (track) {
+      const reason = this.getTrackSubmitBlockReason(track)
+      if (!reason) return false
+      this.$warning({
+        title: reason.title,
+        content: reason.content,
+        okText: '知道了',
+        zIndex: 5200,
+        wrapClassName: 'exam-countdown-warn-wrap'
+      })
+      return true
+    },
+
+    getTrackSubmitCloseMs (track) {
+      const w = this.getTrackTimeWindow(track)
+      if (this.isTrackWindowFlagEnabled(w) && w.submit_close_at) {
+        const ms = new Date(w.submit_close_at).getTime()
+        if (Number.isFinite(ms)) return ms
+      }
+      const c = this.activeCompetition
+      if (c && c.end_at) {
+        const ms = new Date(c.end_at).getTime()
+        if (Number.isFinite(ms)) return ms
+      }
+      return NaN
+    },
+
+    isTrackSubmitClosed (track) {
+      void this.countdownNowMs
+      const w = this.getTrackTimeWindow(track)
+      if (!this.isTrackWindowFlagEnabled(w)) return false
+      const closeMs = w.submit_close_at ? new Date(w.submit_close_at).getTime() : NaN
+      if (Number.isFinite(closeMs) && this.countdownNowMs >= closeMs) return true
+      return false
+    },
+
+    startTrackCountdownTimer () {
+      this.stopTrackCountdownTimer()
+      this.tickTrackCountdown()
+      this._countdownTimer = setInterval(() => this.tickTrackCountdown(), 1000)
+    },
+
+    stopTrackCountdownTimer () {
+      if (this._countdownTimer) {
+        clearInterval(this._countdownTimer)
+        this._countdownTimer = null
+      }
+    },
+
+    tickTrackCountdown () {
+      this.countdownNowMs = Date.now()
+      const visible = !!this.canShowExamPaperDownload
+      if (this._lastDownloadToolbarVisible !== visible) {
+        this._lastDownloadToolbarVisible = visible
+        this.$emit('exam-papers-changed')
+      }
+      this.maybeWarnTrackEndingSoon()
+      this.updateExamCountdownWarnRemain()
+      this.closeExamCountdownWarnIfExpired()
+    },
+
+    maybeWarnTrackEndingSoon () {
+      if (!this.standaloneDetailMode || !this.isStudent || !this.hasAnyEnrollment) return
+      const cid = this.activeCompetitionId
+      if (cid == null) return
+      let tracks = (this.myEnrolledWorkTracks || []).filter(t => t === 'software' || t === 'hardware' || t === 'works')
+      if (!tracks.length) {
+        const fallback = this.activeEnrollmentWorkTrack
+        if (fallback === 'software' || fallback === 'hardware' || fallback === 'works') {
+          tracks = [fallback]
+        }
+      }
+      const thresholds = [30, 20, 10, 5, 1]
+      if (!this._examCdWarnedKeys) this._examCdWarnedKeys = {}
+      tracks.forEach((track) => {
+        if (!this.isCompetitionTrackEnabled(track)) return
+        const closeMs = this.getTrackSubmitCloseMs(track)
+        if (!Number.isFinite(closeMs)) return
+        const remainMs = closeMs - this.countdownNowMs
+        if (remainMs <= 0) return
+        const remainMin = remainMs / 60000
+        let hit = null
+        if (remainMin <= 1) hit = 1
+        else if (remainMin <= 5) hit = 5
+        else if (remainMin <= 10) hit = 10
+        else if (remainMin <= 20) hit = 20
+        else if (remainMin <= 30) hit = 30
+        if (!hit || !thresholds.includes(hit)) return
+        const key = `${cid}_${track}_${hit}`
+        if (this._examCdWarnedKeys[key]) return
+        this._examCdWarnedKeys[key] = true
+        if (this.examCountdownWarnTrack === track && (this.showExamCountdownWarnModal || this._examCountdownWarnModal)) {
+          return
+        }
+        this.showExamCountdownWarn(track, closeMs)
+      })
+    },
+
+    formatCountdownRemain (ms) {
+      const total = Math.max(0, Math.floor(Number(ms) / 1000))
+      const h = Math.floor(total / 3600)
+      const m = Math.floor((total % 3600) / 60)
+      const s = total % 60
+      const pad = (n) => String(n).padStart(2, '0')
+      if (h > 0) return `${h}小时${pad(m)}分${pad(s)}秒`
+      return `${m}分${pad(s)}秒`
+    },
+
+    buildExamCountdownWarnText (track, remainMs) {
+      const label = this.workTrackDisplayLabel(track) + '赛道'
+      if (!(remainMs > 0)) return `${label}比赛已结束，无法提交作品。`
+      return `${label}距离结束还剩 ${this.formatCountdownRemain(remainMs)}，请尽快提交作品。`
+    },
+
+    closeExamCountdownWarn () {
+      this.showExamCountdownWarnModal = false
+      this.examCountdownWarnCloseMs = null
+      this.examCountdownWarnTrack = null
+      const inst = this._examCountdownWarnModal
+      this._examCountdownWarnModal = null
+      if (inst && typeof inst.destroy === 'function') {
+        try { inst.destroy() } catch (e) { /* ignore */ }
+      }
+    },
+
+    closeExamCountdownWarnIfExpired () {
+      if (!this.showExamCountdownWarnModal && !this._examCountdownWarnModal) return
+      if (this.competitionEnded) {
+        this.closeExamCountdownWarn()
+        return
+      }
+      const closeMs = this.examCountdownWarnCloseMs
+      if (Number.isFinite(closeMs) && this.countdownNowMs >= closeMs) {
+        this.closeExamCountdownWarn()
+      }
+    },
+
+    updateExamCountdownWarnRemain () {
+      if (!this.showExamCountdownWarnModal && !this._examCountdownWarnModal) return
+      const closeMs = this.examCountdownWarnCloseMs
+      const track = this.examCountdownWarnTrack
+      if (!Number.isFinite(closeMs) || !track) return
+      const remainMs = closeMs - this.countdownNowMs
+      if (remainMs <= 0) return
+      const msg = this.buildExamCountdownWarnText(track, remainMs)
+      this.examCountdownWarnText = msg
+      const inst = this._examCountdownWarnModal
+      if (inst && typeof inst.update === 'function') {
+        try { inst.update({ content: msg }) } catch (e) { /* ignore */ }
+      }
+    },
+
+    showExamCountdownWarn (track, closeMs) {
+      const t = track != null ? String(track).trim().toLowerCase() : ''
+      if (!t || !Number.isFinite(closeMs)) return
+      const remainMs = closeMs - Date.now()
+      const msg = this.buildExamCountdownWarnText(t, remainMs)
+      this.closeExamCountdownWarn()
+      this.examCountdownWarnTrack = t
+      this.examCountdownWarnText = msg
+      this.examCountdownWarnCloseMs = closeMs
+      this.showExamCountdownWarnModal = true
+      try {
+        this._examCountdownWarnModal = this.$warning({
+          title: '比赛即将结束',
+          content: msg,
+          okText: '知道了',
+          zIndex: 10000,
+          centered: true,
+          maskClosable: true,
+          wrapClassName: 'exam-countdown-warn-wrap',
+          getContainer: () => document.body,
+          onOk: () => {
+            this._examCountdownWarnModal = null
+            this.showExamCountdownWarnModal = false
+            this.examCountdownWarnCloseMs = null
+            this.examCountdownWarnTrack = null
+          }
+        })
+      } catch (e) {
+        this._examCountdownWarnModal = null
+      }
     },
 
     revokeEditCurrentQrPreviews () {
@@ -10174,6 +10620,11 @@ export default {
           if (finalStartISO !== (o.final_start_at || null)) changes.final_start_at = finalStartISO
           if (finalEndISO !== (o.final_end_at || null)) changes.final_end_at = finalEndISO
         }
+
+        const nextWindows = this.serializeTrackCountdown(form.track_countdown)
+        if (this.trackCountdownFingerprint(nextWindows) !== this.trackCountdownFingerprint(o.track_countdown)) {
+          changes.track_time_windows = nextWindows
+        }
       } else {
         const name = (form.name || '').trim()
         if (name) changes.name = name
@@ -10211,6 +10662,8 @@ export default {
           fd.append(key, '')
         } else if (typeof v === 'boolean') {
           fd.append(key, v ? 'true' : 'false')
+        } else if (typeof v === 'object') {
+          fd.append(key, JSON.stringify(v))
         } else {
           fd.append(key, String(v))
         }
@@ -10279,7 +10732,8 @@ export default {
           allow_individual: false,
           allow_team: !!comp.allow_team,
           division_mode: comp.division_mode || 'single',
-          qr_layout: comp.qr_layout || 'shared'
+          qr_layout: comp.qr_layout || 'shared',
+          track_countdown: this.serializeTrackCountdown(this.parseTrackCountdownFromCompetition(comp))
         }
         : null
 
@@ -10301,7 +10755,8 @@ export default {
         allow_individual: false,
         allow_team: comp ? !!comp.allow_team : false,
         division_mode: comp ? (comp.division_mode || 'single') : 'single',
-        qr_layout: comp ? (comp.qr_layout || 'shared') : 'shared'
+        qr_layout: comp ? (comp.qr_layout || 'shared') : 'shared',
+        track_countdown: this.parseTrackCountdownFromCompetition(comp)
       }
     },
 
@@ -11758,6 +12213,7 @@ export default {
     },
 
     async submitAllQuestionAnswers () {
+      if (this.warnIfTrackSubmitBlocked(this.activeEnrollmentWorkTrack)) return
       if (this.hasFormalSubmittedQuestionAnswers) {
         this.$message.warning('作品已正式提交，无法再提交')
         return
@@ -13459,5 +13915,9 @@ export default {
 <style>
 .exam-paper-download-modal-wrap .exam-paper-download-item__title {
   color: #000 !important;
+}
+.exam-countdown-warn-wrap,
+.exam-countdown-warn-wrap.ant-modal-wrap {
+  z-index: 10001 !important;
 }
 </style>

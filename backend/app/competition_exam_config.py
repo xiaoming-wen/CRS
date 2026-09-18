@@ -30,6 +30,131 @@ def dumps_json(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
 
+def _iso_or_none(raw: Any) -> Optional[str]:
+    if raw is None:
+        return None
+    if hasattr(raw, "isoformat"):
+        try:
+            return raw.isoformat()
+        except Exception:
+            return None
+    s = str(raw).strip()
+    return s or None
+
+
+def normalize_track_time_windows(raw: Any) -> Dict[str, Dict[str, Any]]:
+    data = _as_dict(raw)
+    out: Dict[str, Dict[str, Any]] = {}
+    for track in WORK_TRACKS:
+        item = data.get(track)
+        if not isinstance(item, dict):
+            item = {}
+        enabled = item.get("enabled") is True or str(item.get("enabled") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+        open_at = _iso_or_none(item.get("download_open_at") or item.get("start_at"))
+        close_at = _iso_or_none(item.get("submit_close_at") or item.get("end_at"))
+        out[track] = {
+            "enabled": bool(enabled),
+            "download_open_at": open_at,
+            "submit_close_at": close_at,
+        }
+    return out
+
+
+def get_track_time_windows_map(competition) -> Dict[str, Dict[str, Any]]:
+    return normalize_track_time_windows(getattr(competition, "track_time_windows", None))
+
+
+def dumps_track_time_windows(raw: Any) -> str:
+    if raw is not None and hasattr(raw, "model_dump"):
+        raw = raw.model_dump()
+    return dumps_json(normalize_track_time_windows(raw))
+
+
+def get_track_time_window(competition, work_track: Optional[str]) -> Dict[str, Any]:
+    track = str(work_track or "").strip().lower()
+    windows = get_track_time_windows_map(competition)
+    return windows.get(track) or {"enabled": False, "download_open_at": None, "submit_close_at": None}
+
+
+def _parse_window_dt(raw: Any):
+    if raw is None or raw == "":
+        return None
+    from datetime import datetime, timezone
+
+    from app.datetime_utils import ensure_utc
+
+    if isinstance(raw, datetime):
+        return ensure_utc(raw)
+    s = str(raw).strip()
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    return ensure_utc(dt)
+
+
+def any_track_time_window_enabled(competition) -> bool:
+    windows = get_track_time_windows_map(competition)
+    return any(bool((w or {}).get("enabled")) for w in windows.values())
+
+
+def is_track_exam_download_open(competition, work_track: Optional[str]) -> bool:
+    """未勾选任何赛道倒计时时不额外限制。
+
+    一旦勾选了至少一个赛道：未勾选赛道不可下载；勾选赛道须到达 download_open_at。
+    """
+    win = get_track_time_window(competition, work_track)
+    if any_track_time_window_enabled(competition) and not win.get("enabled"):
+        return False
+    if not win.get("enabled"):
+        return True
+    from app.datetime_utils import utc_now
+
+    open_at = _parse_window_dt(win.get("download_open_at"))
+    if open_at is not None and utc_now() < open_at:
+        return False
+    return True
+
+
+def is_track_submit_closed(competition, work_track: Optional[str]) -> bool:
+    """启用赛道倒计时且已到/过 submit_close_at 则禁止提交。"""
+    win = get_track_time_window(competition, work_track)
+    if not win.get("enabled"):
+        return False
+    from app.datetime_utils import utc_now
+
+    close_at = _parse_window_dt(win.get("submit_close_at"))
+    if close_at is not None and utc_now() >= close_at:
+        return True
+    return False
+
+
+def is_track_in_submit_window(competition, work_track: Optional[str]) -> bool:
+    """当前是否处于该赛道可提交时间段 [开始, 结束)。
+
+    未勾选任何赛道倒计时时不限制。勾选后：未勾选赛道、未到开始、已过结束均不在时间段内。
+    """
+    if not any_track_time_window_enabled(competition):
+        return True
+    win = get_track_time_window(competition, work_track)
+    if not win.get("enabled"):
+        return False
+    if is_track_submit_closed(competition, work_track):
+        return False
+    from app.datetime_utils import utc_now
+
+    open_at = _parse_window_dt(win.get("download_open_at"))
+    if open_at is not None and utc_now() < open_at:
+        return False
+    return True
+
+
 def default_track_question_config(question_count: int = 5) -> Dict[str, Any]:
     n = max(1, min(MAX_QUESTION_COUNT, int(question_count) or 5))
     questions = [

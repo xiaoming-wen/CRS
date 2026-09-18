@@ -549,6 +549,18 @@ class SubmissionStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class CompetitionTrackTimeWindow(BaseModel):
+    enabled: bool = False
+    download_open_at: OptionalUtcDatetime = None
+    submit_close_at: OptionalUtcDatetime = None
+
+
+class CompetitionTrackTimeWindows(BaseModel):
+    works: Optional[CompetitionTrackTimeWindow] = None
+    software: Optional[CompetitionTrackTimeWindow] = None
+    hardware: Optional[CompetitionTrackTimeWindow] = None
+
+
 class CompetitionBase(BaseModel):
     name: str
     description: Optional[str] = None
@@ -585,6 +597,23 @@ class CompetitionCreate(CompetitionBase):
         None,
         description="stage_mode=prelim_final 时决赛结束时间",
     )
+    track_time_windows: Optional[CompetitionTrackTimeWindows] = Field(
+        None,
+        description="按赛道倒计时：download_open_at 起可下载试卷，submit_close_at 后禁止提交",
+    )
+
+    @field_validator("track_time_windows", mode="before")
+    @classmethod
+    def parse_create_track_time_windows(cls, v: Any) -> Any:
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            import json
+            try:
+                return json.loads(v)
+            except Exception:
+                return None
+        return v
 
 
 class CompetitionUpdate(BaseModel):
@@ -615,6 +644,23 @@ class CompetitionUpdate(BaseModel):
         None,
         description="初赛竞赛：更新关联决赛的结束时间",
     )
+    track_time_windows: Optional[CompetitionTrackTimeWindows] = Field(
+        None,
+        description="按赛道倒计时窗口",
+    )
+
+    @field_validator("track_time_windows", mode="before")
+    @classmethod
+    def parse_update_track_time_windows(cls, v: Any) -> Any:
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            import json
+            try:
+                return json.loads(v)
+            except Exception:
+                return None
+        return v
 
 
 class CompetitionResponse(CompetitionBase):
@@ -654,6 +700,27 @@ class CompetitionResponse(CompetitionBase):
         None,
         description="分题配置（works / software / hardware；作品赛道仅用于专家评分）",
     )
+    track_time_windows: Optional[Dict[str, Any]] = Field(
+        None,
+        description="按赛道倒计时 {software:{enabled,download_open_at,submit_close_at},...}",
+    )
+
+    @field_validator("track_time_windows", mode="before")
+    @classmethod
+    def parse_track_time_windows(cls, v: Any) -> Any:
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            import json
+
+            try:
+                parsed = json.loads(v)
+            except Exception:
+                return None
+            return parsed if isinstance(parsed, dict) else None
+        if hasattr(v, "model_dump"):
+            return v.model_dump()
+        return v
 
     @field_validator("submission_question_config", mode="before")
     @classmethod
