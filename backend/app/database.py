@@ -2,6 +2,8 @@
 统一数据库配置
 支持多个数据库连接（SQLite / MySQL 等）
 """
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
@@ -17,6 +19,10 @@ def _make_engine(url: str):
     }
     if not is_sqlite:
         kwargs["pool_pre_ping"] = True
+        kwargs["pool_size"] = int(os.getenv("DB_POOL_SIZE", "8") or 8)
+        kwargs["max_overflow"] = int(os.getenv("DB_MAX_OVERFLOW", "16") or 16)
+        kwargs["pool_timeout"] = int(os.getenv("DB_POOL_TIMEOUT", "30") or 30)
+        kwargs["pool_recycle"] = int(os.getenv("DB_POOL_RECYCLE", "1800") or 1800)
     return create_engine(url, **kwargs)
 
 

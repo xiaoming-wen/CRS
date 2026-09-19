@@ -10,7 +10,13 @@ _is_sqlite = "sqlite" in ALT_AUTH_DATABASE_URL.lower()
 _connect_args = {"check_same_thread": False} if _is_sqlite else {}
 _engine_kwargs = {"connect_args": _connect_args}
 if not _is_sqlite:
+    from app.alt_auth.settings import DB_MAX_OVERFLOW, DB_POOL_RECYCLE, DB_POOL_SIZE, DB_POOL_TIMEOUT
+
     _engine_kwargs["pool_pre_ping"] = True
+    _engine_kwargs["pool_size"] = max(1, DB_POOL_SIZE)
+    _engine_kwargs["max_overflow"] = max(0, DB_MAX_OVERFLOW)
+    _engine_kwargs["pool_timeout"] = max(5, DB_POOL_TIMEOUT)
+    _engine_kwargs["pool_recycle"] = max(60, DB_POOL_RECYCLE)
 
 engine = create_engine(ALT_AUTH_DATABASE_URL, **_engine_kwargs)
 

@@ -78,6 +78,16 @@ logger.info("CORS allow_origins=%s", CORS_ALLOW_ORIGINS)
 
 @app.on_event("startup")
 async def startup_event():
+    try:
+        from anyio.to_thread import current_default_thread_limiter
+
+        # 高峰登录 bcrypt 走线程池；默认额度过小会把 2000 人排队拖死
+        current_default_thread_limiter().total_tokens = int(
+            os.getenv("LOGIN_THREADPOOL_SIZE", "64") or 64
+        )
+    except Exception as e:
+        logging.getLogger(__name__).warning("threadpool limiter skip: %s", e)
+
     from app.database import UserBase, user_engine
 
     import app.models.user as _user_models  # noqa: F401

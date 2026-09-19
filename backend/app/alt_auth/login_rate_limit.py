@@ -1,7 +1,7 @@
 """
 登录限流（进程内内存）：
-- 同 IP：滑动窗口内尝试次数上限
-- 同用户名：连续失败达到阈值后临时锁定
+- 同 IP：滑动窗口内尝试次数上限（默认放宽，适配校园网 NAT 集中登录）
+- 同用户名：窗口内尝试上限 + 连续失败达到阈值后临时锁定
 
 多进程/多机部署时各进程独立计数；需要全局一致请改 Redis。
 """
@@ -16,12 +16,18 @@ from app.alt_auth import settings as alt_settings
 
 _lock = threading.Lock()
 _ip_hits: Dict[str, Deque[float]] = defaultdict(deque)
+_user_hits: Dict[str, Deque[float]] = defaultdict(deque)
 _user_fails: Dict[str, int] = defaultdict(int)
 _user_locked_until: Dict[str, float] = {}
 
 
 def _now() -> float:
     return time.time()
+
+
+def _prune(q: Deque[float], cutoff: float) -> None:
+    while q and q[0] < cutoff:
+        q.popleft()
 
 
 def client_ip_from_headers(x_forwarded_for: Optional[str], fallback: Optional[str]) -> str:
@@ -39,7 +45,9 @@ def check_login_allowed(*, ip: str, username: str) -> Optional[str]:
     ip = (ip or "unknown").strip() or "unknown"
     uname = (username or "").strip().lower()
     window = max(10, int(getattr(alt_settings, "LOGIN_IP_WINDOW_SECONDS", 60) or 60))
-    ip_max = max(1, int(getattr(alt_settings, "LOGIN_IP_MAX_ATTEMPTS", 20) or 20))
+    ip_max = max(1, int(getattr(alt_settings, "LOGIN_IP_MAX_ATTEMPTS", 10000) or 10000))
+    user_window = max(10, int(getattr(alt_settings, "LOGIN_USER_WINDOW_SECONDS", 60) or 60))
+    user_max = max(1, int(getattr(alt_settings, "LOGIN_USER_MAX_ATTEMPTS", 20) or 20))
 
     now = _now()
     with _lock:
@@ -53,11 +61,15 @@ def check_login_allowed(*, ip: str, username: str) -> Optional[str]:
                 _user_locked_until.pop(uname, None)
                 _user_fails.pop(uname, None)
 
-        # IP 滑动窗口
+            uq = _user_hits[uname]
+            _prune(uq, now - user_window)
+            if len(uq) >= user_max:
+                return "该账号尝试过于频繁，请稍后再试"
+            uq.append(now)
+
+        # IP 滑动窗口（NAT 出口会汇总大量真实用户，阈值需明显高于单机）
         q = _ip_hits[ip]
-        cutoff = now - window
-        while q and q[0] < cutoff:
-            q.popleft()
+        _prune(q, now - window)
         if len(q) >= ip_max:
             return "尝试过于频繁，请稍后再试"
 

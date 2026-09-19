@@ -11,6 +11,7 @@ from datetime import timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -441,7 +442,20 @@ async def alt_identity_login(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        if not verify_password_plain(body.password, row.hashed_password):
+        hashed_password = row.hashed_password
+        user_id = row.id
+        stored_username = (row.username or "").strip()
+        stored_account = (row.account or "").strip()
+        full_name = row.full_name
+        school = row.school
+        role_out = _normalize_stored_role(row.role)
+        expert_verified = bool(getattr(row, "expert_verified", False))
+        is_active = bool(getattr(row, "is_active", True))
+        expert_feedback = str(getattr(row, "expert_review_feedback", None) or "").strip()
+        # 高峰登录：先释放数据库连接，再做耗 CPU 的 bcrypt，避免 2000 人同时占满连接池
+        db.close()
+
+        if not await run_in_threadpool(verify_password_plain, body.password, hashed_password):
             record_login_failure(username=uname)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -449,13 +463,9 @@ async def alt_identity_login(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        role_out = _normalize_stored_role(row.role)
-        expert_verified = bool(getattr(row, "expert_verified", False))
-        is_active = bool(getattr(row, "is_active", True))
-
         # 专家核验未通过：提示驳回原因，并引导重新注册
         if role_out == UserRole.EXPERT.value and (not expert_verified) and (not is_active):
-            reason = str(getattr(row, "expert_review_feedback", None) or "").strip() or "未说明"
+            reason = expert_feedback or "未说明"
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"账号核验未通过，原因是（{reason}）。请重新注册。",
@@ -474,19 +484,19 @@ async def alt_identity_login(
             )
 
         clear_login_failures(username=uname)
-        login_name = (row.username or "").strip() or (row.account or "").strip()
+        login_name = stored_username or stored_account
         token_str, _ttl = issue_access_token(
-            user_id=row.id, username=login_name, role=role_out
+            user_id=user_id, username=login_name, role=role_out
         )
 
         return AltAuthLoginResult(
             access_token=token_str,
             token_type="bearer",
-            user_id=row.id,
+            user_id=user_id,
             role=role_out,
             username=login_name or None,
-            full_name=row.full_name,
-            school=row.school,
+            full_name=full_name,
+            school=school,
         )
     except HTTPException:
         raise

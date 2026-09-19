@@ -49,7 +49,16 @@ SMS_CODE_RESEND_INTERVAL_SECONDS: int = int(
 )
 
 # 登录限流（进程内内存；多进程各自独立）
-LOGIN_IP_MAX_ATTEMPTS: int = int(os.getenv("LOGIN_IP_MAX_ATTEMPTS", "20") or 20)
-LOGIN_IP_WINDOW_SECONDS: int = int(os.getenv("LOGIN_IP_WINDOW_SECONDS", "60") or 60)
+# 按约 2000 人同时从同一 NAT 登录预留余量（含重试）；暴力破解靠用户名窗口 + 失败锁定。
+LOGIN_IP_MAX_ATTEMPTS: int = int(os.getenv("LOGIN_IP_MAX_ATTEMPTS", "10000") or 10000)
+LOGIN_IP_WINDOW_SECONDS: int = int(os.getenv("LOGIN_IP_WINDOW_SECONDS", "120") or 120)
+LOGIN_USER_MAX_ATTEMPTS: int = int(os.getenv("LOGIN_USER_MAX_ATTEMPTS", "20") or 20)
+LOGIN_USER_WINDOW_SECONDS: int = int(os.getenv("LOGIN_USER_WINDOW_SECONDS", "60") or 60)
 LOGIN_MAX_FAILS_BEFORE_LOCK: int = int(os.getenv("LOGIN_MAX_FAILS_BEFORE_LOCK", "5") or 5)
 LOGIN_LOCK_MINUTES: int = int(os.getenv("LOGIN_LOCK_MINUTES", "15") or 15)
+
+# 每个 uvicorn worker 的连接池；总连接 ≈ workers × (pool_size + max_overflow)，须小于 MySQL max_connections
+DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "8") or 8)
+DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "16") or 16)
+DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "30") or 30)
+DB_POOL_RECYCLE: int = int(os.getenv("DB_POOL_RECYCLE", "1800") or 1800)

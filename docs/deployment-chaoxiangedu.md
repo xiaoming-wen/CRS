@@ -71,8 +71,13 @@ npm run build
 ```bash
 cd backend
 pip install -r requirements.txt
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+# 约 2000 人同时登录：按 CPU 核数开 worker（建议 8，不要 --reload）
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 8 --timeout-keep-alive 75 --limit-concurrency 400
 ```
+
+MySQL 请确认 `max_connections` 不小于约 **300**（公式：`workers × (DB_POOL_SIZE + DB_MAX_OVERFLOW)`，默认 8×(8+16)=192，两套库再留余量）。
+
+高峰时 2000 人同一秒点登录仍会排队（密码校验吃 CPU），一般几十秒内陆续成功；Nginx 读超时需 ≥ 120 秒。
 
 建议使用 systemd / supervisor 常驻进程。启动后本机可验证：
 
@@ -89,6 +94,14 @@ curl http://127.0.0.1:8000/
 **隐藏 Nginx 版本号（全局）：** 在 `/etc/nginx/nginx.conf` 的 `http { }` 内增加一行：
 
 ```nginx
+worker_processes auto;
+worker_rlimit_nofile 16384;
+
+events {
+    worker_connections 8192;
+    multi_accept on;
+}
+
 http {
     server_tokens off;
     # ...
@@ -173,6 +186,11 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
         client_max_body_size 100m;
         # API 也带上安全头（proxy 场景用 always）
         add_header X-Frame-Options "SAMEORIGIN" always;
