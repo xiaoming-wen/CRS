@@ -21,7 +21,7 @@ def _make_engine(url: str):
         kwargs["pool_pre_ping"] = True
         kwargs["pool_size"] = int(os.getenv("DB_POOL_SIZE", "8") or 8)
         kwargs["max_overflow"] = int(os.getenv("DB_MAX_OVERFLOW", "16") or 16)
-        kwargs["pool_timeout"] = int(os.getenv("DB_POOL_TIMEOUT", "30") or 30)
+        kwargs["pool_timeout"] = int(os.getenv("DB_POOL_TIMEOUT", "25") or 25)
         kwargs["pool_recycle"] = int(os.getenv("DB_POOL_RECYCLE", "1800") or 1800)
     return create_engine(url, **kwargs)
 

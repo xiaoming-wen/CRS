@@ -2,11 +2,12 @@
 第二套认证的独立配置项（仅从环境变量读取，不读写 app.config.Settings）。
 """
 import os
+from pathlib import Path
 
 try:
     from dotenv import load_dotenv
 
-    load_dotenv()
+    load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env", override=True)
 except Exception:
     pass
 
@@ -60,5 +61,5 @@ LOGIN_LOCK_MINUTES: int = int(os.getenv("LOGIN_LOCK_MINUTES", "15") or 15)
 # 每个 uvicorn worker 的连接池；总连接 ≈ workers × (pool_size + max_overflow)，须小于 MySQL max_connections
 DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "8") or 8)
 DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "16") or 16)
-DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "30") or 30)
+DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "25") or 25)
 DB_POOL_RECYCLE: int = int(os.getenv("DB_POOL_RECYCLE", "1800") or 1800)

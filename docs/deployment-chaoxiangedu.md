@@ -72,10 +72,10 @@ npm run build
 cd backend
 pip install -r requirements.txt
 # 约 2000 人同时登录：按 CPU 核数开 worker（建议 8，不要 --reload）
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 8 --timeout-keep-alive 75 --limit-concurrency 400
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 8 --timeout-keep-alive 75 --limit-concurrency 1500
 ```
 
-MySQL 请确认 `max_connections` 不小于约 **300**（公式：`workers × (DB_POOL_SIZE + DB_MAX_OVERFLOW)`，默认 8×(8+16)=192，两套库再留余量）。
+MySQL `max_connections` 建议 **800**（本机 5.7 写在 `C:\ProgramData\MySQL\MySQL Server 5.7\my.ini` 的 `[mysqld]`；Linux 一般是 `/etc/my.cnf`）。改完需重启 mysqld 才持久生效。只允许一套 uvicorn。连接池公式：`workers × 库套数 × (DB_POOL_SIZE + DB_MAX_OVERFLOW)`，默认 8×2×(8+16)=384，须小于 `max_connections`。
 
 高峰时 2000 人同一秒点登录仍会排队（密码校验吃 CPU），一般几十秒内陆续成功；Nginx 读超时需 ≥ 120 秒。
 
@@ -179,6 +179,26 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
+    # 试卷下载（约 20MB×高峰人数）：不在 Nginx 里整包缓冲，超时加长
+    location ~ ^/api/v1/competitions/[0-9]+/exam-papers/download {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_max_temp_file_size 0;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 180s;
+        proxy_read_timeout 180s;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    }
+
     # 后端 API
     location /api/ {
         proxy_pass http://127.0.0.1:8000/api/;
@@ -189,8 +209,8 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_connect_timeout 10s;
-        proxy_send_timeout 120s;
-        proxy_read_timeout 120s;
+        proxy_send_timeout 180s;
+        proxy_read_timeout 180s;
         client_max_body_size 100m;
         # API 也带上安全头（proxy 场景用 always）
         add_header X-Frame-Options "SAMEORIGIN" always;

@@ -1,4 +1,8 @@
 .env
+
+# 本机压测生成物（账号花名册、假答案），勿提交
+scripts/loadtest_submit_roster.json
+loadtest_dummy_answer.txt
 # Windows 下错误使用 > nul 重定向时，有时会在目录里生成名为 nul 的空文件（非项目代码）
 nul
 NUL

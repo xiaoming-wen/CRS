@@ -128,6 +128,18 @@ from app.schemas import (
     SubmissionForStudentScoreResponse,
 )
 
+
+def _release_db_sessions(*sessions: Optional[Session]) -> None:
+    """发文件前归还连接，避免 FileResponse / StreamingResponse 期间一直占着池。"""
+    for session in sessions:
+        if session is None:
+            continue
+        try:
+            session.close()
+        except Exception:
+            pass
+
+
 router = APIRouter(prefix="/competitions", tags=["Competition Management"])
 logger = logging.getLogger(__name__)
 
@@ -3871,6 +3883,7 @@ async def get_competition_qr_code(
         description="dual 且 qr_layout=separate 时必填：undergraduate | vocational",
     ),
     db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
     identity: Optional[AltAuthUserRecord] = Depends(get_optional_alt_identity),
 ):
     """
@@ -3906,6 +3919,7 @@ async def get_competition_qr_code(
         mtime = int(os.path.getmtime(fs_path))
     except OSError:
         mtime = 0
+    _release_db_sessions(db, adb)
     return FileResponse(
         path=fs_path,
         filename=os.path.basename(fs_path),
@@ -3923,6 +3937,7 @@ async def get_competition_qr_code(
 async def get_competition_logo(
     competition_id: int,
     db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
     identity: Optional[AltAuthUserRecord] = Depends(get_optional_alt_identity),
 ):
     """
@@ -3948,6 +3963,7 @@ async def get_competition_logo(
         mtime = int(os.path.getmtime(fs_path))
     except OSError:
         mtime = 0
+    _release_db_sessions(db, adb)
     return FileResponse(
         path=fs_path,
         filename=os.path.basename(fs_path),
@@ -4183,6 +4199,7 @@ async def download_competition_exam_paper(
     division: Optional[str] = Query(None, description="undergraduate / vocational"),
     work_track: Optional[str] = Query(None, description="works / software / hardware"),
     db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     """
@@ -4229,6 +4246,7 @@ async def download_competition_exam_paper(
         raise HTTPException(status_code=404, detail="Exam paper file missing")
     download_name = filename or os.path.basename(fs_path)
     media_type, _ = mimetypes.guess_type(download_name)
+    _release_db_sessions(db, adb)
     return FileResponse(
         path=fs_path,
         filename=download_name,
@@ -4386,7 +4404,9 @@ async def download_school_admin_application_photo_self(
     fs_path = _resolve_school_admin_photo_fs_path(row.school_admin_photo_path)
     ext = os.path.splitext(fs_path)[1].lower()
     media = mimetypes.guess_type(fs_path)[0] or "application/octet-stream"
-    return FileResponse(path=fs_path, filename=f"school_admin_{row.id}{ext}", media_type=media)
+    uid = row.id
+    _release_db_sessions(adb)
+    return FileResponse(path=fs_path, filename=f"school_admin_{uid}{ext}", media_type=media)
 
 
 @router.get("/admin/school-admin-applications", response_model=SchoolAdminApplicationListResponse)
@@ -4482,7 +4502,9 @@ async def download_school_admin_application_photo_admin(
     fs_path = _resolve_school_admin_photo_fs_path(row.school_admin_photo_path)
     ext = os.path.splitext(fs_path)[1].lower()
     media = mimetypes.guess_type(fs_path)[0] or "application/octet-stream"
-    return FileResponse(path=fs_path, filename=f"school_admin_{row.id}{ext}", media_type=media)
+    uid = row.id
+    _release_db_sessions(adb)
+    return FileResponse(path=fs_path, filename=f"school_admin_{uid}{ext}", media_type=media)
 
 
 @router.put(
@@ -8490,6 +8512,18 @@ async def submit_team_question_answers(
     _assert_work_track_allows_question_answers(track)
     _ensure_competition_allows_submissions(competition, track)
 
+    already = (
+        db.query(CompetitionQuestionAnswer.id)
+        .filter(
+            CompetitionQuestionAnswer.competition_id == competition.id,
+            CompetitionQuestionAnswer.team_id == team_id,
+            CompetitionQuestionAnswer.status == CompetitionQuestionAnswerStatus.SUBMITTED,
+        )
+        .first()
+    )
+    if already:
+        raise HTTPException(status_code=400, detail="作品已正式提交，无法再次提交")
+
     rows = (
         db.query(CompetitionQuestionAnswer)
         .filter(
@@ -8501,12 +8535,6 @@ async def submit_team_question_answers(
     if not rows:
         raise HTTPException(status_code=400, detail="请先为至少一道题选择并保存答案文件")
 
-    if any(
-        (getattr(r, "status", None) or "") == CompetitionQuestionAnswerStatus.SUBMITTED
-        for r in rows
-    ):
-        raise HTTPException(status_code=400, detail="作品已正式提交，无法再次提交")
-
     now = utc_now()
     submitted_count = 0
     for row in rows:
@@ -8516,12 +8544,14 @@ async def submit_team_question_answers(
         submitted_count += 1
 
     db.commit()
-    board = _build_question_answers_board(db, competition.id, team_id)
+    cid = int(competition.id)
+    # 题目槽位由前端再 GET board，避免提交高峰再打一轮重查询
+    _release_db_sessions(db)
     return CompetitionQuestionAnswersSubmitResult(
-        competition_id=competition.id,
-        team_id=team_id,
+        competition_id=cid,
+        team_id=int(team_id),
         submitted_count=submitted_count,
-        slots=board.slots,
+        slots=[],
     )
 
 
@@ -8577,6 +8607,7 @@ async def export_question_answers_zip(
 
     filename = f"{_work_track_section_label(track)}.zip"
     headers = {"Content-Disposition": _content_disposition_attachment(filename)}
+    _release_db_sessions(db)
     return StreamingResponse(buffer, media_type="application/zip", headers=headers)
 
 
@@ -8585,6 +8616,7 @@ async def download_question_answer_file(
     competition_id: int,
     answer_id: int,
     db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
@@ -8622,10 +8654,12 @@ async def download_question_answer_file(
         work_track=work_track,
         original_filename=file_record.filename or os.path.basename(file_record.file_path),
     )
-
+    fs_path = file_record.file_path
+    media_type = file_record.mime_type or "application/octet-stream"
+    _release_db_sessions(db, adb)
     return FileResponse(
-        path=file_record.file_path,
-        media_type=file_record.mime_type or "application/octet-stream",
+        path=fs_path,
+        media_type=media_type,
         headers={"Content-Disposition": _content_disposition_attachment(download_name)},
     )
 
@@ -8930,6 +8964,7 @@ async def get_submission(
 async def download_submission_file(
     submission_id: int,
     db: Session = Depends(get_db),
+    adb: Session = Depends(get_alt_auth_db),
     identity: AltAuthUserRecord = Depends(get_current_alt_identity),
 ):
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
@@ -8948,10 +8983,13 @@ async def download_submission_file(
         raise HTTPException(status_code=404, detail="File missing on server")
 
     download_name = _submission_download_filename(db, submission, file_record)
+    fs_path = file_record.file_path
+    media_type = file_record.mime_type or "application/octet-stream"
+    _release_db_sessions(db, adb)
     return FileResponse(
-        path=file_record.file_path,
+        path=fs_path,
         filename=download_name,
-        media_type=file_record.mime_type or "application/octet-stream",
+        media_type=media_type,
     )
 
 

@@ -7,12 +7,23 @@
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections import defaultdict, deque
 from typing import Deque, Dict, Optional
 
 from app.alt_auth import settings as alt_settings
+
+
+def _int_setting(env_name: str, attr: str, default: int) -> int:
+    raw = os.getenv(env_name)
+    if raw is not None and str(raw).strip() != "":
+        try:
+            return int(str(raw).strip())
+        except ValueError:
+            pass
+    return int(getattr(alt_settings, attr, default) or default)
 
 _lock = threading.Lock()
 _ip_hits: Dict[str, Deque[float]] = defaultdict(deque)
@@ -44,10 +55,10 @@ def check_login_allowed(*, ip: str, username: str) -> Optional[str]:
     """
     ip = (ip or "unknown").strip() or "unknown"
     uname = (username or "").strip().lower()
-    window = max(10, int(getattr(alt_settings, "LOGIN_IP_WINDOW_SECONDS", 60) or 60))
-    ip_max = max(1, int(getattr(alt_settings, "LOGIN_IP_MAX_ATTEMPTS", 10000) or 10000))
-    user_window = max(10, int(getattr(alt_settings, "LOGIN_USER_WINDOW_SECONDS", 60) or 60))
-    user_max = max(1, int(getattr(alt_settings, "LOGIN_USER_MAX_ATTEMPTS", 20) or 20))
+    window = max(10, _int_setting("LOGIN_IP_WINDOW_SECONDS", "LOGIN_IP_WINDOW_SECONDS", 120))
+    ip_max = max(1, _int_setting("LOGIN_IP_MAX_ATTEMPTS", "LOGIN_IP_MAX_ATTEMPTS", 10000))
+    user_window = max(10, _int_setting("LOGIN_USER_WINDOW_SECONDS", "LOGIN_USER_WINDOW_SECONDS", 60))
+    user_max = max(1, _int_setting("LOGIN_USER_MAX_ATTEMPTS", "LOGIN_USER_MAX_ATTEMPTS", 20))
 
     now = _now()
     with _lock:

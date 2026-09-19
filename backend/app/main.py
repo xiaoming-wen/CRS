@@ -3,10 +3,12 @@
 """
 import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# 固定读 backend/.env，避免 worker 工作目录变化或进程里残留 LOGIN_IP_MAX_ATTEMPTS=20
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
 import uvicorn
 from fastapi import FastAPI
@@ -78,6 +80,14 @@ logger.info("CORS allow_origins=%s", CORS_ALLOW_ORIGINS)
 
 @app.on_event("startup")
 async def startup_event():
+    from app.alt_auth import settings as alt_settings
+
+    logger.info(
+        "login rate limit LOGIN_IP_MAX_ATTEMPTS=%s (env=%s) window=%ss",
+        alt_settings.LOGIN_IP_MAX_ATTEMPTS,
+        os.getenv("LOGIN_IP_MAX_ATTEMPTS"),
+        alt_settings.LOGIN_IP_WINDOW_SECONDS,
+    )
     try:
         from anyio.to_thread import current_default_thread_limiter
 
