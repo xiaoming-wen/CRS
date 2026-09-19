@@ -358,7 +358,8 @@ class CompetitionQuestionAnswer(Base):
     """
     队伍某道题的答案文件（每队每题至多一条，重新上传覆盖）。
     submitter_id 为实际上传的队员 alt_auth_users.id。
-    status=draft 时仅本队可见；点「上传作品」后变为 submitted，管理员/专家列表才显示。
+    status=draft 时仅本队可见；点「提交作品」后变为 submitted，管理员/专家列表才显示。
+    赛道提交截止或竞赛 ended 后，已有草稿会自动标为 submitted。
     """
 
     __tablename__ = "competition_question_answers"

@@ -1228,6 +1228,7 @@ def _get_competition(db: Session, competition_id: int) -> Competition:
     competition = db.query(Competition).filter(Competition.id == competition_id).first()
     if not competition:
         raise HTTPException(status_code=404, detail="Competition not found")
+    _auto_submit_draft_answers_past_deadline(db, competition)
     return competition
 
 
@@ -2177,6 +2178,63 @@ def _can_view_team_question_answers(
         .first()
         is not None
     )
+
+
+def _auto_submit_draft_answers_past_deadline(db: Session, competition: Competition) -> int:
+    """赛道提交截止或竞赛已结束后：已上传但未点「提交作品」的分题草稿自动视为正式提交。
+
+    作品赛道压缩包没有草稿态（点提交才上传），此处只处理软件/硬件分题答案。
+    """
+    from app.competition_exam_config import WORK_TRACKS, is_track_submit_closed
+
+    if competition is None:
+        return 0
+    ended = str(getattr(competition, "status", None) or "").lower() == "ended"
+    closed_tracks = {t for t in WORK_TRACKS if is_track_submit_closed(competition, t)}
+    if not ended and not closed_tracks:
+        return 0
+
+    drafts = (
+        db.query(CompetitionQuestionAnswer)
+        .filter(
+            CompetitionQuestionAnswer.competition_id == int(competition.id),
+            CompetitionQuestionAnswer.status == CompetitionQuestionAnswerStatus.DRAFT,
+        )
+        .all()
+    )
+    if not drafts:
+        return 0
+
+    team_ids = {int(r.team_id) for r in drafts if r.team_id is not None}
+    teams = db.query(Team).filter(Team.id.in_(team_ids)).all() if team_ids else []
+    team_by_id = {int(t.id): t for t in teams}
+
+    now = utc_now()
+    eligible_team_ids: set[int] = set()
+    for tid in team_ids:
+        team = team_by_id.get(tid)
+        track = _peek_team_work_track(db, int(competition.id), team)
+        if ended or (track and track in closed_tracks):
+            eligible_team_ids.add(tid)
+
+    if not eligible_team_ids:
+        return 0
+
+    n = 0
+    for row in drafts:
+        if int(row.team_id) not in eligible_team_ids:
+            continue
+        row.status = CompetitionQuestionAnswerStatus.SUBMITTED
+        if getattr(row, "submitted_at", None) is None:
+            row.submitted_at = now
+        n += 1
+    if n:
+        db.commit()
+        try:
+            db.refresh(competition)
+        except Exception:
+            pass
+    return n
 
 
 def _team_has_formal_submitted_answers(db: Session, competition_id: int, team_id: int) -> bool:

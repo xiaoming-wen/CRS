@@ -4956,19 +4956,22 @@ export default {
       return !!(this.canUploadQuestionAnswers && !this.hasFormalSubmittedQuestionAnswers)
     },
     questionAnswersSubmitHintText () {
-      if (this.currentTrackSubmitWindowBlocked) {
-        return this.competitionSubmissionBlockedTitle
+      if (this.hasFormalSubmittedQuestionAnswers) {
+        return '本队作品已正式提交，全队都不能再上传、删除或再次提交。'
       }
-      if (this.competitionEnded) {
-        return '竞赛已结束，无法提交作品。'
+      const hasDraftFiles = this.displayQuestionAnswerSlots.some((s) => s && s.uploaded && !s.submitted)
+      if (this.currentTrackSubmitWindowBlocked || this.competitionEnded) {
+        if (hasDraftFiles) {
+          return '提交时间已结束，已上传但未点「提交作品」的题目文件将自动作为正式提交。'
+        }
+        return this.competitionEnded
+          ? '竞赛已结束，无法提交作品。'
+          : this.competitionSubmissionBlockedTitle
       }
       if (this.competitionSubmissionBlocked) {
         return this.competitionSubmissionBlockedTitle
       }
-      if (this.hasFormalSubmittedQuestionAnswers) {
-        return '本队作品已正式提交，全队都不能再上传、删除或再次提交。'
-      }
-      return '同一队伍内队员上传的题目文件彼此可见，同题后传覆盖先传。请先确认各题文件齐全，再点击「提交作品」；在弹窗中确认后正式提交，提交后全队都不能再上传、删除或再次提交。'
+      return '同一队伍内队员上传的题目文件彼此可见，同题后传覆盖先传。请先确认各题文件齐全，再点击「提交作品」；在弹窗中确认后正式提交，提交后全队都不能再上传、删除或再次提交。若已上传题目文件但未点提交，赛道时间结束或竞赛结束后系统会按已上传文件自动提交。'
     },
     currentSubmissionTrackContext () {
       const scope = this.submissionMode === 'team' ? 'team' : 'individual'
@@ -10263,6 +10266,24 @@ export default {
       this.maybeWarnTrackEndingSoon()
       this.updateExamCountdownWarnRemain()
       this.closeExamCountdownWarnIfExpired()
+      this.maybeRefreshAnswersAfterSubmitDeadline()
+    },
+
+    maybeRefreshAnswersAfterSubmitDeadline () {
+      if (!this.isStudent || !this.hasAnyEnrollment) return
+      let tracks = (this.myEnrolledWorkTracks || []).filter((t) => t === 'software' || t === 'hardware')
+      if (!tracks.length) {
+        const fallback = this.activeEnrollmentWorkTrack
+        if (fallback === 'software' || fallback === 'hardware') tracks = [fallback]
+      }
+      const closed = this.competitionEnded || tracks.some((t) => this.isTrackSubmitClosed(t))
+      if (!closed) {
+        this._deadlineAnswersRefreshed = false
+        return
+      }
+      if (this._deadlineAnswersRefreshed) return
+      this._deadlineAnswersRefreshed = true
+      void this.refreshQuestionAnswersBoard()
     },
 
     maybeWarnTrackEndingSoon () {
