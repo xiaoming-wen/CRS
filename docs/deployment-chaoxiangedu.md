@@ -179,6 +179,26 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
+    # 答案导出（软件/硬件整包可能很大）：边收边转给浏览器，避免空等约 60 秒被断开
+    location ~ ^/api/v1/competitions/[0-9]+/question-answers/export {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        gzip off;
+        proxy_max_temp_file_size 0;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    }
+
     # 试卷下载（约 20MB×高峰人数）：不在 Nginx 里整包缓冲，超时加长
     location ~ ^/api/v1/competitions/[0-9]+/exam-papers/download {
         proxy_pass http://127.0.0.1:8000;

@@ -1,5 +1,8 @@
+import io
 import logging
 import mimetypes
+import queue
+import threading
 import zipfile
 from io import BytesIO
 
@@ -2658,6 +2661,60 @@ def _filter_teams_by_work_track(
     return out
 
 
+class _ZipChunkWriter(io.RawIOBase):
+    """把 ZipFile 写出的字节放进队列，便于边打包边发给浏览器。"""
+
+    def __init__(self, chunks: "queue.Queue"):
+        self._chunks = chunks
+        self._pos = 0
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, b) -> int:
+        if not b:
+            return 0
+        data = bytes(b)
+        self._chunks.put(data)
+        self._pos += len(data)
+        return len(data)
+
+    def tell(self) -> int:
+        return self._pos
+
+    def seekable(self) -> bool:
+        return False
+
+    def seek(self, *args, **kwargs):
+        raise io.UnsupportedOperation("seek")
+
+
+def _iter_zip_archive(fill):
+    """在后台线程写 zip，主生成器尽快吐出已写好的字节，避免浏览器空等被断开。"""
+    chunks: "queue.Queue" = queue.Queue(maxsize=32)
+    failed = []
+
+    def _run() -> None:
+        try:
+            writer = _ZipChunkWriter(chunks)
+            with zipfile.ZipFile(writer, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+                fill(zf)
+        except Exception:
+            logging.exception("stream export zip failed")
+            failed.append(True)
+        finally:
+            chunks.put(None)
+
+    threading.Thread(target=_run, name="answer-export-zip", daemon=True).start()
+    while True:
+        item = chunks.get()
+        if item is None:
+            break
+        yield item
+    if failed:
+        return
+
+
 def _build_answers_export_zip(
     db: Session,
     competition: Competition,
@@ -2703,47 +2760,54 @@ def _build_answers_export_zip(
     # 与超管「题目答案」列表一致：只导出至少有一份已正式提交文件的队伍，不含未上传或仅草稿的空队伍。
     teams_with_files = [t for t in teams if any(answers_map.get((t.id, q)) for q in range(1, q_count + 1))]
 
-    outer = BytesIO()
-    with zipfile.ZipFile(outer, "w", compression=zipfile.ZIP_DEFLATED) as outer_zf:
-        if mode == "by_team":
-            for team in teams_with_files:
-                inner_buf = BytesIO()
-                with zipfile.ZipFile(inner_buf, "w", compression=zipfile.ZIP_DEFLATED) as inner_zf:
-                    for q in range(1, q_count + 1):
-                        folder = _question_folder_name(q, competition, track)
-                        ans = answers_map.get((team.id, q))
-                        if ans:
-                            _write_answer_file_into_zip(
-                                inner_zf, folder, files_by_id.get(ans.file_id)
-                            )
-                        else:
-                            inner_zf.writestr(folder + "/", "")
-                inner_buf.seek(0)
-                team_label = team_labels.get(int(team.id)) or _team_export_label(team)
-                outer_zf.writestr(f"{team_label}.zip", inner_buf.read())
-        elif mode == "by_question":
-            for q in range(1, q_count + 1):
-                inner_buf = BytesIO()
-                with zipfile.ZipFile(inner_buf, "w", compression=zipfile.ZIP_DEFLATED) as inner_zf:
-                    for team in teams_with_files:
-                        folder = team_labels.get(int(team.id)) or _team_export_label(team)
-                        ans = answers_map.get((team.id, q))
-                        if ans:
-                            _write_answer_file_into_zip(
-                                inner_zf, folder, files_by_id.get(ans.file_id)
-                            )
-                        else:
-                            inner_zf.writestr(folder + "/", "")
-                inner_buf.seek(0)
-                q_name = _safe_export_filename(
-                    _question_folder_name(q, competition, track), fallback=f"第{q}题"
-                )
-                outer_zf.writestr(f"{q_name}.zip", inner_buf.read())
-        else:
-            raise HTTPException(status_code=400, detail="mode must be by_team or by_question")
+    class _FileSnap:
+        def __init__(self, path, filename):
+            self.file_path = path
+            self.filename = filename
 
-    outer.seek(0)
-    return outer
+    def _snap(ans):
+        if not ans:
+            return None
+        rec = files_by_id.get(ans.file_id)
+        if not rec:
+            return None
+        return _FileSnap(rec.file_path, rec.filename)
+
+    if mode == "by_team":
+        entries = []
+        for team in teams_with_files:
+            slots = []
+            for q in range(1, q_count + 1):
+                folder = _question_folder_name(q, competition, track)
+                slots.append((folder, _snap(answers_map.get((team.id, q)))))
+            label = team_labels.get(int(team.id)) or _team_export_label(team)
+            entries.append((f"{label}.zip", slots))
+    elif mode == "by_question":
+        entries = []
+        for q in range(1, q_count + 1):
+            slots = []
+            for team in teams_with_files:
+                folder = team_labels.get(int(team.id)) or _team_export_label(team)
+                slots.append((folder, _snap(answers_map.get((team.id, q)))))
+            q_name = _safe_export_filename(
+                _question_folder_name(q, competition, track), fallback=f"第{q}题"
+            )
+            entries.append((f"{q_name}.zip", slots))
+    else:
+        raise HTTPException(status_code=400, detail="mode must be by_team or by_question")
+
+    def _fill(outer_zf: zipfile.ZipFile) -> None:
+        for arcname, slots in entries:
+            inner_buf = BytesIO()
+            with zipfile.ZipFile(inner_buf, "w", compression=zipfile.ZIP_DEFLATED) as inner_zf:
+                for folder, snap in slots:
+                    if snap:
+                        _write_answer_file_into_zip(inner_zf, folder, snap)
+                    else:
+                        inner_zf.writestr(folder + "/", "")
+            outer_zf.writestr(arcname, inner_buf.getvalue())
+
+    return _iter_zip_archive(_fill)
 
 
 def _build_works_submissions_export_zip(
@@ -8666,7 +8730,12 @@ async def export_question_answers_zip(
         )
 
     filename = f"{_work_track_section_label(track)}.zip"
-    headers = {"Content-Disposition": _content_disposition_attachment(filename)}
+    headers = {
+        "Content-Disposition": _content_disposition_attachment(filename),
+        # 让 Nginx 立刻把数据转给浏览器，避免打包期间连接空等被断开
+        "X-Accel-Buffering": "no",
+        "Cache-Control": "no-store",
+    }
     _release_db_sessions(db)
     return StreamingResponse(buffer, media_type="application/zip", headers=headers)
 
