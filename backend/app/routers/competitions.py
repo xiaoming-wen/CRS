@@ -21,7 +21,11 @@ import re
 
 from app.eight_digit_id import allocate_eight_digit_id, validate_eight_digit_id
 from app.database import get_db
-from app.alt_auth.context import get_current_alt_identity, get_optional_alt_identity
+from app.alt_auth.context import (
+    get_alt_identity_header_or_query,
+    get_current_alt_identity,
+    get_optional_alt_identity,
+)
 from app.alt_auth.database import get_alt_auth_db
 from app.alt_auth.models import AltAuthUserRecord
 from app.permissions import Permission, require_permission
@@ -8688,7 +8692,7 @@ async def export_question_answers_zip(
         description="works | software | hardware；按赛道导出，压缩包以赛道名称命名",
     ),
     db: Session = Depends(get_db),
-    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+    identity: AltAuthUserRecord = Depends(get_alt_identity_header_or_query),
 ):
     """
     赛后一键导出答案压缩包（按赛道）：

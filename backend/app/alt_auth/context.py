@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Annotated, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.alt_auth.database import SessionAltAuth
@@ -91,4 +91,45 @@ async def get_optional_alt_identity(
     row = _load_alt_user(uid)
     if row is None or not row.is_active:
         return None
+    return row
+
+
+async def get_alt_identity_header_or_query(
+    request: Request,
+    credentials: Annotated[
+        Optional[HTTPAuthorizationCredentials], Depends(_alt_bearer)
+    ],
+) -> AltAuthUserRecord:
+    """请求头 Bearer，或 ?access_token=，供浏览器直接下载大文件。"""
+    token = None
+    if credentials is not None and (credentials.scheme or "").lower() == "bearer":
+        token = (credentials.credentials or "").strip()
+    if not token:
+        token = (request.query_params.get("access_token") or "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid Authorization header (Bearer alt-identity token required)",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    payload = decode_alt_access_token_strict(token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired alt-identity token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    uid_s = payload.get("sub")
+    try:
+        uid = int(uid_s)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token subject")
+    row = _load_alt_user(uid)
+    if row is None:
+        raise HTTPException(status_code=401, detail="Principal not found")
+    if not row.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Alt-identity account is inactive",
+        )
     return row

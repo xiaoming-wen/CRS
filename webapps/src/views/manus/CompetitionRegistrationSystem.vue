@@ -3309,7 +3309,6 @@ import {
   downloadCompetitionQuestionAnswer,
   deleteCompetitionQuestionAnswer,
   submitCompetitionQuestionAnswers,
-  exportCompetitionQuestionAnswers,
   enrollCompetition,
   getCompetitionTeam,
   getCompetitionTeams,
@@ -12325,36 +12324,23 @@ export default {
       const loadingKey = `${track}:${mode}`
       this.questionAnswersExportLoading = loadingKey
       try {
-        const blob = await exportCompetitionQuestionAnswers(this.activeCompetitionId, mode, track)
-        if (!blob || (typeof blob.size === 'number' && blob.size <= 0)) {
-          throw new Error('导出结果为空')
+        const token = getStoredAltToken()
+        if (!token) {
+          this.$message.error('请先登录后再导出')
+          return
         }
-        // 后端未结束时会返回 JSON 错误包在 blob 里
-        if (blob.type && String(blob.type).indexOf('application/json') >= 0) {
-          const text = await blob.text()
-          let msg = '导出失败'
-          try {
-            const j = JSON.parse(text)
-            msg = (j && (j.detail || j.message)) || msg
-          } catch (_) {
-            msg = text || msg
-          }
-          throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
-        }
-        const filename = `${this.workTrackSectionLabel(track)}.zip`
-        const url = window.URL.createObjectURL(blob)
+        const params = new URLSearchParams({
+          mode,
+          work_track: track,
+          access_token: token
+        })
         const a = document.createElement('a')
-        a.href = url
-        a.download = filename
+        a.href = `/api/v1/competitions/${this.activeCompetitionId}/question-answers/export?${params.toString()}`
+        a.style.display = 'none'
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
-        window.URL.revokeObjectURL(url)
-        this.$message.success(
-          mode === 'by_team'
-            ? `${this.workTrackSectionLabel(track)}按队伍导出成功`
-            : `${this.workTrackSectionLabel(track)}按题目导出成功`
-        )
+        this.$message.success('已开始下载，请在浏览器下载栏查看压缩包（软件赛道.zip / 硬件赛道.zip / 作品赛道.zip）')
       } catch (e) {
         this.$message.error('导出答案失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {
