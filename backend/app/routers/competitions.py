@@ -2700,11 +2700,13 @@ def _build_answers_export_zip(
         (a.team_id, a.question_no): a for a in answers
     }
     team_labels = _unique_team_export_labels(teams)
+    # 与超管「题目答案」列表一致：只导出至少有一份已正式提交文件的队伍，不含未上传或仅草稿的空队伍。
+    teams_with_files = [t for t in teams if any(answers_map.get((t.id, q)) for q in range(1, q_count + 1))]
 
     outer = BytesIO()
     with zipfile.ZipFile(outer, "w", compression=zipfile.ZIP_DEFLATED) as outer_zf:
         if mode == "by_team":
-            for team in teams:
+            for team in teams_with_files:
                 inner_buf = BytesIO()
                 with zipfile.ZipFile(inner_buf, "w", compression=zipfile.ZIP_DEFLATED) as inner_zf:
                     for q in range(1, q_count + 1):
@@ -2723,7 +2725,7 @@ def _build_answers_export_zip(
             for q in range(1, q_count + 1):
                 inner_buf = BytesIO()
                 with zipfile.ZipFile(inner_buf, "w", compression=zipfile.ZIP_DEFLATED) as inner_zf:
-                    for team in teams:
+                    for team in teams_with_files:
                         folder = team_labels.get(int(team.id)) or _team_export_label(team)
                         ans = answers_map.get((team.id, q))
                         if ans:
