@@ -6,10 +6,12 @@
   python scripts/sim_peak_load.py
   python scripts/sim_peak_load.py --users 50 --scene login
   python scripts/sim_peak_load.py --users 20 --scene download --competition-id 58582342 --division undergraduate --work-track software
+  python scripts/sim_peak_load.py --users 500 --scene bandwidth --bandwidth-mbps 20 --paper-mb 10
   python scripts/sim_peak_load.py --users 500 --scene peak --competition-id 58582342
 
 环境变量 BASE 可覆盖地址，例如 http://127.0.0.1:8000
 正式域名请显式传 --base，避免误压生产。
+bandwidth 场景不打接口，只按共享出口带宽模拟「N 人同时下试卷」。
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ import json
 import os
 import statistics
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -29,6 +32,51 @@ DEFAULT_USERS = [
     ("hfu_stu1", "Demo123456"),
     ("hfu_stu2", "Demo123456"),
 ]
+
+
+class SharedBandwidthLimiter:
+    """所有下载线程共享的上行带宽上限（模拟服务器出口 Mbps）。"""
+
+    def __init__(self, mbps: float):
+        self.bytes_per_sec = max(1.0, float(mbps) * 1_000_000 / 8.0)
+        self._lock = threading.Lock()
+        self._tokens = self.bytes_per_sec
+        self._updated = time.perf_counter()
+
+    def take(self, nbytes: int) -> None:
+        need = max(0, int(nbytes))
+        while need > 0:
+            with self._lock:
+                now = time.perf_counter()
+                elapsed = now - self._updated
+                if elapsed > 0:
+                    self._tokens = min(
+                        self.bytes_per_sec * 2,
+                        self._tokens + elapsed * self.bytes_per_sec,
+                    )
+                    self._updated = now
+                give = min(need, int(self._tokens))
+                if give > 0:
+                    self._tokens -= give
+                    need -= give
+                    continue
+                wait = max(0.001, (need / self.bytes_per_sec) * 0.25)
+            time.sleep(wait)
+
+
+_DOWNLOAD_LIMITER: Optional[SharedBandwidthLimiter] = None
+
+
+def print_bandwidth_estimate(*, users: int, paper_mb: float, uplink_mbps: float) -> None:
+    total_mb = users * paper_mb
+    bytes_per_sec = uplink_mbps * 1_000_000 / 8.0
+    wall_s = (total_mb * 1_000_000) / bytes_per_sec if bytes_per_sec > 0 else 0
+    fair_kbps = (bytes_per_sec / max(1, users)) / 1000.0
+    print(
+        f"带宽估算：{users} 人 × {paper_mb:.1f}MB = {total_mb:.0f}MB；"
+        f"出口 {uplink_mbps:g}Mbps ≈ {bytes_per_sec/1e6:.2f}MB/s；"
+        f"理想墙钟约 {wall_s/60:.1f} 分钟；人均约 {fair_kbps:.1f} KB/s"
+    )
 
 
 def http_json(
@@ -130,6 +178,7 @@ def download_paper(
     competition_id: int,
     division: str,
     work_track: str,
+    timeout: float = 120.0,
 ) -> Tuple[int, int, float]:
     q = urllib.parse.urlencode({"division": division, "work_track": work_track})
     url = f"{base}/api/v1/competitions/{competition_id}/exam-papers/download?{q}"
@@ -140,12 +189,14 @@ def download_paper(
     )
     t0 = time.perf_counter()
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             n = 0
             while True:
                 chunk = resp.read(65536)
                 if not chunk:
                     break
+                if _DOWNLOAD_LIMITER is not None:
+                    _DOWNLOAD_LIMITER.take(len(chunk))
                 n += len(chunk)
             return resp.status, n, time.perf_counter() - t0
     except urllib.error.HTTPError as e:
@@ -164,8 +215,14 @@ def one_vu(args, idx: int) -> dict:
     out["login_status"] = st
     out["login_s"] = round(elapsed, 3)
     if args.scene in ("download", "submit", "all") and token and args.competition_id:
+        timeout = float(getattr(args, "download_timeout", 120) or 120)
         dst, nbytes, dsel = download_paper(
-            args.base, token, args.competition_id, args.division, args.work_track
+            args.base,
+            token,
+            args.competition_id,
+            args.division,
+            args.work_track,
+            timeout=timeout,
         )
         out["dl_status"] = dst
         out["dl_s"] = round(dsel, 3)
@@ -188,9 +245,37 @@ def run_pool(n: int, fn, *fn_args) -> List[dict]:
     return rows
 
 
+def vu_bandwidth_sim(args, idx: int) -> dict:
+    """不打 API：每人「下载」固定体积，经共享带宽限流，模拟服务器出口挤占。"""
+    total = max(1, int(float(args.paper_mb or 10.0) * 1_000_000))
+    chunk = 65536
+    n = 0
+    t0 = time.perf_counter()
+    while n < total:
+        step = min(chunk, total - n)
+        if _DOWNLOAD_LIMITER is not None:
+            _DOWNLOAD_LIMITER.take(step)
+        else:
+            # 无上限时也稍作让出，避免空转占满 CPU
+            time.sleep(0)
+        n += step
+    return {
+        "idx": idx,
+        "dl_status": 200,
+        "dl_s": round(time.perf_counter() - t0, 3),
+        "dl_bytes": n,
+    }
+
+
 def vu_download_only(args, token: str, idx: int) -> dict:
+    timeout = float(getattr(args, "download_timeout", 120) or 120)
     dst, nbytes, dsel = download_paper(
-        args.base, token, args.competition_id, args.division, args.work_track
+        args.base,
+        token,
+        args.competition_id,
+        args.division,
+        args.work_track,
+        timeout=timeout,
     )
     return {"idx": idx, "dl_status": dst, "dl_s": round(dsel, 3), "dl_bytes": nbytes}
 
@@ -261,14 +346,33 @@ def main() -> int:
     )
     p.add_argument(
         "--scene",
-        choices=["login", "download", "submit", "all", "peak", "submit-burst"],
+        choices=["login", "download", "submit", "all", "peak", "submit-burst", "bandwidth"],
         default="login",
-        help="peak=登录+下载+按不同队伍提交；submit-burst=只压提交",
+        help="peak=登录+下载+按不同队伍提交；submit-burst=只压提交；bandwidth=只模拟共享出口带宽",
     )
     p.add_argument("--competition-id", type=int, default=58582342)
     p.add_argument("--team-id", type=int, default=None)
     p.add_argument("--division", default="undergraduate")
+    p.add_argument("--work-track", default="software")
     p.add_argument("--roster", default=ROSTER_PATH, help="seed_loadtest_submitters.py 生成的花名册")
+    p.add_argument(
+        "--bandwidth-mbps",
+        type=float,
+        default=0.0,
+        help="模拟服务器共享上行带宽（Mbps）。例如正式站 20Mbps 出口时传 20；0=不限流",
+    )
+    p.add_argument(
+        "--paper-mb",
+        type=float,
+        default=0.0,
+        help="试卷体积（MB），仅用于打印带宽估算；0=先试下一次再按实际体积估算",
+    )
+    p.add_argument(
+        "--download-timeout",
+        type=float,
+        default=0.0,
+        help="单次下载超时秒数；0=带宽限流时自动按估算放宽，否则 120",
+    )
     args = p.parse_args()
     args.base = args.base.rstrip("/")
 
@@ -277,6 +381,41 @@ def main() -> int:
         return 2
 
     print(f"目标 {args.base}  并发 {args.users}  场景 {args.scene}  账号 {args.account_mode}")
+
+    global _DOWNLOAD_LIMITER
+    _DOWNLOAD_LIMITER = None
+    if args.bandwidth_mbps and args.bandwidth_mbps > 0:
+        _DOWNLOAD_LIMITER = SharedBandwidthLimiter(args.bandwidth_mbps)
+        paper_mb = args.paper_mb if args.paper_mb > 0 else 10.0
+        print_bandwidth_estimate(
+            users=args.users, paper_mb=paper_mb, uplink_mbps=args.bandwidth_mbps
+        )
+        if not args.download_timeout or args.download_timeout <= 0:
+            # 理想墙钟 ×2，至少 600 秒，避免限流下过早超时
+            est = (args.users * paper_mb * 8.0) / args.bandwidth_mbps
+            args.download_timeout = max(600.0, est * 2.0)
+        print(f"下载超时设为 {args.download_timeout:.0f}s（共享带宽 {args.bandwidth_mbps:g}Mbps）")
+    elif not args.download_timeout or args.download_timeout <= 0:
+        args.download_timeout = 120.0
+
+    if args.scene == "bandwidth":
+        if not args.paper_mb or args.paper_mb <= 0:
+            args.paper_mb = 10.0
+        if not args.bandwidth_mbps or args.bandwidth_mbps <= 0:
+            args.bandwidth_mbps = 20.0
+            _DOWNLOAD_LIMITER = SharedBandwidthLimiter(args.bandwidth_mbps)
+            print_bandwidth_estimate(
+                users=args.users, paper_mb=args.paper_mb, uplink_mbps=args.bandwidth_mbps
+            )
+        t0 = time.perf_counter()
+        print(f"\n== 带宽模拟：{args.users} 人并发各下 {args.paper_mb:g}MB，共享 {args.bandwidth_mbps:g}Mbps ==")
+        rows = run_pool(args.users, vu_bandwidth_sim, args)
+        summarize(rows, "dl_status", "dl_s", "模拟下载")
+        sizes = [r["dl_bytes"] for r in rows if r.get("dl_bytes")]
+        if sizes:
+            print(f"  单次字节约 {int(statistics.mean(sizes))}（{statistics.mean(sizes)/1e6:.2f} MB）")
+        print(f"墙钟 {time.perf_counter() - t0:.2f}s")
+        return 0
 
     if args.scene == "peak":
         t0 = time.perf_counter()

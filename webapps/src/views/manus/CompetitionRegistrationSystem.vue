@@ -4748,33 +4748,42 @@ export default {
         this.myTeamReviewFeedback
       )
     },
-    /** 顶部一次性展示的最近一条驳回通知（已关闭的不再显示） */
-    studentRejectedTeamTopNotice () {
-      if (!this.isStudent || !this.activeCompetitionId) return null
+    /**
+     * 学生端校审驳回提示：
+     * - 作品赛道不展示
+     * - 该赛道已有当前报名（重新建队）时，不再提示历史上被驳回的旧队伍
+     */
+    visibleStudentRejectedTeamNotices () {
+      if (!this.isStudent || !this.activeCompetitionId) return []
       const dismissed = this.dismissedRejectedTeamNoticeKeys || new Set()
-      const list = (this.studentRejectedTeamNotices || []).filter(t => {
+      const enrolledTeamIds = new Set(
+        (this.myTeamEnrollmentList || [])
+          .map(r => (r && r.team_id != null ? Number(r.team_id) : NaN))
+          .filter(id => Number.isFinite(id))
+      )
+      const enrolledTracks = new Set(this.myEnrolledWorkTracks || [])
+      return (this.studentRejectedTeamNotices || []).filter(t => {
         if (!t || t.id == null) return false
+        const track = t.work_track != null ? String(t.work_track).trim().toLowerCase() : ''
+        if (track === 'works') return false
         if (dismissed.has(this.rejectionNoticeDismissKey(t))) return false
         if (this.isActiveCompetitionDualDivision && this.activeViewDivision) {
-          return this.teamMatchesActiveViewDivision(t)
+          if (!this.teamMatchesActiveViewDivision(t)) return false
         }
+        if (track && enrolledTracks.has(track) && !enrolledTeamIds.has(Number(t.id))) return false
         return true
       })
+    },
+    /** 顶部一次性展示的最近一条驳回通知（已关闭的不再显示） */
+    studentRejectedTeamTopNotice () {
+      const list = this.visibleStudentRejectedTeamNotices
       return list.length ? list[0] : null
     },
     showStudentRejectedTeamTopAlert () {
       return !!this.studentRejectedTeamTopNotice
     },
     studentRejectedTeamTopAlertDescription () {
-      const dismissed = this.dismissedRejectedTeamNoticeKeys || new Set()
-      const list = (this.studentRejectedTeamNotices || []).filter(t => {
-        if (!t || t.id == null) return false
-        if (dismissed.has(this.rejectionNoticeDismissKey(t))) return false
-        if (this.isActiveCompetitionDualDivision && this.activeViewDivision) {
-          return this.teamMatchesActiveViewDivision(t)
-        }
-        return true
-      })
+      const list = this.visibleStudentRejectedTeamNotices
       if (!list.length) return ''
       const parts = list.map(t => {
         const track = t.work_track ? this.workTrackSectionLabel(t.work_track) : '组队'
@@ -11824,13 +11833,7 @@ export default {
 
     dismissStudentRejectedTeamTopAlert () {
       const dismissed = new Set(this.dismissedRejectedTeamNoticeKeys || [])
-      const list = (this.studentRejectedTeamNotices || []).filter(t => {
-        if (!t || t.id == null) return false
-        if (this.isActiveCompetitionDualDivision && this.activeViewDivision) {
-          return this.teamMatchesActiveViewDivision(t)
-        }
-        return true
-      })
+      const list = this.visibleStudentRejectedTeamNotices || []
       for (const t of list) {
         const dk = this.rejectionNoticeDismissKey(t)
         if (dk) dismissed.add(dk)
