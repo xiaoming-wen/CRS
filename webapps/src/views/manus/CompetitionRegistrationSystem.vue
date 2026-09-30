@@ -4579,8 +4579,8 @@ export default {
         { title: '晋级ID', dataIndex: 'id', key: 'id', width: 110 },
         { title: '初赛队伍ID', dataIndex: 'source_team_id', key: 'source_team_id', width: 110 },
         { title: '初赛队伍', dataIndex: 'source_team_name', key: 'source_team_name', ellipsis: true },
-        { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', ellipsis: true, width: 110 },
-        { title: '队长', dataIndex: 'captain_label', key: 'captain_label', ellipsis: true, width: 120 },
+        { title: '指导老师', dataIndex: 'advisor_name', key: 'advisor_name', ellipsis: true, width: 140 },
+        { title: '队长', dataIndex: 'captain_label', key: 'captain_label', ellipsis: true, width: 100 },
         { title: '队员', dataIndex: 'members', key: 'members', ellipsis: true },
         { title: '操作', key: 'actions', width: 72, scopedSlots: { customRender: 'promoActions' } }
       ]
@@ -4625,12 +4625,12 @@ export default {
     promotionListRows () {
       return (this.promotionList || []).map(row => {
         const captainLabel = row.captain_name
-          ? (row.captain_id != null ? `${row.captain_name}（${row.captain_id}）` : row.captain_name)
-          : (row.captain_id != null ? String(row.captain_id) : '-')
+          ? String(row.captain_name).trim()
+          : '-'
         return {
           ...row,
           advisor_name: row.advisor_name || '-',
-          captain_label: captainLabel,
+          captain_label: captainLabel || '-',
           members: row.members || '-'
         }
       })

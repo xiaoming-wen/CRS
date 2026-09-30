@@ -6421,7 +6421,10 @@ def _promotion_to_schema(
         )
         if source_team:
             src_name = source_team.name
-            advisor_name = _team_advisor_display_name(source_team, users_by_id)
+            first_adv = _team_advisor_display_name(source_team, users_by_id)
+            second_adv = _team_second_advisor_display_name(source_team, users_by_id)
+            advisor_parts = [p for p in (first_adv, second_adv) if p]
+            advisor_name = "、".join(advisor_parts) if advisor_parts else None
             captain_id, captain_name = _team_captain_label(source_team, users_by_id)
             members_label = _team_members_label(source_team, users_by_id, exclude_captain=True)
     if row.final_team_id:
@@ -6471,6 +6474,9 @@ def _collect_promotion_user_ids(db: Session, rows: List[CompetitionPromotion]) -
                 uids.add(int(t.captain_id))
             if t.created_by_advisor_id is not None:
                 uids.add(int(t.created_by_advisor_id))
+            second_adv_id = getattr(t, "second_advisor_id", None)
+            if second_adv_id is not None:
+                uids.add(int(second_adv_id))
             for m in t.members or []:
                 if m.user_id is not None:
                     uids.add(int(m.user_id))
