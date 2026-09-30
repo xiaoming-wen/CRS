@@ -6758,7 +6758,8 @@ async def import_promotions_excel(
         return str(v or "").strip().lower().replace(" ", "").replace("_", "")
 
     headers = [_norm_header(c) for c in header_row]
-    id_keys = {"队伍id", "teamid", "队伍编号", "id"}
+    # 与「导出参赛表格」列名对齐：导出为「队伍编码」「队伍名称」
+    id_keys = {"队伍id", "teamid", "队伍编号", "队伍编码", "id"}
     name_keys = {"队伍名", "队名", "teamname", "name", "队伍名称"}
 
     col_id = None
@@ -6768,10 +6769,25 @@ async def import_promotions_excel(
             col_id = i
         if col_name is None and h in name_keys:
             col_name = i
+    # 兜底：表头含「队伍」且含 id/编码/编号
     if col_id is None:
+        for i, h in enumerate(headers):
+            if "队伍" in h and ("id" in h or "编码" in h or "编号" in h):
+                col_id = i
+                break
+    if col_name is None:
+        for i, h in enumerate(headers):
+            if "队" in h and "名" in h:
+                col_name = i
+                break
+    if col_id is None:
+        found = "、".join([str(c or "").strip() for c in header_row if str(c or "").strip()]) or "(空)"
         raise HTTPException(
             status_code=400,
-            detail="Excel 须包含列「队伍ID」（或 team_id）",
+            detail=(
+                "Excel 须包含列「队伍ID」或「队伍编码」（导出参赛表格即为此列名）。"
+                f"当前表头：{found}"
+            ),
         )
 
     result = CompetitionPromotionImportResult()

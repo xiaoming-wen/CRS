@@ -1528,7 +1528,7 @@
             </div>
               </div>
               <div class="muted" style="margin-bottom: 8px; font-size: 12px">
-                仅显示 {{ track.label }} 已晋级用户。Excel 须含列「队伍ID」；可选「队伍名」。仅导入本赛道初赛队伍。
+                仅显示 {{ track.label }} 已晋级用户。可直接导入「导出参赛表格」的 Excel（含「队伍编码」列）；也可自建表，须含「队伍ID」或「队伍编码」，可选「队伍名称」。仅导入本赛道初赛队伍。
             </div>
             <a-table
               size="small"
