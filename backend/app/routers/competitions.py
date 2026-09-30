@@ -4264,8 +4264,16 @@ async def my_final_access(
     stage = _competition_stage(competition)
     stage_value = getattr(stage, "value", None) or str(stage or "")
     role = _effective_alt_role(getattr(identity, "role", None))
-    # 管理类角色不走此门禁；学生 / 指导老师须属晋级决赛队伍
+    # 管理类角色不走此门禁
     if role not in {"student", "advisor", "teacher"}:
+        return MyFinalAccessResponse(
+            allowed=True,
+            competition_id=int(competition.id),
+            stage=stage_value or None,
+            message=None,
+        )
+    # 非决赛落地（如初赛 80024817）：不拦截登录
+    if not _is_final_stage(competition):
         return MyFinalAccessResponse(
             allowed=True,
             competition_id=int(competition.id),
