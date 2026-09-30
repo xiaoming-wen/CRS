@@ -1100,6 +1100,17 @@ class MyRejectedTeamItem(BaseModel):
     reviewed_at: OptionalUtcDatetime = None
 
 
+class MyFinalAccessResponse(BaseModel):
+    """学生 / 指导老师登录后校验是否可进入决赛落地页。"""
+
+    allowed: bool
+    competition_id: int
+    stage: Optional[str] = Field(None, description="final / preliminary / single 等")
+    message: Optional[str] = Field(
+        None, description="allowed=false 时的提示文案",
+    )
+
+
 class IndividualParticipantItem(BaseModel):
     """某竞赛下「个人赛道」有效报名列表（不含组队成员）。"""
     sequence_no: int = Field(

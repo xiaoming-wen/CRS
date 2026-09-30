@@ -111,7 +111,7 @@ import CompetitionSchoolAdminApplication from '@/views/manus/CompetitionSchoolAd
 import CompetitionSchoolAdminTeamReview from '@/views/manus/CompetitionSchoolAdminTeamReview.vue'
 import MyCompetitionEnrollments from '@/views/manus/MyCompetitionEnrollments.vue'
 import ManuAltIdentityPanel from '@/views/manus/ManuAltIdentityPanel.vue'
-import { sanitizeCompetitionReturnPath, getStudentAdvisorLandingRouteLocation, getStudentAdvisorLandingCompetitionId, markCompetitionShareSessionAuthed, lockAuthViewport, unlockAuthViewport } from '@/utils/competitionAuthFlow'
+import { sanitizeCompetitionReturnPath, getStudentAdvisorLandingRouteLocation, getStudentAdvisorLandingCompetitionId, markCompetitionShareSessionAuthed, lockAuthViewport, unlockAuthViewport, ensureStudentAdvisorFinalLandingAccess, revokeAltSessionForFinalDenied, showFinalLandingDeniedModal } from '@/utils/competitionAuthFlow'
 import {
   getStoredAltToken,
   clearAltIdentityStorage,
@@ -227,6 +227,13 @@ export default {
           unlockAuthViewport()
           await this.refreshAltIdentityProfile()
           if (!getStoredAltToken()) return
+          const gate = await ensureStudentAdvisorFinalLandingAccess()
+          if (!gate.ok) {
+            revokeAltSessionForFinalDenied()
+            this.altGateTick++
+            showFinalLandingDeniedModal(gate.message)
+            return
+          }
           // 仅学生/顾问消费 redirect 或默认落地；超管/专家/校管留在目录
           if (this.consumeRedirectAfterAltIfPresent()) return
           if (this.redirectStudentOrAdvisorToLanding()) return

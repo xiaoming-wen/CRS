@@ -2,6 +2,14 @@
  * 主站 JWT 过期后：先在大模型教学平台登录，再在竞赛报名系统登录独立账号，最后回到原页。
  * 以下路径在「主站登录成功」后需先经 /manu/competition-list 的独立账号门禁。
  */
+import { Modal } from 'ant-design-vue'
+import {
+  getAltRoleNormalized,
+  clearAltIdentityStorage,
+  markAltLoginSkipAutoOnce
+} from '@/api/altIdentity'
+import { getMyFinalAccess } from '@/api/competition'
+
 const COMPETITION_ALT_GATE_ROUTES = [
   '/manu/competition-list',
   '/manu/competition-detail',
@@ -10,11 +18,14 @@ const COMPETITION_ALT_GATE_ROUTES = [
 ]
 
 /**
- * 学生 / 指导老师主页登录成功后的默认竞赛详情
+ * 学生 / 指导老师主页登录成功后的默认竞赛详情（决赛）
  * 对应：/#/manu/competition-detail?id=…&share=1
  * 改此常量即可热更新生效；仅改 .env 需重启 devServer
  */
-const STUDENT_ADVISOR_LANDING_COMPETITION_ID = 80024817
+const STUDENT_ADVISOR_LANDING_COMPETITION_ID = 91780578
+
+/** 未晋级决赛时登录页弹窗文案 */
+export const FINAL_LANDING_DENIED_MESSAGE = '队伍没有晋级决赛无法登录'
 
 export function getStudentAdvisorLandingCompetitionId () {
   return STUDENT_ADVISOR_LANDING_COMPETITION_ID
@@ -31,10 +42,50 @@ export function getStudentAdvisorLandingRouteLocation () {
   }
 }
 
-/** @returns {string} 如 /manu/competition-detail?id=80024817&share=1 */
+/** @returns {string} 如 /manu/competition-detail?id=91780578&share=1 */
 export function getStudentAdvisorLandingFullPath () {
   const loc = getStudentAdvisorLandingRouteLocation()
   return `${loc.path}?id=${encodeURIComponent(loc.query.id)}&share=1`
+}
+
+/**
+ * 学生 / 指导老师：校验是否属于晋级决赛队伍。
+ * @returns {Promise<{ ok: boolean, message?: string }>}
+ */
+export async function ensureStudentAdvisorFinalLandingAccess () {
+  const role = getAltRoleNormalized()
+  if (role !== 'student' && role !== 'advisor') {
+    return { ok: true }
+  }
+  const competitionId = getStudentAdvisorLandingCompetitionId()
+  try {
+    const res = await getMyFinalAccess(competitionId)
+    if (res && res.allowed === true) return { ok: true }
+    const message =
+      (res && res.message != null && String(res.message).trim()) ||
+      FINAL_LANDING_DENIED_MESSAGE
+    return { ok: false, message }
+  } catch (e) {
+    const detail = e && e.response && e.response.data && e.response.data.detail
+    return {
+      ok: false,
+      message: typeof detail === 'string' && detail.trim() ? detail : FINAL_LANDING_DENIED_MESSAGE
+    }
+  }
+}
+
+/** 未晋级：清掉刚写入的独立账号会话，留在登录页 */
+export function revokeAltSessionForFinalDenied () {
+  markAltLoginSkipAutoOnce()
+  clearAltIdentityStorage()
+}
+
+export function showFinalLandingDeniedModal (message) {
+  Modal.warning({
+    title: '无法登录',
+    content: message || FINAL_LANDING_DENIED_MESSAGE,
+    okText: '我知道了'
+  })
 }
 
 /** 进入分享详情前标记本会话已认证，避免 share=1 首屏清掉主页刚写入的令牌 */

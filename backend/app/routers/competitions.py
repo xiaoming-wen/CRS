@@ -72,6 +72,7 @@ from app.schemas import (
     CompetitionPromotionCandidatesResponse,
     MyEnrollmentResponse,
     MyRejectedTeamItem,
+    MyFinalAccessResponse,
     TeamCreate,
     TeamResponse,
     TeamPatch,
@@ -1299,7 +1300,21 @@ def _user_has_final_promotion(
         )
         .first()
     )
-    return promo_student is not None
+    if promo_student is not None:
+        return True
+    # 指导老师：决赛竞赛下队伍的第一 / 第二指导老师（晋级时会复制到决赛队伍）
+    advisor_team = (
+        db.query(Team.id)
+        .filter(
+            Team.competition_id == final_competition.id,
+            or_(
+                Team.created_by_advisor_id == user_id,
+                Team.second_advisor_id == user_id,
+            ),
+        )
+        .first()
+    )
+    return advisor_team is not None
 
 
 def _assert_final_stage_participant(
@@ -1328,11 +1343,11 @@ def _assert_final_stage_open_create_blocked(competition: Competition) -> None:
 
 
 def _assert_final_stage_roster_frozen(competition: Competition) -> None:
-    """决赛名单冻结：不可邀请/申请加入，仅晋级时复制的初赛队伍。"""
+    """决赛名单冻结：不可改队员/队名/指导老师，仅晋级时复制的初赛队伍。"""
     if _is_final_stage(competition):
         raise HTTPException(
             status_code=403,
-            detail="决赛沿用初赛晋级队伍名单，不可新增或申请加入队员",
+            detail="决赛沿用初赛晋级队伍名单，不可创建队伍、邀请/移除队员、修改队名或变更指导老师",
         )
 
 
@@ -1473,15 +1488,24 @@ def _enroll_student_on_final_team(
     division: str,
     work_track: Optional[str],
 ) -> None:
-    row = _get_enrollment_by_scope(
-        db, final.id, student_id, CompetitionEnrollmentScope.TEAM
+    """按赛道写入决赛报名。同一学生可同时晋级软件/硬件，不可互相覆盖。"""
+    track = _normalize_optional_work_track(work_track) or _normalize_optional_work_track(
+        getattr(team, "work_track", None)
     )
+    if track:
+        row = _get_enrollment_by_work_track(db, final.id, student_id, track)
+    else:
+        # 无赛道时退回旧逻辑（不应出现在正常晋级路径）
+        row = _get_enrollment_by_scope(
+            db, final.id, student_id, CompetitionEnrollmentScope.TEAM
+        )
     if row and row.status == CompetitionEnrollmentStatus.ENROLLED:
         row.team_id = team.id
         row.is_captain = is_captain
         row.division = division
-        if work_track:
-            row.work_track = work_track
+        row.enrollment_scope = CompetitionEnrollmentScope.TEAM
+        if track:
+            row.work_track = track
         return
     if row and row.status == CompetitionEnrollmentStatus.WITHDRAWN:
         row.team_id = team.id
@@ -1489,7 +1513,7 @@ def _enroll_student_on_final_team(
         row.is_captain = is_captain
         row.status = CompetitionEnrollmentStatus.ENROLLED
         row.division = division
-        row.work_track = work_track
+        row.work_track = track
         return
     db.add(
         CompetitionEnrollment(
@@ -1498,11 +1522,56 @@ def _enroll_student_on_final_team(
             team_id=team.id,
             enrollment_scope=CompetitionEnrollmentScope.TEAM,
             division=division,
-            work_track=work_track,
+            work_track=track,
             is_captain=is_captain,
             status=CompetitionEnrollmentStatus.ENROLLED,
         )
     )
+
+
+def _repair_final_enrollments_for_student(
+    db: Session,
+    student_id: int,
+) -> bool:
+    """
+    补全决赛多赛道报名：用户已是决赛队伍成员，但报名表被单条覆盖时，
+    按其所在决赛队伍的 work_track 各写一条报名。
+    """
+    changed = False
+    member_rows = (
+        db.query(TeamMember, Team)
+        .join(Team, Team.id == TeamMember.team_id)
+        .filter(TeamMember.user_id == student_id)
+        .all()
+    )
+    for member, team in member_rows:
+        competition = db.query(Competition).filter(Competition.id == team.competition_id).first()
+        if not competition or not _is_final_stage(competition):
+            continue
+        track = _normalize_optional_work_track(getattr(team, "work_track", None))
+        if not track:
+            continue
+        before = _get_enrollment_by_work_track(db, competition.id, student_id, track)
+        need = (
+            before is None
+            or before.status != CompetitionEnrollmentStatus.ENROLLED
+            or int(before.team_id or 0) != int(team.id)
+        )
+        if not need:
+            continue
+        _enroll_student_on_final_team(
+            db,
+            competition,
+            student_id,
+            team,
+            bool(getattr(member, "is_captain", False)),
+            str(getattr(team, "division", None) or "default"),
+            track,
+        )
+        changed = True
+    if changed:
+        db.commit()
+    return changed
 
 
 def _promote_prelim_team_to_final(
@@ -2985,7 +3054,7 @@ def _has_active_enrollment_in_scope(
         row = _get_enrollment_by_scope(
             db, competition_id, student_id, scope, work_track=work_track
         )
-    return row is not None and row.status == CompetitionEnrollmentStatus.ENROLLED
+        return row is not None and row.status == CompetitionEnrollmentStatus.ENROLLED
     rows = _list_enrollments_for_student(
         db, competition_id, student_id, enrolled_only=True
     )
@@ -4112,6 +4181,8 @@ async def my_enrollments(
 ):
     """查看当前用户报名的所有竞赛（含竞赛详情）"""
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+    # 决赛双赛道晋级曾只留一条报名：按决赛队伍成员关系补全
+    _repair_final_enrollments_for_student(db, int(identity.id))
     enrollments = (
         db.query(CompetitionEnrollment)
         .filter(
@@ -4179,6 +4250,41 @@ async def my_rejected_teams_in_competition(
             )
         )
     return out
+
+
+@router.get("/{competition_id}/my-final-access", response_model=MyFinalAccessResponse)
+async def my_final_access(
+    competition_id: int,
+    db: Session = Depends(get_db),
+    identity: AltAuthUserRecord = Depends(get_current_alt_identity),
+):
+    """学生 / 指导老师登录后校验是否可进入决赛落地页（须为晋级决赛队伍成员或指导老师）。"""
+    require_permission(identity.role, Permission.VIEW_COMPETITIONS)
+    competition = _get_competition(db, competition_id)
+    stage = _competition_stage(competition)
+    stage_value = getattr(stage, "value", None) or str(stage or "")
+    role = _effective_alt_role(getattr(identity, "role", None))
+    # 管理类角色不走此门禁；学生 / 指导老师须属晋级决赛队伍
+    if role not in {"student", "advisor", "teacher"}:
+        return MyFinalAccessResponse(
+            allowed=True,
+            competition_id=int(competition.id),
+            stage=stage_value or None,
+            message=None,
+        )
+    if _user_has_final_promotion(db, competition, int(identity.id)):
+        return MyFinalAccessResponse(
+            allowed=True,
+            competition_id=int(competition.id),
+            stage=stage_value or "final",
+            message=None,
+        )
+    return MyFinalAccessResponse(
+        allowed=False,
+        competition_id=int(competition.id),
+        stage=stage_value or "final",
+        message="队伍没有晋级决赛无法登录",
+    )
 
 
 @router.put("/{competition_id}/publish", response_model=CompetitionResponse)
@@ -5143,6 +5249,10 @@ async def set_team_second_advisor(
             raise HTTPException(status_code=403, detail="Team does not belong to your school")
     else:
         _require_super_admin_identity(identity)
+
+    competition = team.competition
+    if role in {"advisor", "teacher"}:
+        _assert_final_stage_roster_frozen(competition)
 
     _assert_team_school_meta_mutable(db, team.competition_id, team.id)
 
@@ -7717,6 +7827,7 @@ async def patch_team(
 
     competition = team.competition
     _ensure_enrollment_open(competition)
+    _assert_final_stage_roster_frozen(competition)
 
     if team.captain_id != identity.id and not (
         _effective_alt_role(identity.role) in {"advisor", "teacher"} and _team_advisor_managed(team, identity.id)
@@ -8021,6 +8132,7 @@ async def kick_team_member(
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     competition = team.competition
+    _assert_final_stage_roster_frozen(competition)
     _assert_team_roster_mutable(db, competition.id, team.id)
 
     if not _can_manage_team_composition(team, identity):

@@ -209,6 +209,14 @@ export function getMyRejectedTeamsInCompetition (competitionId) {
   })
 }
 
+/** 学生 / 指导老师：是否可进入决赛落地页（晋级校验） */
+export function getMyFinalAccess (competitionId) {
+  return axios({
+    url: `/v1/competitions/${encodeURIComponent(competitionId)}/my-final-access`,
+    method: 'get'
+  })
+}
+
 // 8.10 查看个人参赛者花名册（dual 须传 division）
 export function getCompetitionParticipantsIndividual (competitionId, options = {}) {
   return axios({

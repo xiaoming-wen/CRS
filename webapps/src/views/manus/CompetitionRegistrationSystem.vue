@@ -412,7 +412,7 @@
               style="margin-bottom: 12px"
             />
             <a-alert
-              v-else-if="competitionEnrollPublishBlocked || competitionEnrollmentClosed"
+              v-else-if="!isActiveCompetitionFinal && (competitionEnrollPublishBlocked || competitionEnrollmentClosed)"
               type="warning"
               show-icon
               :message="competitionEnrollBlockedAlertTitle"
@@ -1654,7 +1654,7 @@
           style="margin-bottom: 12px"
         />
         <a-alert
-          v-else-if="competitionEnrollPublishBlocked || competitionEnrollmentClosed"
+          v-else-if="!isActiveCompetitionFinal && (competitionEnrollPublishBlocked || competitionEnrollmentClosed)"
           type="warning"
           show-icon
           :message="competitionEnrollBlockedAlertTitle"
@@ -4806,8 +4806,9 @@ export default {
     finalStagePromoted () {
       return this.isActiveCompetitionFinal && this.hasAnyEnrollment
     },
-    /** 报名弹窗：队长在「加入已有队伍」下方查看入队申请（按当前赛道队伍） */
+    /** 报名弹窗：队长在「加入已有队伍」下方查看入队申请（按当前赛道队伍）；决赛名单冻结不展示 */
     showCaptainTeamJoinRequestsInEnrollModal () {
+      if (this.isActiveCompetitionFinal) return false
       return this.enrollMode === 'team' && this.isCurrentTeamCaptain && !!this.myTeamId
     },
     showCaptainTeamMembersInEnrollModal () {
@@ -5315,11 +5316,19 @@ export default {
       if (this.isCurrentTeamCaptain) return false
       return true
     },
-    /** 仅限制建队、邀请入队（含未发布、已停止报名、已提交作品） */
+    /** 仅限制建队、邀请入队（含未发布、已停止报名、已提交作品、决赛名单冻结） */
     competitionTeamCreateInviteBlocked () {
-      return this.competitionEnrollPublishBlocked || this.competitionEnrollmentClosed || this.competitionTeamRosterLocked
+      return (
+        this.isActiveCompetitionFinal ||
+        this.competitionEnrollPublishBlocked ||
+        this.competitionEnrollmentClosed ||
+        this.competitionTeamRosterLocked
+      )
     },
     competitionTeamCreateInviteBlockedDescription () {
+      if (this.isActiveCompetitionFinal) {
+        return '决赛沿用初赛晋级队伍名单，不可创建队伍、邀请/移除队员、修改队名或变更指导老师。'
+      }
       if (this.competitionTeamRosterLocked) {
         return this.competitionTeamRosterLockedMessage
       }
@@ -5335,17 +5344,26 @@ export default {
       return ''
     },
     competitionTeamCreateInviteBlockedTitle () {
+      if (this.isActiveCompetitionFinal) return '决赛名单已冻结'
       if (this.competitionTeamRosterLocked) return '作品已提交'
       if (this.competitionEnded) return '当前竞赛已结束'
       if (this.competitionEnrollmentClosed) return '当前竞赛已停止报名'
       if (this.competitionEnrollPublishBlocked) return '竞赛尚未发布'
       return '当前不可新建队伍或邀请队员'
     },
-    /** 已停止报名、未发布或已提交作品时不可移除队员 */
+    /** 已停止报名、未发布、已提交作品或决赛时不可移除队员 */
     competitionTeamRemoveMemberBlocked () {
-      return this.competitionEnrollPublishBlocked || this.competitionEnrollmentClosed || this.competitionTeamRosterLocked
+      return (
+        this.isActiveCompetitionFinal ||
+        this.competitionEnrollPublishBlocked ||
+        this.competitionEnrollmentClosed ||
+        this.competitionTeamRosterLocked
+      )
     },
     competitionTeamRemoveMemberBlockedMessage () {
+      if (this.isActiveCompetitionFinal) {
+        return '决赛沿用初赛晋级队伍名单，不可移除队员'
+      }
       if (this.competitionTeamRosterLocked) {
         return this.competitionTeamRosterLockedMessage
       }

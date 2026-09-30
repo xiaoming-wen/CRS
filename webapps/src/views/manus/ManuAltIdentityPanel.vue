@@ -162,7 +162,10 @@ import {
   getStudentAdvisorLandingRouteLocation,
   getStudentAdvisorLandingCompetitionId,
   markCompetitionShareSessionAuthed,
-  sanitizeCompetitionReturnPath
+  sanitizeCompetitionReturnPath,
+  ensureStudentAdvisorFinalLandingAccess,
+  revokeAltSessionForFinalDenied,
+  showFinalLandingDeniedModal
 } from '@/utils/competitionAuthFlow'
 
 function validateUsername (raw) {
@@ -443,6 +446,14 @@ export default {
             console.warn('[ManuAltIdentityPanel] sync /me after login failed:', syncErr)
           }
           this.refreshProfile()
+          const gate = await ensureStudentAdvisorFinalLandingAccess()
+          if (!gate.ok) {
+            revokeAltSessionForFinalDenied()
+            this.refreshProfile()
+            showFinalLandingDeniedModal(gate.message)
+            this.$emit('session-changed', null)
+            return
+          }
           this.$message.success('登录成功')
           this.$emit('session-changed', res)
           this.redirectStudentOrAdvisorAfterLogin()
