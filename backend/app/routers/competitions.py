@@ -6957,27 +6957,62 @@ async def revoke_promotion(
         raise HTTPException(status_code=400, detail="决赛已开始，无法撤销晋级")
 
     final_team_id = promo.final_team_id
-    if final_team_id is not None:
-        db.query(CompetitionEnrollment).filter(
-            CompetitionEnrollment.competition_id == final.id,
-            CompetitionEnrollment.team_id == final_team_id,
-        ).delete(synchronize_session=False)
-        db.query(TeamMember).filter(TeamMember.team_id == final_team_id).delete(
-            synchronize_session=False
-        )
-        db.query(CompetitionQuestionAnswer).filter(
-            CompetitionQuestionAnswer.team_id == final_team_id
-        ).delete(synchronize_session=False)
-        db.query(Team).filter(Team.id == final_team_id).delete(synchronize_session=False)
-    elif promo.source_student_id is not None:
-        db.query(CompetitionEnrollment).filter(
-            CompetitionEnrollment.competition_id == final.id,
-            CompetitionEnrollment.student_id == promo.source_student_id,
-            CompetitionEnrollment.enrollment_scope == CompetitionEnrollmentScope.INDIVIDUAL,
-        ).delete(synchronize_session=False)
+    try:
+        if final_team_id is not None:
+            tid = int(final_team_id)
+            # 先清决赛队伍关联数据，再断开晋级记录外键，最后删队伍（避免 final_team_id FK 冲突导致 500）
+            db.query(CompetitionEnrollment).filter(
+                CompetitionEnrollment.competition_id == final.id,
+                CompetitionEnrollment.team_id == tid,
+            ).delete(synchronize_session=False)
+            db.query(TeamMember).filter(TeamMember.team_id == tid).delete(synchronize_session=False)
+            db.query(TeamJoinRequest).filter(TeamJoinRequest.team_id == tid).delete(
+                synchronize_session=False
+            )
+            db.query(TeamInvite).filter(TeamInvite.team_id == tid).delete(synchronize_session=False)
+            db.query(CompetitionQuestionAnswer).filter(
+                CompetitionQuestionAnswer.team_id == tid
+            ).delete(synchronize_session=False)
+            db.query(CompetitionTeamQuestionGrade).filter(
+                CompetitionTeamQuestionGrade.team_id == tid
+            ).delete(synchronize_session=False)
+            db.query(CompetitionExpertTeamAssignment).filter(
+                CompetitionExpertTeamAssignment.team_id == tid
+            ).delete(synchronize_session=False)
+            sub_ids = [
+                int(r[0])
+                for r in db.query(Submission.id).filter(Submission.team_id == tid).all()
+                if r[0] is not None
+            ]
+            if sub_ids:
+                db.query(Review).filter(Review.submission_id.in_(sub_ids)).delete(
+                    synchronize_session=False
+                )
+                db.query(Submission).filter(Submission.id.in_(sub_ids)).delete(
+                    synchronize_session=False
+                )
+            # 必须先解除晋级记录对决赛队伍的引用，再删队伍
+            promo.final_team_id = None
+            db.flush()
+            db.query(Team).filter(Team.id == tid).delete(synchronize_session=False)
+        elif promo.source_student_id is not None:
+            db.query(CompetitionEnrollment).filter(
+                CompetitionEnrollment.competition_id == final.id,
+                CompetitionEnrollment.student_id == promo.source_student_id,
+                CompetitionEnrollment.enrollment_scope == CompetitionEnrollmentScope.INDIVIDUAL,
+            ).delete(synchronize_session=False)
 
-    db.delete(promo)
-    db.commit()
+        db.delete(promo)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"撤销晋级失败：{e}",
+        ) from e
     return {"ok": True, "detail": f"Promotion {promotion_id} revoked"}
 
 
