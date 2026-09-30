@@ -6747,40 +6747,57 @@ async def import_promotions_excel(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"无法解析 Excel：{e}") from e
 
-    ws = wb.active
-    rows_iter = ws.iter_rows(values_only=True)
-    try:
-        header_row = next(rows_iter)
-    except StopIteration:
-        raise HTTPException(status_code=400, detail="Excel 无内容")
-
     def _norm_header(v) -> str:
-        return str(v or "").strip().lower().replace(" ", "").replace("_", "")
+        s = str(v or "").strip().lower().replace(" ", "").replace("_", "")
+        # 去掉 BOM / 零宽字符，避免「队伍ID」识别失败
+        for ch in ("\ufeff", "\u200b", "\u200c", "\u200d"):
+            s = s.replace(ch, "")
+        return s
 
-    headers = [_norm_header(c) for c in header_row]
-    # 与「导出参赛表格」列名对齐：导出为「队伍编码」「队伍名称」
     id_keys = {"队伍id", "teamid", "队伍编号", "队伍编码", "id"}
     name_keys = {"队伍名", "队名", "teamname", "name", "队伍名称"}
 
-    col_id = None
-    col_name = None
-    for i, h in enumerate(headers):
-        if col_id is None and h in id_keys:
-            col_id = i
-        if col_name is None and h in name_keys:
-            col_name = i
-    # 兜底：表头含「队伍」且含 id/编码/编号
-    if col_id is None:
+    def _resolve_cols(header_row):
+        headers = [_norm_header(c) for c in header_row]
+        col_id = None
+        col_name = None
         for i, h in enumerate(headers):
-            if "队伍" in h and ("id" in h or "编码" in h or "编号" in h):
+            if col_id is None and h in id_keys:
                 col_id = i
-                break
-    if col_name is None:
-        for i, h in enumerate(headers):
-            if "队" in h and "名" in h:
+            if col_name is None and h in name_keys:
                 col_name = i
-                break
-    if col_id is None:
+        if col_id is None:
+            for i, h in enumerate(headers):
+                if "队伍" in h and ("id" in h or "编码" in h or "编号" in h):
+                    col_id = i
+                    break
+        if col_name is None:
+            for i, h in enumerate(headers):
+                if "队" in h and "名" in h:
+                    col_name = i
+                    break
+        return col_id, col_name, headers
+
+    # 优先用活动表；若表头不匹配再扫其它工作表（常见：数据不在第一个 sheet）
+    chosen = None
+    for ws in [wb.active, *[s for s in wb.worksheets if s is not wb.active]]:
+        rows_iter = ws.iter_rows(values_only=True)
+        try:
+            header_row = next(rows_iter)
+        except StopIteration:
+            continue
+        col_id, col_name, headers = _resolve_cols(header_row)
+        if col_id is not None:
+            chosen = (ws, header_row, rows_iter, col_id, col_name, headers)
+            break
+    if chosen is None:
+        # 回退到活动表，用于报错展示表头
+        ws = wb.active
+        rows_iter = ws.iter_rows(values_only=True)
+        try:
+            header_row = next(rows_iter)
+        except StopIteration:
+            raise HTTPException(status_code=400, detail="Excel 无内容")
         found = "、".join([str(c or "").strip() for c in header_row if str(c or "").strip()]) or "(空)"
         raise HTTPException(
             status_code=400,
@@ -6790,12 +6807,16 @@ async def import_promotions_excel(
             ),
         )
 
+    _ws, header_row, rows_iter, col_id, col_name, _headers = chosen
+
     result = CompetitionPromotionImportResult()
     seen_ids: set[int] = set()
+    data_rows_seen = 0
 
     for row_no, row in enumerate(rows_iter, start=2):
         if row is None or all(c is None or str(c).strip() == "" for c in row):
             continue
+        data_rows_seen += 1
         raw_id = row[col_id] if col_id < len(row) else None
         raw_name = row[col_name] if (col_name is not None and col_name < len(row)) else None
         team_name_hint = str(raw_name).strip() if raw_name is not None else None
@@ -6866,9 +6887,9 @@ async def import_promotions_excel(
                             f"队伍属于{_work_track_section_label(team_track)}，"
                             f"不能导入到{_work_track_section_label(required_track)}"
                         ),
+                    )
                 )
-            )
-            continue
+                continue
         if team.status != TeamStatus.ACTIVE:
             result.failed += 1
             result.items.append(
@@ -6942,6 +6963,15 @@ async def import_promotions_excel(
                     detail=str(e),
                 )
             )
+
+    if data_rows_seen == 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "已识别到表头，但未读到任何数据行。"
+                "请确认数据从第 2 行开始，且保存在工作表内（勿只截图）；文件须为真正的 .xlsx。"
+            ),
+        )
 
     try:
         db.commit()

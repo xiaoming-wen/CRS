@@ -256,10 +256,13 @@ export function exportCompetitionTeamsExcel (competitionId, options = {}) {
   })
 }
 
-/** 管理员：Excel 导入决赛晋级名单（列：队伍ID，可选队伍名）。workTrack 限定赛道。 */
+/** 管理员：Excel 导入决赛晋级名单（列：队伍ID/队伍编码，可选队伍名）。workTrack 限定赛道。 */
 export function importCompetitionPromotionsExcel (competitionId, file, workTrack) {
+  const raw = (file && file.originFileObj) ? file.originFileObj : file
   const fd = new FormData()
-  fd.append('file', file)
+  // 显式带文件名，避免某些环境下 Upload 包装对象导致后端收不到 .xlsx
+  const filename = (raw && raw.name) || (file && file.name) || 'promotions.xlsx'
+  fd.append('file', raw, filename)
   if (workTrack) fd.append('work_track', workTrack)
   return axios({
     url: `/v1/competitions/${encodeURIComponent(competitionId)}/promotions/import`,

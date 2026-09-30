@@ -12318,21 +12318,33 @@ export default {
         this.$message.warning('请在初赛竞赛下导入决赛名单')
         return
       }
+      const raw = (file && file.originFileObj) ? file.originFileObj : file
+      const name = String((raw && raw.name) || (file && file.name) || '').toLowerCase()
+      if (!name.endsWith('.xlsx') && !name.endsWith('.xlsm')) {
+        this.$message.warning('请上传 .xlsx 文件（不要用 .xls / .csv 改后缀）')
+        return
+      }
       const track = String(workTrack || '').trim().toLowerCase()
       this.promotionImportLoading = track || true
       try {
         const res = await importCompetitionPromotionsExcel(
           this.activeCompetitionId,
-          file,
+          raw,
           track || undefined
         )
         const imported = res && res.imported != null ? res.imported : 0
         const skipped = res && res.skipped != null ? res.skipped : 0
         const failed = res && res.failed != null ? res.failed : 0
         const trackLabel = track ? this.workTrackSectionLabel(track) : ''
-        this.$message.success(
-          `${trackLabel ? trackLabel + '：' : ''}导入完成：成功 ${imported}，跳过 ${skipped}，失败 ${failed}`
-        )
+        if (!imported && !skipped && !failed) {
+          this.$message.warning(
+            `${trackLabel ? trackLabel + '：' : ''}未读到任何队伍行。请确认：①第1行表头为「队伍ID」或「队伍编码」；②数据从第2行起；③文件为真正的 .xlsx；④在初赛详情页导入。`
+          )
+        } else {
+          this.$message.success(
+            `${trackLabel ? trackLabel + '：' : ''}导入完成：成功 ${imported}，跳过 ${skipped}，失败 ${failed}`
+          )
+        }
         await this.refreshPromotionList()
       } catch (e) {
         this.$message.error('导入晋级名单失败：' + this.getApiErrorMessage(e, '未知错误'))

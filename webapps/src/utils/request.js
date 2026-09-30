@@ -107,29 +107,16 @@ service.interceptors.request.use(config => {
 
     // 对于 FormData，确保正确处理
     if (config.data instanceof FormData) {
-        // 重要：对于 FormData，axios 会自动设置正确的 Content-Type: multipart/form-data; boundary=...
-        // 如果手动设置了 Content-Type: multipart/form-data（没有 boundary），会导致问题
-        // 所以我们需要删除手动设置的 Content-Type，让 axios 自动处理
-        const contentType = config.headers['Content-Type'] || config.headers['content-type']
-        if (contentType && contentType.includes('multipart/form-data') && !contentType.includes('boundary')) {
-            // 如果手动设置了 multipart/form-data 但没有 boundary，删除它
-            delete config.headers['Content-Type']
-            delete config.headers['content-type']
-            console.log('删除了不完整的 Content-Type，让 axios 自动设置')
+      // 重要：必须去掉预设的 Content-Type（含 application/json），
+      // 让浏览器/axios 自动带 multipart boundary，否则后端收不到文件内容
+      if (config.headers) {
+        delete config.headers['Content-Type']
+        delete config.headers['content-type']
+        if (config.headers.common) {
+          delete config.headers.common['Content-Type']
+          delete config.headers.common['content-type']
         }
-
-        // 验证 FormData 内容（仅用于调试）
-        const entries = []
-        for (const pair of config.data.entries()) {
-            if (pair[0] === 'file') {
-                entries.push(`${pair[0]}: [File对象: ${pair[1].name || '未知'}]`)
-            } else {
-                entries.push(`${pair[0]}: ${pair[1]}`)
-            }
-        }
-        console.log('检测到 FormData，axios 将自动设置正确的 Content-Type')
-        console.log('FormData 包含的字段:', entries)
-        console.log('FormData 字段数量:', entries.length)
+      }
     }
 
     // 调试日志：显示请求配置
