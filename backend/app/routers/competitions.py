@@ -2045,22 +2045,23 @@ def _ensure_competition_allows_submissions(
     work_track: Optional[str] = None,
 ) -> None:
     """
-    作品提交：已发布（published）或报名截止（closed）均允许已参赛用户继续提交；
-    草稿（draft）与已结束（ended）不允许。启用赛道倒计时后，到达结束时间亦不可提交。
+    作品提交校验顺序：
+    1) 赛道倒计时（若已启用）
+    2) 竞赛开始/结束时间与发布状态
     """
-    if getattr(competition, "status", None) == "ended":
-        raise HTTPException(status_code=400, detail="比赛结束，无法提交作品")
-    if competition.status not in ("published", "closed"):
-        raise HTTPException(
-            status_code=400,
-            detail="Competition is not accepting submissions (must be published or closed)",
-        )
-    from app.competition_exam_config import is_track_in_submit_window, is_track_submit_closed
+    from app.competition_exam_config import (
+        get_competition_schedule_submit_block_detail,
+        get_track_submit_block_detail,
+    )
 
-    if work_track and is_track_submit_closed(competition, work_track):
-        raise HTTPException(status_code=400, detail="比赛结束，无法提交作品")
-    if work_track and not is_track_in_submit_window(competition, work_track):
-        raise HTTPException(status_code=400, detail="不在竞赛时间段无法提交")
+    if work_track:
+        track_detail = get_track_submit_block_detail(competition, work_track)
+        if track_detail:
+            raise HTTPException(status_code=400, detail=track_detail)
+
+    schedule_detail = get_competition_schedule_submit_block_detail(competition)
+    if schedule_detail:
+        raise HTTPException(status_code=400, detail=schedule_detail)
 
 
 def _ensure_competition_ended_for_export(competition: Competition) -> None:
@@ -6510,16 +6511,20 @@ async def list_promotion_candidates(
     prelim = _get_competition(db, competition_id)
     final = _paired_final_competition(db, prelim)
     track = _normalize_optional_work_track(work_track)
-    promoted_source_ids = {
-        int(r[0])
-        for r in db.query(CompetitionPromotion.source_team_id)
+    promo_rows = (
+        db.query(CompetitionPromotion.id, CompetitionPromotion.source_team_id)
         .filter(
             CompetitionPromotion.to_competition_id == final.id,
             CompetitionPromotion.source_team_id.isnot(None),
         )
         .all()
-        if r[0] is not None
+    )
+    promo_id_by_source = {
+        int(source_team_id): int(promo_id)
+        for promo_id, source_team_id in promo_rows
+        if source_team_id is not None
     }
+    promoted_source_ids = set(promo_id_by_source.keys())
     teams = (
         db.query(Team)
         .filter(Team.competition_id == prelim.id)
@@ -6548,6 +6553,7 @@ async def list_promotion_candidates(
                 member_ids=member_ids,
                 status=str(t.status),
                 already_promoted=t.id in promoted_source_ids,
+                promotion_id=promo_id_by_source.get(int(t.id)),
             )
         )
     return CompetitionPromotionCandidatesResponse(

@@ -155,6 +155,54 @@ def is_track_in_submit_window(competition, work_track: Optional[str]) -> bool:
     return True
 
 
+def get_track_submit_block_detail(competition, work_track: Optional[str]) -> Optional[str]:
+    """仅赛道倒计时不可提交原因；可提交返回 None（不含竞赛 start/end/status）。"""
+    if not any_track_time_window_enabled(competition):
+        return None
+    if is_track_submit_closed(competition, work_track):
+        return "比赛结束，无法提交作品"
+    win = get_track_time_window(competition, work_track)
+    if not win.get("enabled"):
+        return "该赛道未开启倒计时窗口，禁止提交作品"
+    from app.datetime_utils import utc_now
+
+    open_at = _parse_window_dt(win.get("download_open_at"))
+    if open_at is not None and utc_now() < open_at:
+        return "提交作品时间没有开始，禁止提交作品"
+    if not is_track_in_submit_window(competition, work_track):
+        return "不在赛道倒计时提交时间内，禁止提交作品"
+    return None
+
+
+def get_competition_schedule_submit_block_detail(competition) -> Optional[str]:
+    """竞赛整体开始/结束时间与状态拦截原因（在赛道倒计时之后检测）。"""
+    from app.datetime_utils import ensure_utc, utc_now
+
+    status = getattr(competition, "status", None)
+    if status == "draft":
+        return "当前竞赛为草稿，无法提交作品"
+    now = utc_now()
+    start_at = getattr(competition, "start_at", None)
+    if start_at is not None:
+        try:
+            if now < ensure_utc(start_at):
+                return "竞赛开始时间未到，禁止提交作品"
+        except Exception:
+            pass
+    if status == "ended":
+        return "比赛结束，无法提交作品"
+    end_at = getattr(competition, "end_at", None)
+    if end_at is not None:
+        try:
+            if now >= ensure_utc(end_at):
+                return "比赛结束，无法提交作品"
+        except Exception:
+            pass
+    if status not in ("published", "closed"):
+        return "Competition is not accepting submissions (must be published or closed)"
+    return None
+
+
 def default_track_question_config(question_count: int = 5) -> Dict[str, Any]:
     n = max(1, min(MAX_QUESTION_COUNT, int(question_count) or 5))
     questions = [

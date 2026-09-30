@@ -799,6 +799,9 @@ class CompetitionPromotionCandidateTeam(BaseModel):
     member_ids: List[int] = Field(default_factory=list, description="队员用户 id（不含队长）")
     status: str
     already_promoted: bool = False
+    promotion_id: Optional[int] = Field(
+        None, description="已晋级时对应的晋级记录 id，供弹窗勾选撤销"
+    )
 
 
 class CompetitionPromotionCandidatesResponse(BaseModel):

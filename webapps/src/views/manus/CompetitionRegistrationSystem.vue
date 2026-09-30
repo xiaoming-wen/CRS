@@ -2110,16 +2110,28 @@
     <a-modal
       v-model="showPromoteModal"
       :title="promotionModalTitle"
-      ok-text="确认晋级"
-      cancel-text="取消"
-      :confirm-loading="promotionSubmitLoading"
+      :confirm-loading="promotionSubmitLoading || promotionRevokeLoading"
       :width="820"
-      @ok="submitPromotions"
+      :footer="null"
       @cancel="showPromoteModal = false"
     >
       <p class="muted" style="margin: 0 0 12px; font-size: 13px">
-        仅显示当前赛道、且校审通过（active）的队伍可晋级；已晋级队伍不可重复勾选。
+        可勾选未晋级且校审通过的队伍确认晋级；可勾选已晋级队伍撤销晋级（决赛开始后不可撤销）。
       </p>
+      <div style="margin-bottom: 12px">
+        <a-input
+          v-model="promotionCandidateNameQuery"
+          allow-clear
+          placeholder="按队名搜索，可同时搜多个：用逗号、分号或换行分隔"
+        >
+          <a-icon slot="prefix" type="search" />
+        </a-input>
+        <div class="muted" style="margin-top: 4px; font-size: 12px">
+          当前显示 {{ promotionCandidateRows.length }} / {{ promotionCandidates.length }} 支队伍
+          <span v-if="promotionCandidateNameTokens.length">（已按 {{ promotionCandidateNameTokens.length }} 个队名关键词筛选）</span>
+          <span v-if="promotionSelectedTeamIds.length"> · 已选 {{ promotionSelectedTeamIds.length }} 支</span>
+        </div>
+      </div>
       <a-table
         size="small"
         row-key="team_id"
@@ -2128,7 +2140,28 @@
         :data-source="promotionCandidateRows"
         :row-selection="promotionCandidateRowSelection"
         :columns="promotionCandidateColumns"
+        :scroll="{ y: 420 }"
       />
+      <div style="margin-top: 16px; text-align: right">
+        <a-button style="margin-right: 8px" @click="showPromoteModal = false">取消</a-button>
+        <a-button
+          type="danger"
+          style="margin-right: 8px"
+          :loading="promotionRevokeLoading"
+          :disabled="!promotionSelectedRevokablePromotionIds.length || promotionSubmitLoading"
+          @click="submitRevokePromotionsFromModal"
+        >
+          撤销晋级{{ promotionSelectedRevokablePromotionIds.length ? `（${promotionSelectedRevokablePromotionIds.length}）` : '' }}
+        </a-button>
+        <a-button
+          type="primary"
+          :loading="promotionSubmitLoading"
+          :disabled="!promotionSelectedPromotableTeamIds.length || promotionRevokeLoading"
+          @click="submitPromotions"
+        >
+          确认晋级{{ promotionSelectedPromotableTeamIds.length ? `（${promotionSelectedPromotableTeamIds.length}）` : '' }}
+        </a-button>
+      </div>
     </a-modal>
 
     <!-- 独立详情页：我的作品（按已报名赛道提交） -->
@@ -2166,7 +2199,7 @@
         <template v-if="activeEnrollmentWorkTrack === 'works'">
           <h4 class="standalone-modal-section-title">作品赛道 · 提交压缩包</h4>
           <a-alert
-            v-if="competitionSubmissionBlocked || currentTrackSubmitWindowBlocked"
+            v-if="submissionTimeBlocked"
             type="warning"
             show-icon
             :message="competitionSubmissionBlockedTitle"
@@ -2242,7 +2275,7 @@
             {{ currentEnrollmentTrackLabel }}赛道 · 按题提交（共{{ submissionQuestionCount }}题）
           </h4>
           <a-alert
-            v-if="competitionSubmissionBlocked || currentTrackSubmitWindowBlocked"
+            v-if="submissionTimeBlocked"
             type="warning"
             show-icon
             :message="competitionSubmissionBlockedTitle"
@@ -2270,7 +2303,7 @@
             v-if="!questionAnswerTeamId"
             description="请先完成组队报名并等待校审通过"
           />
-          <div v-else-if="!competitionSubmissionBlocked && !teamSchoolReviewSubmissionBlocked" class="question-answer-slots" style="margin-bottom: 16px">
+          <div v-else-if="!submissionTimeBlocked && !teamSchoolReviewSubmissionBlocked" class="question-answer-slots" style="margin-bottom: 16px">
             <div
               v-for="slot in displayQuestionAnswerSlots"
               :key="'works-q-slot-' + slot.question_no"
@@ -3724,6 +3757,7 @@ export default {
       // 初赛晋级决赛
       promotionCandidatesLoading: false,
       promotionSubmitLoading: false,
+      promotionRevokeLoading: false,
       promotionImportLoading: null,
       promotionListLoading: false,
       promotionCandidates: [],
@@ -3731,6 +3765,8 @@ export default {
       promotionList: [],
       showPromoteModal: false,
       promotionModalWorkTrack: null,
+      /** 晋级弹窗：按队名筛选（支持多个队名，逗号/分号/换行分隔） */
+      promotionCandidateNameQuery: '',
 
       // 管理员：编辑/删除/锁定竞赛
       adminEditLoading: false,
@@ -4209,6 +4245,10 @@ export default {
       return this.isTrackSubmitClosed(t)
     },
     currentTrackSubmitWindowBlocked () {
+      return !!this.getTrackCountdownSubmitBlockReason(this.activeEnrollmentWorkTrack)
+    },
+    /** 提交弹窗总拦截（赛道倒计时优先，其次竞赛起止时间） */
+    submissionTimeBlocked () {
       return !!this.getTrackSubmitBlockReason(this.activeEnrollmentWorkTrack)
     },
     createCompetitionNeedsSharedQr () {
@@ -4556,15 +4596,31 @@ export default {
         { title: '已晋级', dataIndex: 'already_promoted_label', key: 'already_promoted_label', width: 72 }
       ]
     },
+    promotionCandidateNameTokens () {
+      const raw = this.promotionCandidateNameQuery != null ? String(this.promotionCandidateNameQuery) : ''
+      return raw
+        .split(/[,，;；\n\r]+/)
+        .map(s => s.trim())
+        .filter(Boolean)
+    },
     promotionCandidateRows () {
-      return (this.promotionCandidates || []).map(t => ({
-        ...t,
-        division_label: this.promotionDivisionLabel(t.division),
-        member_ids_label: Array.isArray(t.member_ids) && t.member_ids.length
-          ? t.member_ids.join('、')
-          : '-',
-        already_promoted_label: t.already_promoted ? '是' : '否'
-      }))
+      const tokens = this.promotionCandidateNameTokens
+      const tokensLower = tokens.map(t => t.toLowerCase())
+      return (this.promotionCandidates || [])
+        .filter(t => {
+          if (!tokensLower.length) return true
+          const name = t && t.name != null ? String(t.name).trim().toLowerCase() : ''
+          if (!name) return false
+          return tokensLower.some(token => name.includes(token) || token.includes(name))
+        })
+        .map(t => ({
+          ...t,
+          division_label: this.promotionDivisionLabel(t.division),
+          member_ids_label: Array.isArray(t.member_ids) && t.member_ids.length
+            ? t.member_ids.join('、')
+            : '-',
+          already_promoted_label: t.already_promoted ? '是' : '否'
+        }))
     },
     promotionListRows () {
       return (this.promotionList || []).map(row => {
@@ -4593,10 +4649,30 @@ export default {
       return {
         selectedRowKeys: this.promotionSelectedTeamIds.slice(),
         getCheckboxProps: (record) => ({
-          disabled: !!record.already_promoted || String(record.status) !== 'active'
+          // 已晋级：可勾选用于撤销；未晋级：仅 active 可勾选用于晋级
+          disabled: !record.already_promoted && String(record.status) !== 'active'
         }),
         onChange: this.onPromotionCandidateSelectionChange
       }
+    },
+    promotionSelectedPromotableTeamIds () {
+      const selected = new Set((this.promotionSelectedTeamIds || []).map(Number))
+      return (this.promotionCandidates || [])
+        .filter(t => {
+          const id = Number(t.team_id)
+          return selected.has(id) && !t.already_promoted && String(t.status) === 'active'
+        })
+        .map(t => Number(t.team_id))
+    },
+    promotionSelectedRevokablePromotionIds () {
+      const selected = new Set((this.promotionSelectedTeamIds || []).map(Number))
+      return (this.promotionCandidates || [])
+        .filter(t => {
+          const id = Number(t.team_id)
+          return selected.has(id) && t.already_promoted && t.promotion_id != null
+        })
+        .map(t => Number(t.promotion_id))
+        .filter(n => Number.isFinite(n))
     },
     /** 教师/管理员：selectedRowKeys 由 selectedCompetitionId 推导，避免 Table 与本地 state 双写不同步导致下方详情不刷新 */
     competitionListRowSelection () {
@@ -4898,7 +4974,7 @@ export default {
       if (this.isStudent && this.activeEnrollmentWorkTrack !== 'works') return false
       if (!this.usesZipPackageSubmission) return false
       if (!this.isStudent) return false
-      if (this.competitionSubmissionBlocked || this.currentTrackSubmitWindowBlocked || this.teamSchoolReviewSubmissionBlocked) return false
+      if (this.submissionTimeBlocked || this.teamSchoolReviewSubmissionBlocked) return false
       if (this.enrollMode === 'team') {
         return !!(this.myEnrolledTeam && this.myTeamId && this.isMyTeamSchoolReviewActive && this.isCurrentTeamCaptain)
       }
@@ -4917,8 +4993,7 @@ export default {
         this.isStudent &&
         this.questionAnswerTeamId &&
         this.isMyTeamSchoolReviewActive &&
-        !this.competitionSubmissionBlocked &&
-        !this.currentTrackSubmitWindowBlocked &&
+        !this.submissionTimeBlocked &&
         !this.teamSchoolReviewSubmissionBlocked
       )
     },
@@ -4969,13 +5044,22 @@ export default {
         return '本队作品已正式提交，全队都不能再上传、删除或再次提交。'
       }
       const hasDraftFiles = this.displayQuestionAnswerSlots.some((s) => s && s.uploaded && !s.submitted)
-      if (this.currentTrackSubmitWindowBlocked || this.competitionEnded) {
+      const windowReason = this.getTrackSubmitBlockReason(this.activeEnrollmentWorkTrack)
+      if (windowReason) {
+        // 未到开始时间：不要提示「提交时间已结束」
+        if (windowReason.title && String(windowReason.title).indexOf('没有开始') >= 0) {
+          return windowReason.content
+        }
+        if (this.isTrackSubmitClosed(this.activeEnrollmentWorkTrack) && hasDraftFiles) {
+          return '提交时间已结束，已上传但未点「提交作品」的题目文件将自动作为正式提交。'
+        }
+        return windowReason.content
+      }
+      if (this.competitionEnded) {
         if (hasDraftFiles) {
           return '提交时间已结束，已上传但未点「提交作品」的题目文件将自动作为正式提交。'
         }
-        return this.competitionEnded
-          ? '竞赛已结束，无法提交作品。'
-          : this.competitionSubmissionBlockedTitle
+        return '竞赛已结束，无法提交作品。'
       }
       if (this.competitionSubmissionBlocked) {
         return this.competitionSubmissionBlockedTitle
@@ -5256,19 +5340,13 @@ export default {
       return true
     },
     competitionSubmissionBlockedTitle () {
-      const windowReason = this.getTrackSubmitBlockReason(this.activeEnrollmentWorkTrack)
-      if (windowReason) return windowReason.title
-      const c = this.activeCompetition
-      const s = c && c.status != null ? String(c.status).toLowerCase() : ''
-      if (s === 'ended') return '比赛结束，无法提交作品'
-      return s === 'draft' ? '当前竞赛为草稿，无法提交作品' : '竞赛尚未发布，无法提交作品'
+      const reason = this.getTrackSubmitBlockReason(this.activeEnrollmentWorkTrack)
+      if (reason) return reason.title
+      return '竞赛尚未发布，无法提交作品'
     },
     competitionSubmissionBlockedDescription () {
-      const windowReason = this.getTrackSubmitBlockReason(this.activeEnrollmentWorkTrack)
-      if (windowReason) return windowReason.content
-      const c = this.activeCompetition
-      const s = c && c.status != null ? String(c.status).toLowerCase() : ''
-      if (s === 'ended') return '比赛结束，无法提交作品。'
+      const reason = this.getTrackSubmitBlockReason(this.activeEnrollmentWorkTrack)
+      if (reason) return reason.content
       return '作品提交须在竞赛发布后进行；报名截止后仍可提交作品，结束竞赛后不可提交。'
     },
     /** 报名弹窗/内联作品表单禁用（已提交锁定、竞赛不可提交或队伍待校审） */
@@ -6884,7 +6962,10 @@ export default {
           }
         }
         void this.syncEnrollModalTeamContextForCurrentTrack().finally(() => {
-        this.showStandaloneMyWorksModal = true
+          this.showStandaloneMyWorksModal = true
+          this.$nextTick(() => {
+            this.warnIfTrackSubmitBlocked(this.activeEnrollmentWorkTrack)
+          })
         })
       })
     },
@@ -9108,6 +9189,7 @@ export default {
     },
 
     assertCompetitionOpenForSubmission (showToast = true) {
+      // 先赛道倒计时，再竞赛开始/结束时间
       const reason = this.getTrackSubmitBlockReason(this.activeEnrollmentWorkTrack)
       if (reason) {
         if (showToast) {
@@ -9119,17 +9201,19 @@ export default {
         }
         return false
       }
-      if (!this.competitionSubmissionBlocked) return true
-      if (showToast) {
-        this.$message.warning(this.competitionSubmissionBlockedTitle)
-      }
-      return false
+      return true
     },
 
     mapSubmissionDetailToUserMessage (detailText) {
       const t = (detailText || '').toLowerCase()
-      if (t.includes('不在竞赛时间段') || t.includes('not in competition time')) {
-        return '不在竞赛时间段无法提交'
+      if (t.includes('提交作品时间没有开始') || t.includes('时间没有开始')) {
+        return '提交作品时间没有开始，禁止提交作品'
+      }
+      if (t.includes('竞赛开始时间未到') || t.includes('竞赛尚未开始')) {
+        return '竞赛开始时间未到，禁止提交作品'
+      }
+      if (t.includes('不在竞赛时间段') || t.includes('not in competition time') || t.includes('倒计时提交时间')) {
+        return '不在赛道倒计时提交时间内，禁止提交作品'
       }
       if (t.includes('比赛结束，无法提交作品') || t.includes('竞赛已结束') || t.includes('competition has ended')) {
         return '比赛结束，无法提交作品'
@@ -9991,6 +10075,7 @@ export default {
       if (!this.activeCompetitionId || !this.isActiveCompetitionPreliminary) return
       this.promotionModalWorkTrack = track || null
       this.promotionSelectedTeamIds = []
+      this.promotionCandidateNameQuery = ''
       this.showPromoteModal = true
       this.promotionCandidatesLoading = true
       try {
@@ -10012,9 +10097,9 @@ export default {
 
     async submitPromotions () {
       if (!this.activeCompetitionId) return Promise.reject(new Error('no competition'))
-      const ids = (this.promotionSelectedTeamIds || []).filter(id => Number.isFinite(Number(id)))
+      const ids = (this.promotionSelectedPromotableTeamIds || []).filter(id => Number.isFinite(Number(id)))
       if (!ids.length) {
-        this.$message.warning('请选择至少一支已校审通过的队伍')
+        this.$message.warning('请勾选至少一支未晋级且已校审通过的队伍')
         return Promise.reject(new Error('no teams selected'))
       }
       this.promotionSubmitLoading = true
@@ -10024,14 +10109,75 @@ export default {
           work_track: this.promotionModalWorkTrack || undefined
         })
         this.$message.success(`已晋级 ${ids.length} 支${this.workTrackSectionLabel(this.promotionModalWorkTrack)}队伍`)
-        this.showPromoteModal = false
+        this.promotionSelectedTeamIds = []
         await this.refreshPromotionList()
+        await this.reloadPromotionCandidatesInModal()
       } catch (e) {
         this.$message.error('晋级失败：' + this.getApiErrorMessage(e, '未知错误'))
         return Promise.reject(e)
       } finally {
         this.promotionSubmitLoading = false
       }
+    },
+
+    async reloadPromotionCandidatesInModal () {
+      if (!this.activeCompetitionId || !this.showPromoteModal) return
+      this.promotionCandidatesLoading = true
+      try {
+        const res = await getPromotionCandidates(this.activeCompetitionId, {
+          work_track: this.promotionModalWorkTrack || undefined
+        })
+        this.promotionCandidates = (res && res.teams) || []
+      } catch (e) {
+        this.promotionCandidates = []
+        this.$message.error('刷新可晋级队伍失败：' + this.getApiErrorMessage(e, '未知错误'))
+      } finally {
+        this.promotionCandidatesLoading = false
+      }
+    },
+
+    submitRevokePromotionsFromModal () {
+      if (!this.activeCompetitionId) return
+      const promoIds = (this.promotionSelectedRevokablePromotionIds || []).slice()
+      if (!promoIds.length) {
+        this.$message.warning('请勾选至少一支已晋级队伍')
+        return
+      }
+      const self = this
+      this.$confirm({
+        title: '撤销晋级',
+        content: `确定撤销 ${promoIds.length} 支已晋级队伍？将删除决赛侧对应队伍与报名（决赛开始后不可撤销）。`,
+        okText: '撤销',
+        okType: 'danger',
+        cancelText: '取消',
+        async onOk () {
+          self.promotionRevokeLoading = true
+          let ok = 0
+          const errors = []
+          try {
+            for (const pid of promoIds) {
+              try {
+                await revokeCompetitionPromotion(self.activeCompetitionId, pid)
+                ok += 1
+              } catch (e) {
+                errors.push(`#${pid}：${self.getApiErrorMessage(e, '失败')}`)
+              }
+            }
+            if (ok > 0) {
+              self.$message.success(`已撤销 ${ok} 支队伍晋级`)
+              self.promotionSelectedTeamIds = []
+              await self.refreshPromotionList()
+              await self.reloadPromotionCandidatesInModal()
+            }
+            if (errors.length) {
+              self.$message.error(`部分撤销失败：${errors.slice(0, 3).join('；')}${errors.length > 3 ? '…' : ''}`)
+              if (ok === 0) return Promise.reject(new Error('revoke failed'))
+            }
+          } finally {
+            self.promotionRevokeLoading = false
+          }
+        }
+      })
     },
 
     promotionsForTrack (track) {
@@ -10215,22 +10361,75 @@ export default {
       return true
     },
 
-    getTrackSubmitBlockReason (track) {
+    getTrackCountdownSubmitBlockReason (track) {
+      /** 仅赛道倒计时窗口（不含竞赛 start_at / end_at / status） */
       void this.countdownNowMs
-      const c = this.activeCompetition
-      const s = c && c.status != null ? String(c.status).toLowerCase() : ''
-      if (s === 'ended') {
-        return { title: '比赛结束，无法提交作品', content: '比赛结束，无法提交作品。' }
-      }
       const t = track != null ? String(track).trim().toLowerCase() : ''
       if (!t || !this.hasAnyEnabledTrackCountdown()) return null
       if (this.isTrackSubmitClosed(t)) {
         return { title: '比赛结束，无法提交作品', content: '比赛结束，无法提交作品。' }
       }
+      if (!this.isCompetitionTrackEnabled(t)) {
+        return {
+          title: '禁止提交作品',
+          content: '该赛道未开启倒计时窗口，禁止提交作品。'
+        }
+      }
+      const w = this.getTrackTimeWindow(t)
+      const openMs = w && w.download_open_at ? new Date(w.download_open_at).getTime() : NaN
+      if (Number.isFinite(openMs) && this.countdownNowMs < openMs) {
+        return {
+          title: '提交作品时间没有开始',
+          content: '提交作品时间没有开始，禁止提交作品。'
+        }
+      }
       if (!this.isTrackInSubmitWindow(t)) {
-        return { title: '不在竞赛时间段无法提交', content: '不在竞赛时间段无法提交。' }
+        return {
+          title: '禁止提交作品',
+          content: '不在赛道倒计时提交时间内，禁止提交作品。'
+        }
       }
       return null
+    },
+
+    getCompetitionScheduleSubmitBlockReason () {
+      /** 竞赛整体开始/结束时间与状态（在赛道倒计时之后再检测） */
+      void this.countdownNowMs
+      const c = this.activeCompetition
+      if (!c) return null
+      const s = c.status != null ? String(c.status).toLowerCase() : ''
+      if (s === 'draft') {
+        return { title: '当前竞赛为草稿，无法提交作品', content: '当前竞赛为草稿，无法提交作品。' }
+      }
+      if (c.start_at) {
+        const startMs = new Date(c.start_at).getTime()
+        if (Number.isFinite(startMs) && this.countdownNowMs < startMs) {
+          return {
+            title: '竞赛尚未开始',
+            content: '竞赛开始时间未到，禁止提交作品。'
+          }
+        }
+      }
+      if (s === 'ended') {
+        return { title: '比赛结束，无法提交作品', content: '比赛结束，无法提交作品。' }
+      }
+      if (c.end_at) {
+        const endMs = new Date(c.end_at).getTime()
+        if (Number.isFinite(endMs) && this.countdownNowMs >= endMs) {
+          return { title: '比赛结束，无法提交作品', content: '比赛结束，无法提交作品。' }
+        }
+      }
+      if (s && s !== 'published' && s !== 'closed' && s !== 'open' && s !== 'ended') {
+        return { title: '竞赛尚未发布，无法提交作品', content: '作品提交须在竞赛发布后进行。' }
+      }
+      return null
+    },
+
+    getTrackSubmitBlockReason (track) {
+      // 提交作品弹窗：先赛道倒计时，再竞赛开始/结束时间
+      const trackReason = this.getTrackCountdownSubmitBlockReason(track)
+      if (trackReason) return trackReason
+      return this.getCompetitionScheduleSubmitBlockReason()
     },
 
     warnIfTrackSubmitBlocked (track) {
