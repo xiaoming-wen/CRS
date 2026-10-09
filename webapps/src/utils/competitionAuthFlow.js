@@ -22,7 +22,7 @@ const COMPETITION_ALT_GATE_ROUTES = [
  * 对应：/#/manu/competition-detail?id=…&share=1
  * 改此常量即可热更新生效；仅改 .env 需重启 devServer
  */
-const STUDENT_ADVISOR_LANDING_COMPETITION_ID = 91780578
+const STUDENT_ADVISOR_LANDING_COMPETITION_ID = 47454000
 
 /** 未晋级决赛时登录页弹窗文案 */
 export const FINAL_LANDING_DENIED_MESSAGE = '队伍没有晋级决赛无法登录'
@@ -42,7 +42,7 @@ export function getStudentAdvisorLandingRouteLocation () {
   }
 }
 
-/** @returns {string} 如 /manu/competition-detail?id=91780578&share=1 */
+/** @returns {string} 如 /manu/competition-detail?id=47454000&share=1 */
 export function getStudentAdvisorLandingFullPath () {
   const loc = getStudentAdvisorLandingRouteLocation()
   return `${loc.path}?id=${encodeURIComponent(loc.query.id)}&share=1`
