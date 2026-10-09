@@ -2542,7 +2542,7 @@
         </template>
         <a-form-item label="赛道倒计时">
           <div class="muted" style="margin-bottom: 8px; font-size: 12px; line-height: 1.5">
-            按赛道设置。到达开始时间后，符合条件的学生端会出现「下载试卷」；倒计时结束后禁止提交作品，并提示比赛结束、无法提交作品。结束前 30 / 20 / 10 / 5 / 1 分钟会在学生端弹窗提醒。
+            按赛道 + 组别设置。到达该组别开始时间后，符合条件的学生端会出现「下载试卷」；结束后禁止提交并提示比赛结束。结束前 30 / 20 / 10 / 5 / 1 分钟学生端弹窗提醒。某组别未填完整开始与结束时间则该组别禁止下载与提交。
           </div>
           <div
             v-for="trk in trackCountdownTrackOptions"
@@ -2554,20 +2554,27 @@
             </a-checkbox>
             <div
               v-if="createCompetitionForm.track_countdown[trk.value] && createCompetitionForm.track_countdown[trk.value].enabled"
-              style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center"
+              style="margin-top: 8px"
             >
-              <span>开始（可下载试卷）</span>
-              <a-input
-                type="datetime-local"
-                style="width: 220px"
-                v-model="createCompetitionForm.track_countdown[trk.value].download_open_at"
-              />
-              <span>结束（禁止提交）</span>
-              <a-input
-                type="datetime-local"
-                style="width: 220px"
-                v-model="createCompetitionForm.track_countdown[trk.value].submit_close_at"
-              />
+              <div
+                v-for="divOpt in trackCountdownDivisionOptions"
+                :key="'create-cd-' + trk.value + '-' + divOpt.value"
+                style="margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center"
+              >
+                <span style="min-width: 48px; font-weight: 500">{{ divOpt.label }}</span>
+                <span>开始（可下载试卷）</span>
+                <a-input
+                  type="datetime-local"
+                  style="width: 220px"
+                  v-model="createCompetitionForm.track_countdown[trk.value][divOpt.value].download_open_at"
+                />
+                <span>结束（禁止提交）</span>
+                <a-input
+                  type="datetime-local"
+                  style="width: 220px"
+                  v-model="createCompetitionForm.track_countdown[trk.value][divOpt.value].submit_close_at"
+                />
+              </div>
             </div>
           </div>
         </a-form-item>
@@ -2790,7 +2797,7 @@
         </template>
         <a-form-item label="赛道倒计时">
           <div class="muted" style="margin-bottom: 8px; font-size: 12px; line-height: 1.5">
-            按赛道设置。到达开始时间后学生端出现「下载试卷」；结束后禁止提交并提示比赛结束。结束前 30 / 20 / 10 / 5 / 1 分钟学生端弹窗提醒。
+            按赛道 + 组别设置。到达该组别开始时间后学生端出现「下载试卷」；结束后禁止提交并提示比赛结束。结束前 30 / 20 / 10 / 5 / 1 分钟学生端弹窗提醒。某组别未填完整开始与结束时间则该组别禁止下载与提交。
           </div>
           <div
             v-for="trk in trackCountdownTrackOptions"
@@ -2802,20 +2809,27 @@
             </a-checkbox>
             <div
               v-if="editCompetitionForm.track_countdown[trk.value] && editCompetitionForm.track_countdown[trk.value].enabled"
-              style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center"
+              style="margin-top: 8px"
             >
-              <span>开始（可下载试卷）</span>
-              <a-input
-                type="datetime-local"
-                style="width: 220px"
-                v-model="editCompetitionForm.track_countdown[trk.value].download_open_at"
-              />
-              <span>结束（禁止提交）</span>
-              <a-input
-                type="datetime-local"
-                style="width: 220px"
-                v-model="editCompetitionForm.track_countdown[trk.value].submit_close_at"
-              />
+              <div
+                v-for="divOpt in trackCountdownDivisionOptions"
+                :key="'edit-cd-' + trk.value + '-' + divOpt.value"
+                style="margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center"
+              >
+                <span style="min-width: 48px; font-weight: 500">{{ divOpt.label }}</span>
+                <span>开始（可下载试卷）</span>
+                <a-input
+                  type="datetime-local"
+                  style="width: 220px"
+                  v-model="editCompetitionForm.track_countdown[trk.value][divOpt.value].download_open_at"
+                />
+                <span>结束（禁止提交）</span>
+                <a-input
+                  type="datetime-local"
+                  style="width: 220px"
+                  v-model="editCompetitionForm.track_countdown[trk.value][divOpt.value].submit_close_at"
+                />
+              </div>
             </div>
           </div>
         </a-form-item>
@@ -3403,6 +3417,7 @@ import {
   resolveEnrollmentDivision,
   resolveTeamDivision,
   getCompetitionEnrollmentDivision,
+  getCompetitionEnrollmentDivisionAnyTrack,
   saveCompetitionTeamDivision,
   getCompetitionTeamDivision,
   divisionToLabel,
@@ -3437,8 +3452,18 @@ import {
   applyAltIdentityMeToStorage
 } from '@/api/altIdentity'
 
+function emptyTrackCountdownDivisionSlot () {
+  return { download_open_at: '', submit_close_at: '' }
+}
+
 function emptyTrackCountdownSlot () {
-  return { enabled: false, download_open_at: '', submit_close_at: '' }
+  return {
+    enabled: false,
+    download_open_at: '',
+    submit_close_at: '',
+    undergraduate: emptyTrackCountdownDivisionSlot(),
+    vocational: emptyTrackCountdownDivisionSlot()
+  }
 }
 
 function emptyTrackCountdownForm () {
@@ -4144,7 +4169,6 @@ export default {
           if (!row) return
           const track = row.work_track != null ? String(row.work_track).trim().toLowerCase() : ''
           if (!order.includes(track) || track === 'works') return
-          if (!this.isTrackExamDownloadOpen(track)) return
           // 组队报名：仅校审通过的队伍才展示对应赛道试卷
           if (row.team_id != null) {
             const st = String(statusMap[Number(row.team_id)] || '').trim().toLowerCase()
@@ -4154,6 +4178,7 @@ export default {
             || this.normalizeViewDivision(this.activeCompetitionEnrolledDivision)
             || this.normalizeViewDivision(this.activeViewDivision)
           if (div !== 'undergraduate' && div !== 'vocational') return
+          if (!this.isTrackExamDownloadOpen(track, div)) return
           const slot = resolveSlot(div, track)
           pushUnique(map, {
             key: `${div}__${track}`,
@@ -4176,10 +4201,10 @@ export default {
             team.work_track != null ? team.work_track : team.workTrack
           )
           if (!order.includes(track) || track === 'works') return
-          if (!this.isTrackExamDownloadOpen(track)) return
           const div = this.normalizeViewDivision(this.resolveTeamDivisionWithCache(team))
             || this.normalizeViewDivision(this.activeCompetitionAdvisorTeamDivision)
             || this.normalizeViewDivision(this.activeViewDivision)
+          if (!this.isTrackExamDownloadOpen(track, div)) return
           if (div !== 'undergraduate' && div !== 'vocational') return
           const slot = resolveSlot(div, track)
           const existing = map.get(`${div}__${track}`)
@@ -4224,7 +4249,7 @@ export default {
         const byTrack = (this.examPapersForDetail && this.examPapersForDetail.by_track) || {}
         return ['undergraduate', 'vocational', 'default'].some((div) => {
           const m = byTrack[div] || {}
-          return ['software', 'hardware'].some(t => m[t] && m[t].published && this.isTrackExamDownloadOpen(t))
+          return ['software', 'hardware'].some(t => m[t] && m[t].published && this.isTrackExamDownloadOpen(t, div))
         })
       }
       if (this.isAdvisorOrTeacher) {
@@ -4237,6 +4262,12 @@ export default {
         { value: 'software', label: '软件赛道' },
         { value: 'hardware', label: '硬件赛道' },
         { value: 'works', label: '作品赛道' }
+      ]
+    },
+    trackCountdownDivisionOptions () {
+      return [
+        { value: 'undergraduate', label: '本科' },
+        { value: 'vocational', label: '高职' }
       ]
     },
     currentTrackSubmitClosed () {
@@ -10270,27 +10301,73 @@ export default {
 
     parseTrackCountdownFromCompetition (comp) {
       const form = emptyTrackCountdownForm()
-      const raw = (comp && comp.track_time_windows) || {}
+      let raw = (comp && comp.track_time_windows) || {}
+      if (typeof raw === 'string') {
+        try {
+          raw = JSON.parse(raw)
+        } catch (e) {
+          raw = {}
+        }
+      }
       ;['software', 'hardware', 'works'].forEach((track) => {
         const item = raw[track] || {}
+        const divisions = item.divisions && typeof item.divisions === 'object' ? item.divisions : {}
+        const ug = divisions.undergraduate || {}
+        const voc = divisions.vocational || {}
+        const def = divisions.default || {}
+        const flatOpen = item.download_open_at || def.download_open_at
+        const flatClose = item.submit_close_at || def.submit_close_at
         form[track] = {
           enabled: item.enabled === true,
-          download_open_at: this.toDateTimeLocalValue(item.download_open_at),
-          submit_close_at: this.toDateTimeLocalValue(item.submit_close_at)
+          download_open_at: this.toDateTimeLocalValue(flatOpen),
+          submit_close_at: this.toDateTimeLocalValue(flatClose),
+          undergraduate: {
+            download_open_at: this.toDateTimeLocalValue(ug.download_open_at || flatOpen),
+            submit_close_at: this.toDateTimeLocalValue(ug.submit_close_at || flatClose)
+          },
+          vocational: {
+            download_open_at: this.toDateTimeLocalValue(voc.download_open_at || flatOpen),
+            submit_close_at: this.toDateTimeLocalValue(voc.submit_close_at || flatClose)
+          }
         }
       })
       return form
     },
 
     serializeTrackCountdown (formCountdown) {
+      // 始终按本科 / 高职两组保存（与试卷分槽一致）
       const src = formCountdown || emptyTrackCountdownForm()
       const out = {}
       ;['software', 'hardware', 'works'].forEach((track) => {
         const slot = src[track] || emptyTrackCountdownSlot()
+        const enabled = !!slot.enabled
+        const ug = slot.undergraduate || emptyTrackCountdownDivisionSlot()
+        const voc = slot.vocational || emptyTrackCountdownDivisionSlot()
+        const ugOpen = enabled ? this.toISOFromDateTimeLocal(ug.download_open_at) : null
+        const ugClose = enabled ? this.toISOFromDateTimeLocal(ug.submit_close_at) : null
+        const vocOpen = enabled ? this.toISOFromDateTimeLocal(voc.download_open_at) : null
+        const vocClose = enabled ? this.toISOFromDateTimeLocal(voc.submit_close_at) : null
+        // default 兜底：优先本科，否则高职，避免旧客户端读不到组别时误判「未配置」
+        const defOpen = ugOpen || vocOpen
+        const defClose = ugClose || vocClose
         out[track] = {
-          enabled: !!slot.enabled,
-          download_open_at: slot.enabled ? this.toISOFromDateTimeLocal(slot.download_open_at) : null,
-          submit_close_at: slot.enabled ? this.toISOFromDateTimeLocal(slot.submit_close_at) : null
+          enabled,
+          download_open_at: defOpen,
+          submit_close_at: defClose,
+          divisions: {
+            undergraduate: {
+              download_open_at: ugOpen,
+              submit_close_at: ugClose
+            },
+            vocational: {
+              download_open_at: vocOpen,
+              submit_close_at: vocClose
+            },
+            default: {
+              download_open_at: defOpen,
+              submit_close_at: defClose
+            }
+          }
         }
       })
       return out
@@ -10324,6 +10401,103 @@ export default {
       return item && typeof item === 'object' ? item : {}
     },
 
+    /** 当前用于赛道倒计时的学历组别（本科 / 高职） */
+    resolveTrackCountdownDivision (division) {
+      const norm = (v) => {
+        const d = this.normalizeViewDivision(v)
+        return d === 'undergraduate' || d === 'vocational' ? d : null
+      }
+      const direct = norm(division)
+      if (direct) return direct
+      const fromView = norm(this.activeViewDivision)
+      if (fromView) return fromView
+      const fromEnrolled = norm(this.activeCompetitionEnrolledDivision)
+      if (fromEnrolled) return fromEnrolled
+      const teamRow = this.currentTeamEnrollmentRow
+      const fromTeamRow = norm(teamRow && teamRow.division)
+      if (fromTeamRow) return fromTeamRow
+      const cid = this.activeCompetitionId
+      if (cid) {
+        const fromCache =
+          norm(getCompetitionEnrollmentDivision(cid, 'team')) ||
+          norm(getCompetitionEnrollmentDivision(cid, 'individual')) ||
+          norm(getCompetitionEnrollmentDivisionAnyTrack(cid))
+        if (fromCache) return fromCache
+      }
+      return null
+    },
+
+    _trackDivisionSlotConfigured (slot) {
+      return !!(slot && slot.download_open_at && slot.submit_close_at)
+    },
+
+    /**
+     * 按赛道 + 组别解析倒计时。
+     * configured=false：该组别未填完整开始+结束 → 禁止下载/提交。
+     */
+    resolveTrackWindowForDivision (track, division) {
+      const raw = this.getTrackTimeWindow(track)
+      if (!this.isTrackWindowFlagEnabled(raw)) {
+        return {
+          enabled: false,
+          download_open_at: null,
+          submit_close_at: null,
+          configured: true
+        }
+      }
+      const div = this.resolveTrackCountdownDivision(division)
+      const divisions = raw.divisions && typeof raw.divisions === 'object' ? raw.divisions : null
+      let slot = null
+      if (div === 'undergraduate' || div === 'vocational') {
+        slot = divisions && divisions[div] ? divisions[div] : null
+        // 明确组别：不回退另一组；仅当完全无 divisions（旧数据）时用扁平字段
+        if (!slot && !divisions && (raw.download_open_at || raw.submit_close_at)) {
+          slot = {
+            download_open_at: raw.download_open_at,
+            submit_close_at: raw.submit_close_at
+          }
+        }
+      } else {
+        // 组别未知：优先本科/高职已配置槽；两组都配且时间不同则仍视为未确定
+        const ug = divisions && divisions.undergraduate
+        const voc = divisions && divisions.vocational
+        const ugOk = this._trackDivisionSlotConfigured(ug)
+        const vocOk = this._trackDivisionSlotConfigured(voc)
+        if (ugOk && vocOk) {
+          if (
+            String(ug.download_open_at) === String(voc.download_open_at) &&
+            String(ug.submit_close_at) === String(voc.submit_close_at)
+          ) {
+            slot = ug
+          } else {
+            return {
+              enabled: true,
+              download_open_at: null,
+              submit_close_at: null,
+              configured: false
+            }
+          }
+        } else if (ugOk) {
+          slot = ug
+        } else if (vocOk) {
+          slot = voc
+        } else {
+          slot = (divisions && divisions.default) || {
+            download_open_at: raw.download_open_at,
+            submit_close_at: raw.submit_close_at
+          }
+        }
+      }
+      const openAt = slot && slot.download_open_at ? slot.download_open_at : null
+      const closeAt = slot && slot.submit_close_at ? slot.submit_close_at : null
+      return {
+        enabled: true,
+        download_open_at: openAt,
+        submit_close_at: closeAt,
+        configured: !!(openAt && closeAt)
+      }
+    },
+
     hasAnyEnabledTrackCountdown () {
       const windows = this.getTrackTimeWindowsMap()
       return ['software', 'hardware', 'works'].some((t) => this.isTrackWindowFlagEnabled(windows[t]))
@@ -10340,50 +10514,58 @@ export default {
       return this.isTrackWindowFlagEnabled(this.getTrackTimeWindow(track))
     },
 
-    isTrackExamDownloadOpen (track) {
+    isTrackExamDownloadOpen (track, division) {
       void this.countdownNowMs
       if (!this.isCompetitionTrackEnabled(track)) return false
-      const w = this.getTrackTimeWindow(track)
-      if (!w || w.enabled !== true) return true
+      const w = this.resolveTrackWindowForDivision(track, division)
+      if (!w.enabled) return true
+      if (!w.configured) return false
       const openMs = w.download_open_at ? new Date(w.download_open_at).getTime() : NaN
       if (Number.isFinite(openMs) && this.countdownNowMs < openMs) return false
       return true
     },
 
-    isTrackInSubmitWindow (track) {
+    isTrackInSubmitWindow (track, division) {
       void this.countdownNowMs
       if (!this.hasAnyEnabledTrackCountdown()) return true
       if (!this.isCompetitionTrackEnabled(track)) return false
-      if (this.isTrackSubmitClosed(track)) return false
-      const w = this.getTrackTimeWindow(track)
-      const openMs = w && w.download_open_at ? new Date(w.download_open_at).getTime() : NaN
+      const w = this.resolveTrackWindowForDivision(track, division)
+      if (!w.configured) return false
+      if (this.isTrackSubmitClosed(track, division)) return false
+      const openMs = w.download_open_at ? new Date(w.download_open_at).getTime() : NaN
       if (Number.isFinite(openMs) && this.countdownNowMs < openMs) return false
       return true
     },
 
-    getTrackCountdownSubmitBlockReason (track) {
+    getTrackCountdownSubmitBlockReason (track, division) {
       /** 仅赛道倒计时窗口（不含竞赛 start_at / end_at / status） */
       void this.countdownNowMs
       const t = track != null ? String(track).trim().toLowerCase() : ''
       if (!t || !this.hasAnyEnabledTrackCountdown()) return null
-      if (this.isTrackSubmitClosed(t)) {
-        return { title: '比赛结束，无法提交作品', content: '比赛结束，无法提交作品。' }
-      }
       if (!this.isCompetitionTrackEnabled(t)) {
         return {
           title: '禁止提交作品',
           content: '该赛道未开启倒计时窗口，禁止提交作品。'
         }
       }
-      const w = this.getTrackTimeWindow(t)
-      const openMs = w && w.download_open_at ? new Date(w.download_open_at).getTime() : NaN
+      const w = this.resolveTrackWindowForDivision(t, division)
+      if (!w.configured) {
+        return {
+          title: '禁止提交作品',
+          content: '该组别未配置赛道倒计时时间，禁止提交作品。'
+        }
+      }
+      if (this.isTrackSubmitClosed(t, division)) {
+        return { title: '比赛结束，无法提交作品', content: '比赛结束，无法提交作品。' }
+      }
+      const openMs = w.download_open_at ? new Date(w.download_open_at).getTime() : NaN
       if (Number.isFinite(openMs) && this.countdownNowMs < openMs) {
         return {
           title: '提交作品时间没有开始',
           content: '提交作品时间没有开始，禁止提交作品。'
         }
       }
-      if (!this.isTrackInSubmitWindow(t)) {
+      if (!this.isTrackInSubmitWindow(t, division)) {
         return {
           title: '禁止提交作品',
           content: '不在赛道倒计时提交时间内，禁止提交作品。'
@@ -10425,15 +10607,15 @@ export default {
       return null
     },
 
-    getTrackSubmitBlockReason (track) {
+    getTrackSubmitBlockReason (track, division) {
       // 提交作品弹窗：先赛道倒计时，再竞赛开始/结束时间
-      const trackReason = this.getTrackCountdownSubmitBlockReason(track)
+      const trackReason = this.getTrackCountdownSubmitBlockReason(track, division)
       if (trackReason) return trackReason
       return this.getCompetitionScheduleSubmitBlockReason()
     },
 
-    warnIfTrackSubmitBlocked (track) {
-      const reason = this.getTrackSubmitBlockReason(track)
+    warnIfTrackSubmitBlocked (track, division) {
+      const reason = this.getTrackSubmitBlockReason(track, division)
       if (!reason) return false
       this.$warning({
         title: reason.title,
@@ -10445,9 +10627,9 @@ export default {
       return true
     },
 
-    getTrackSubmitCloseMs (track) {
-      const w = this.getTrackTimeWindow(track)
-      if (this.isTrackWindowFlagEnabled(w) && w.submit_close_at) {
+    getTrackSubmitCloseMs (track, division) {
+      const w = this.resolveTrackWindowForDivision(track, division)
+      if (w.enabled && w.configured && w.submit_close_at) {
         const ms = new Date(w.submit_close_at).getTime()
         if (Number.isFinite(ms)) return ms
       }
@@ -10459,10 +10641,10 @@ export default {
       return NaN
     },
 
-    isTrackSubmitClosed (track) {
+    isTrackSubmitClosed (track, division) {
       void this.countdownNowMs
-      const w = this.getTrackTimeWindow(track)
-      if (!this.isTrackWindowFlagEnabled(w)) return false
+      const w = this.resolveTrackWindowForDivision(track, division)
+      if (!w.enabled || !w.configured) return false
       const closeMs = w.submit_close_at ? new Date(w.submit_close_at).getTime() : NaN
       if (Number.isFinite(closeMs) && this.countdownNowMs >= closeMs) return true
       return false

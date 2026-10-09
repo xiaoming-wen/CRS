@@ -1946,7 +1946,7 @@ def _can_download_exam_paper(
     if track:
         from app.competition_exam_config import is_track_exam_download_open
 
-        if not is_track_exam_download_open(competition, track):
+        if not is_track_exam_download_open(competition, track, division):
             return False
     if role == "student":
         q = db.query(CompetitionEnrollment).filter(
@@ -2043,10 +2043,11 @@ def _ensure_enrollment_open(competition: Competition) -> None:
 def _ensure_competition_allows_submissions(
     competition: Competition,
     work_track: Optional[str] = None,
+    division: Optional[str] = None,
 ) -> None:
     """
     作品提交校验顺序：
-    1) 赛道倒计时（若已启用）
+    1) 赛道倒计时（若已启用；dual 时按组别取窗口，未填则禁止）
     2) 竞赛开始/结束时间与发布状态
     """
     from app.competition_exam_config import (
@@ -2055,7 +2056,7 @@ def _ensure_competition_allows_submissions(
     )
 
     if work_track:
-        track_detail = get_track_submit_block_detail(competition, work_track)
+        track_detail = get_track_submit_block_detail(competition, work_track, division)
         if track_detail:
             raise HTTPException(status_code=400, detail=track_detail)
 
@@ -2262,14 +2263,11 @@ def _auto_submit_draft_answers_past_deadline(db: Session, competition: Competiti
 
     作品赛道压缩包没有草稿态（点提交才上传），此处只处理软件/硬件分题答案。
     """
-    from app.competition_exam_config import WORK_TRACKS, is_track_submit_closed
+    from app.competition_exam_config import is_track_submit_closed
 
     if competition is None:
         return 0
     ended = str(getattr(competition, "status", None) or "").lower() == "ended"
-    closed_tracks = {t for t in WORK_TRACKS if is_track_submit_closed(competition, t)}
-    if not ended and not closed_tracks:
-        return 0
 
     drafts = (
         db.query(CompetitionQuestionAnswer)
@@ -2291,7 +2289,8 @@ def _auto_submit_draft_answers_past_deadline(db: Session, competition: Competiti
     for tid in team_ids:
         team = team_by_id.get(tid)
         track = _peek_team_work_track(db, int(competition.id), team)
-        if ended or (track and track in closed_tracks):
+        division = _peek_team_division(db, int(competition.id), team)
+        if ended or (track and is_track_submit_closed(competition, track, division)):
             eligible_team_ids.add(tid)
 
     if not eligible_team_ids:
@@ -4461,8 +4460,11 @@ async def download_competition_exam_paper(
     track = _resolve_identity_work_track_for_paper(db, competition, identity, div, work_track)
     from app.competition_exam_config import is_track_exam_download_open
 
-    if not is_track_exam_download_open(competition, track):
-        raise HTTPException(status_code=403, detail="试卷下载尚未开始")
+    if not is_track_exam_download_open(competition, track, div):
+        raise HTTPException(
+            status_code=403,
+            detail="试卷下载尚未开始或该组别未配置赛道倒计时时间",
+        )
     if not _can_download_exam_paper(db, competition, identity, div, track):
         raise HTTPException(
             status_code=403,
@@ -8743,7 +8745,9 @@ async def upload_question_answer(
     track = _resolve_team_work_track(db, competition.id, team)
     _assert_work_track_allows_question_answers(track)
     qno = _validate_question_no(question_no, competition, track)
-    _ensure_competition_allows_submissions(competition, track)
+    _ensure_competition_allows_submissions(
+        competition, track, _peek_team_division(db, competition.id, team)
+    )
     _assert_team_answers_not_locked(db, competition.id, team_id)
 
     if not file or not file.filename:
@@ -8851,7 +8855,9 @@ async def submit_team_question_answers(
     team = _require_active_team_member_for_answers(db, competition, team_id, identity)
     track = _resolve_team_work_track(db, competition.id, team)
     _assert_work_track_allows_question_answers(track)
-    _ensure_competition_allows_submissions(competition, track)
+    _ensure_competition_allows_submissions(
+        competition, track, _peek_team_division(db, competition.id, team)
+    )
 
     already = (
         db.query(CompetitionQuestionAnswer.id)
@@ -9035,7 +9041,8 @@ async def delete_question_answer(
         raise HTTPException(status_code=404, detail="Question answer not found")
     team = db.query(Team).filter(Team.id == row.team_id).first()
     track = _peek_team_work_track(db, competition.id, team) if team else None
-    _ensure_competition_allows_submissions(competition, track)
+    division = _peek_team_division(db, competition.id, team) if team else None
+    _ensure_competition_allows_submissions(competition, track, division)
 
     _require_active_team_member_for_answers(db, competition, row.team_id, identity)
     _assert_team_answers_not_locked(db, competition.id, row.team_id)
@@ -9080,11 +9087,16 @@ async def create_submission(
 
     # 校验提交目标：个人 or 队伍
     team_id = payload.team_id
+    division = None
     if team_id is None:
         # 个人提交：student_id 必须是当前用户，且个人报名仍有效
         student_id = identity.id
         _ensure_active_individual_enrollment(db, competition.id, identity.id)
         work_track = _resolve_individual_work_track(db, competition.id, identity.id)
+        enroll = _get_enrollment_by_scope(
+            db, competition.id, identity.id, CompetitionEnrollmentScope.INDIVIDUAL
+        )
+        division = getattr(enroll, "division", None) if enroll is not None else None
     else:
         team = db.query(Team).filter(Team.id == team_id, Team.competition_id == competition.id).first()
         if not team:
@@ -9100,7 +9112,8 @@ async def create_submission(
             raise HTTPException(status_code=403, detail="Only team captain may submit for the team")
         student_id = identity.id
         work_track = _resolve_team_work_track(db, competition.id, team)
-    _ensure_competition_allows_submissions(competition, work_track)
+        division = _peek_team_division(db, competition.id, team)
+    _ensure_competition_allows_submissions(competition, work_track, division)
     _assert_work_track_allows_zip(work_track)
 
     if not payload.file_id and not payload.content_text:
@@ -9160,10 +9173,15 @@ async def create_submission_upload(
     _assert_competition_uses_zip_submission(competition)
 
     # 校验提交目标：个人 or 队伍
+    division = None
     if team_id is None:
         student_id = identity.id
         _ensure_active_individual_enrollment(db, competition.id, identity.id)
         work_track = _resolve_individual_work_track(db, competition.id, identity.id)
+        enroll = _get_enrollment_by_scope(
+            db, competition.id, identity.id, CompetitionEnrollmentScope.INDIVIDUAL
+        )
+        division = getattr(enroll, "division", None) if enroll is not None else None
     else:
         team = db.query(Team).filter(Team.id == team_id, Team.competition_id == competition.id).first()
         if not team:
@@ -9177,7 +9195,8 @@ async def create_submission_upload(
             raise HTTPException(status_code=403, detail="Only team captain may submit for the team")
         student_id = identity.id
         work_track = _resolve_team_work_track(db, competition.id, team)
-    _ensure_competition_allows_submissions(competition, work_track)
+        division = _peek_team_division(db, competition.id, team)
+    _ensure_competition_allows_submissions(competition, work_track, division)
     _assert_work_track_allows_zip(work_track)
 
     if not (file and file.filename):

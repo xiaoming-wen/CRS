@@ -549,10 +549,23 @@ class SubmissionStatus(str, Enum):
     REJECTED = "rejected"
 
 
-class CompetitionTrackTimeWindow(BaseModel):
-    enabled: bool = False
+class CompetitionTrackDivisionTimeWindow(BaseModel):
     download_open_at: OptionalUtcDatetime = None
     submit_close_at: OptionalUtcDatetime = None
+
+
+class CompetitionTrackTimeWindow(BaseModel):
+    enabled: bool = False
+    download_open_at: OptionalUtcDatetime = Field(
+        None, description="兼容旧扁平字段 / single 默认开始时间"
+    )
+    submit_close_at: OptionalUtcDatetime = Field(
+        None, description="兼容旧扁平字段 / single 默认结束时间"
+    )
+    divisions: Optional[Dict[str, CompetitionTrackDivisionTimeWindow]] = Field(
+        None,
+        description="按学历组别分时：undergraduate / vocational / default",
+    )
 
 
 class CompetitionTrackTimeWindows(BaseModel):
@@ -599,7 +612,10 @@ class CompetitionCreate(CompetitionBase):
     )
     track_time_windows: Optional[CompetitionTrackTimeWindows] = Field(
         None,
-        description="按赛道倒计时：download_open_at 起可下载试卷，submit_close_at 后禁止提交",
+        description=(
+            "按赛道倒计时；dual 时可在 divisions.undergraduate / vocational "
+            "分别设置开始/结束；未填组别时间则该组别禁止下载与提交"
+        ),
     )
 
     @field_validator("track_time_windows", mode="before")
@@ -646,7 +662,10 @@ class CompetitionUpdate(BaseModel):
     )
     track_time_windows: Optional[CompetitionTrackTimeWindows] = Field(
         None,
-        description="按赛道倒计时窗口",
+        description=(
+            "按赛道倒计时；dual 时可按 undergraduate / vocational 分时；"
+            "未填组别完整时间则该组别禁止"
+        ),
     )
 
     @field_validator("track_time_windows", mode="before")
@@ -702,7 +721,10 @@ class CompetitionResponse(CompetitionBase):
     )
     track_time_windows: Optional[Dict[str, Any]] = Field(
         None,
-        description="按赛道倒计时 {software:{enabled,download_open_at,submit_close_at},...}",
+        description=(
+            "按赛道倒计时；可含 divisions.undergraduate / vocational / default；"
+            "未填组别完整时间则该组别禁止下载与提交"
+        ),
     )
 
     @field_validator("track_time_windows", mode="before")

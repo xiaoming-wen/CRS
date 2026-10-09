@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 WORK_TRACKS = ("works", "software", "hardware")
 QUESTION_CONFIG_TRACKS = ("works", "software", "hardware")
+TRACK_TIME_DIVISIONS = ("undergraduate", "vocational", "default")
 MAX_QUESTION_COUNT = 5
 
 
@@ -42,7 +43,37 @@ def _iso_or_none(raw: Any) -> Optional[str]:
     return s or None
 
 
+def _normalize_division_time_slot(raw: Any) -> Dict[str, Optional[str]]:
+    if not isinstance(raw, dict):
+        return {"download_open_at": None, "submit_close_at": None}
+    return {
+        "download_open_at": _iso_or_none(raw.get("download_open_at") or raw.get("start_at")),
+        "submit_close_at": _iso_or_none(raw.get("submit_close_at") or raw.get("end_at")),
+    }
+
+
+def _empty_division_slots() -> Dict[str, Dict[str, Optional[str]]]:
+    return {key: {"download_open_at": None, "submit_close_at": None} for key in TRACK_TIME_DIVISIONS}
+
+
 def normalize_track_time_windows(raw: Any) -> Dict[str, Dict[str, Any]]:
+    """规范化赛道倒计时。
+
+    结构：
+    {
+      software: {
+        enabled,
+        download_open_at, submit_close_at,  # 兼容旧扁平字段 / single 默认
+        divisions: {
+          undergraduate: {download_open_at, submit_close_at},
+          vocational: {...},
+          default: {...}
+        }
+      }
+    }
+
+    旧数据仅有扁平时间时，会镜像到 undergraduate / vocational / default，避免线上配置失效。
+    """
     data = _as_dict(raw)
     out: Dict[str, Dict[str, Any]] = {}
     for track in WORK_TRACKS:
@@ -56,10 +87,29 @@ def normalize_track_time_windows(raw: Any) -> Dict[str, Dict[str, Any]]:
         }
         open_at = _iso_or_none(item.get("download_open_at") or item.get("start_at"))
         close_at = _iso_or_none(item.get("submit_close_at") or item.get("end_at"))
+        divisions_raw = item.get("divisions")
+        divisions = _empty_division_slots()
+        has_explicit_divisions = isinstance(divisions_raw, dict) and bool(divisions_raw)
+        if has_explicit_divisions:
+            for key in TRACK_TIME_DIVISIONS:
+                if key in divisions_raw:
+                    divisions[key] = _normalize_division_time_slot(divisions_raw.get(key))
+            # 未显式给 default 时，用扁平字段兜底 single 竞赛
+            if "default" not in divisions_raw and (open_at or close_at):
+                divisions["default"] = {
+                    "download_open_at": open_at,
+                    "submit_close_at": close_at,
+                }
+        elif open_at or close_at:
+            shared = {"download_open_at": open_at, "submit_close_at": close_at}
+            divisions = {key: dict(shared) for key in TRACK_TIME_DIVISIONS}
+        flat_open = open_at or (divisions.get("default") or {}).get("download_open_at")
+        flat_close = close_at or (divisions.get("default") or {}).get("submit_close_at")
         out[track] = {
             "enabled": bool(enabled),
-            "download_open_at": open_at,
-            "submit_close_at": close_at,
+            "download_open_at": flat_open,
+            "submit_close_at": flat_close,
+            "divisions": divisions,
         }
     return out
 
@@ -70,20 +120,106 @@ def get_track_time_windows_map(competition) -> Dict[str, Dict[str, Any]]:
 
 def dumps_track_time_windows(raw: Any) -> str:
     if raw is not None and hasattr(raw, "model_dump"):
-        raw = raw.model_dump()
+        raw = raw.model_dump(exclude_none=False)
     return dumps_json(normalize_track_time_windows(raw))
 
 
 def get_track_time_window(competition, work_track: Optional[str]) -> Dict[str, Any]:
     track = str(work_track or "").strip().lower()
     windows = get_track_time_windows_map(competition)
-    return windows.get(track) or {"enabled": False, "download_open_at": None, "submit_close_at": None}
+    return windows.get(track) or {
+        "enabled": False,
+        "download_open_at": None,
+        "submit_close_at": None,
+        "divisions": _empty_division_slots(),
+    }
+
+
+def normalize_track_time_division(raw: Optional[str]) -> Optional[str]:
+    s = str(raw or "").strip().lower()
+    if s in TRACK_TIME_DIVISIONS:
+        return s
+    return None
+
+
+def resolve_track_time_window(
+    competition,
+    work_track: Optional[str],
+    division: Optional[str] = None,
+) -> Dict[str, Any]:
+    """按赛道 + 组别解析倒计时窗口。
+
+    返回：enabled / download_open_at / submit_close_at / configured。
+    configured=False 表示该组别未填完整开始+结束时间（策略：禁止）。
+    """
+    track_win = get_track_time_window(competition, work_track)
+    enabled = bool(track_win.get("enabled"))
+    if not enabled:
+        return {
+            "enabled": False,
+            "download_open_at": None,
+            "submit_close_at": None,
+            "configured": True,
+        }
+    div = normalize_track_time_division(division)
+    if div == "default":
+        div = None
+    divisions = track_win.get("divisions") if isinstance(track_win.get("divisions"), dict) else {}
+    slot: Optional[Dict[str, Any]] = None
+    if div in ("undergraduate", "vocational"):
+        # 明确组别：只取该组，不回退另一组；未填则禁止
+        slot = divisions.get(div)
+    else:
+        # 组别未知：优先已配置的本科/高职；两组都配且时间不同则视为未配置
+        ug = divisions.get("undergraduate") if isinstance(divisions.get("undergraduate"), dict) else {}
+        voc = divisions.get("vocational") if isinstance(divisions.get("vocational"), dict) else {}
+        ug_open = _iso_or_none(ug.get("download_open_at"))
+        ug_close = _iso_or_none(ug.get("submit_close_at"))
+        voc_open = _iso_or_none(voc.get("download_open_at"))
+        voc_close = _iso_or_none(voc.get("submit_close_at"))
+        ug_ok = bool(ug_open and ug_close)
+        voc_ok = bool(voc_open and voc_close)
+        if ug_ok and voc_ok:
+            if ug_open == voc_open and ug_close == voc_close:
+                slot = {"download_open_at": ug_open, "submit_close_at": ug_close}
+            else:
+                return {
+                    "enabled": True,
+                    "download_open_at": None,
+                    "submit_close_at": None,
+                    "configured": False,
+                }
+        elif ug_ok:
+            slot = {"download_open_at": ug_open, "submit_close_at": ug_close}
+        elif voc_ok:
+            slot = {"download_open_at": voc_open, "submit_close_at": voc_close}
+        else:
+            slot = divisions.get("default")
+            if not isinstance(slot, dict) or (
+                not slot.get("download_open_at") and not slot.get("submit_close_at")
+            ):
+                if track_win.get("download_open_at") or track_win.get("submit_close_at"):
+                    slot = {
+                        "download_open_at": track_win.get("download_open_at"),
+                        "submit_close_at": track_win.get("submit_close_at"),
+                    }
+    if not isinstance(slot, dict):
+        slot = {}
+    open_at = _iso_or_none(slot.get("download_open_at"))
+    close_at = _iso_or_none(slot.get("submit_close_at"))
+    configured = bool(open_at and close_at)
+    return {
+        "enabled": True,
+        "download_open_at": open_at,
+        "submit_close_at": close_at,
+        "configured": configured,
+    }
 
 
 def _parse_window_dt(raw: Any):
     if raw is None or raw == "":
         return None
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from app.datetime_utils import ensure_utc
 
@@ -104,72 +240,98 @@ def any_track_time_window_enabled(competition) -> bool:
     return any(bool((w or {}).get("enabled")) for w in windows.values())
 
 
-def is_track_exam_download_open(competition, work_track: Optional[str]) -> bool:
+def is_track_exam_download_open(
+    competition,
+    work_track: Optional[str],
+    division: Optional[str] = None,
+) -> bool:
     """未勾选任何赛道倒计时时不额外限制。
 
     一旦勾选了至少一个赛道：未勾选赛道不可下载；勾选赛道须到达 download_open_at。
+    组别时间未填完整（缺开始或结束）→ 禁止下载。
     """
     win = get_track_time_window(competition, work_track)
     if any_track_time_window_enabled(competition) and not win.get("enabled"):
         return False
     if not win.get("enabled"):
         return True
+    resolved = resolve_track_time_window(competition, work_track, division)
+    if not resolved.get("configured"):
+        return False
     from app.datetime_utils import utc_now
 
-    open_at = _parse_window_dt(win.get("download_open_at"))
+    open_at = _parse_window_dt(resolved.get("download_open_at"))
     if open_at is not None and utc_now() < open_at:
         return False
     return True
 
 
-def is_track_submit_closed(competition, work_track: Optional[str]) -> bool:
+def is_track_submit_closed(
+    competition,
+    work_track: Optional[str],
+    division: Optional[str] = None,
+) -> bool:
     """启用赛道倒计时且已到/过 submit_close_at 则禁止提交。"""
-    win = get_track_time_window(competition, work_track)
-    if not win.get("enabled"):
+    resolved = resolve_track_time_window(competition, work_track, division)
+    if not resolved.get("enabled"):
+        return False
+    if not resolved.get("configured"):
         return False
     from app.datetime_utils import utc_now
 
-    close_at = _parse_window_dt(win.get("submit_close_at"))
+    close_at = _parse_window_dt(resolved.get("submit_close_at"))
     if close_at is not None and utc_now() >= close_at:
         return True
     return False
 
 
-def is_track_in_submit_window(competition, work_track: Optional[str]) -> bool:
+def is_track_in_submit_window(
+    competition,
+    work_track: Optional[str],
+    division: Optional[str] = None,
+) -> bool:
     """当前是否处于该赛道可提交时间段 [开始, 结束)。
 
-    未勾选任何赛道倒计时时不限制。勾选后：未勾选赛道、未到开始、已过结束均不在时间段内。
+    未勾选任何赛道倒计时时不限制。勾选后：未勾选赛道、组别未配置、未到开始、已过结束均不在时间段内。
     """
     if not any_track_time_window_enabled(competition):
         return True
-    win = get_track_time_window(competition, work_track)
-    if not win.get("enabled"):
+    resolved = resolve_track_time_window(competition, work_track, division)
+    if not resolved.get("enabled"):
         return False
-    if is_track_submit_closed(competition, work_track):
+    if not resolved.get("configured"):
+        return False
+    if is_track_submit_closed(competition, work_track, division):
         return False
     from app.datetime_utils import utc_now
 
-    open_at = _parse_window_dt(win.get("download_open_at"))
+    open_at = _parse_window_dt(resolved.get("download_open_at"))
     if open_at is not None and utc_now() < open_at:
         return False
     return True
 
 
-def get_track_submit_block_detail(competition, work_track: Optional[str]) -> Optional[str]:
+def get_track_submit_block_detail(
+    competition,
+    work_track: Optional[str],
+    division: Optional[str] = None,
+) -> Optional[str]:
     """仅赛道倒计时不可提交原因；可提交返回 None（不含竞赛 start/end/status）。"""
     if not any_track_time_window_enabled(competition):
         return None
-    if is_track_submit_closed(competition, work_track):
-        return "比赛结束，无法提交作品"
-    win = get_track_time_window(competition, work_track)
-    if not win.get("enabled"):
+    resolved = resolve_track_time_window(competition, work_track, division)
+    if not resolved.get("enabled"):
         return "该赛道未开启倒计时窗口，禁止提交作品"
+    if not resolved.get("configured"):
+        return "该组别未配置赛道倒计时时间，禁止提交作品"
+    if is_track_submit_closed(competition, work_track, division):
+        return "比赛结束，无法提交作品"
     from app.datetime_utils import utc_now
 
-    open_at = _parse_window_dt(win.get("download_open_at"))
+    open_at = _parse_window_dt(resolved.get("download_open_at"))
     if open_at is not None and utc_now() < open_at:
         return "提交作品时间没有开始，禁止提交作品"
-    if not is_track_in_submit_window(competition, work_track):
+    if not is_track_in_submit_window(competition, work_track, division):
         return "不在赛道倒计时提交时间内，禁止提交作品"
     return None
 
