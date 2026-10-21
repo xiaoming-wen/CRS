@@ -2144,6 +2144,135 @@ def _unique_team_export_labels(teams: list) -> dict:
     return out
 
 
+_SOFTWARE_FINALS_EXPORT_ORDER_XLSX = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "data", "finals_software_export_order.xlsx")
+)
+_SOFTWARE_FINALS_SHEET_DIVISION = {
+    "本科-软件": "undergraduate",
+    "高职-软件": "vocational",
+}
+
+
+def _norm_export_match_key(raw: Optional[str]) -> str:
+    return re.sub(r"\s+", "", str(raw or "")).strip().lower()
+
+
+def _load_software_finals_export_order(
+    path: Optional[str] = None,
+) -> List[dict]:
+    """读取决赛软件赛道导出顺序：先本科表行序，再高职表行序。"""
+    xlsx = (path or os.getenv("FINALS_SOFTWARE_EXPORT_ORDER_XLSX") or "").strip() or _SOFTWARE_FINALS_EXPORT_ORDER_XLSX
+    if not os.path.isfile(xlsx):
+        logging.warning("software finals export order xlsx missing: %s", xlsx)
+        return []
+    wb = load_workbook(xlsx, read_only=True, data_only=True)
+    rows: List[dict] = []
+    try:
+        for sheet in wb.sheetnames:
+            div = _SOFTWARE_FINALS_SHEET_DIVISION.get(str(sheet).strip())
+            if not div:
+                continue
+            ws = wb[sheet]
+            header = None
+            school_i, name_i = 0, 1
+            for raw in ws.iter_rows(values_only=True):
+                vals = list(raw)
+                if header is None:
+                    header = [str(c or "").strip() for c in vals]
+                    for i, h in enumerate(header):
+                        if h == "学校" or h.endswith("学校"):
+                            school_i = i
+                        if h in ("队名", "队伍名", "队伍名称", "队伍"):
+                            name_i = i
+                    continue
+                school = vals[school_i] if school_i < len(vals) else None
+                name = vals[name_i] if name_i < len(vals) else None
+                name_s = str(name or "").strip()
+                if not name_s:
+                    continue
+                rows.append(
+                    {
+                        "division": div,
+                        "school": str(school or "").strip(),
+                        "name": name_s,
+                    }
+                )
+    finally:
+        wb.close()
+    return rows
+
+
+def _pick_team_for_export_row(
+    teams: List[Team],
+    used: set,
+    *,
+    division: str,
+    school: str,
+    name: str,
+) -> Optional[Team]:
+    nk = _norm_export_match_key(name)
+    sk = _norm_export_match_key(school)
+    best: Optional[Team] = None
+    best_score = 0
+    for team in teams:
+        if id(team) in used:
+            continue
+        tdiv = str(getattr(team, "division", None) or "").strip().lower()
+        if tdiv in ("undergraduate", "vocational") and tdiv != division:
+            continue
+        if _norm_export_match_key(getattr(team, "name", None)) != nk:
+            continue
+        ts = _norm_export_match_key(getattr(team, "school", None))
+        if sk and ts:
+            score = 2 if sk == ts else 0
+        else:
+            score = 1
+        if score > best_score:
+            best_score = score
+            best = team
+            if score == 2:
+                break
+    return best
+
+
+def _order_teams_by_finals_roster(teams: List[Team], roster: List[dict]) -> List[Team]:
+    """本科名单顺序 + 本科未匹配（按队伍ID）；再高职名单 + 高职未匹配。"""
+    if not roster:
+        return list(teams)
+    remaining = list(teams)
+    used: set = set()
+    ordered: List[Team] = []
+    for div in ("undergraduate", "vocational"):
+        for row in roster:
+            if row.get("division") != div:
+                continue
+            hit = _pick_team_for_export_row(
+                remaining,
+                used,
+                division=div,
+                school=str(row.get("school") or ""),
+                name=str(row.get("name") or ""),
+            )
+            if hit is None:
+                continue
+            used.add(id(hit))
+            ordered.append(hit)
+        unmatched = [
+            t
+            for t in remaining
+            if id(t) not in used
+            and str(getattr(t, "division", None) or "").strip().lower() == div
+        ]
+        unmatched.sort(key=lambda t: int(t.id))
+        for t in unmatched:
+            used.add(id(t))
+            ordered.append(t)
+    leftover = [t for t in remaining if id(t) not in used]
+    leftover.sort(key=lambda t: int(t.id))
+    ordered.extend(leftover)
+    return ordered
+
+
 def _question_folder_name(
     question_no: int,
     competition: Optional[Competition] = None,
@@ -2837,9 +2966,18 @@ def _build_answers_export_zip(
     answers_map: dict[tuple[int, int], CompetitionQuestionAnswer] = {
         (a.team_id, a.question_no): a for a in answers
     }
-    team_labels = _unique_team_export_labels(teams)
-    # 与超管「题目答案」列表一致：只导出至少有一份已正式提交文件的队伍，不含未上传或仅草稿的空队伍。
-    teams_with_files = [t for t in teams if any(answers_map.get((t.id, q)) for q in range(1, q_count + 1))]
+    # 导出本赛道全部校审通过队伍（含未上传或仅草稿的空队；空题目录仍写入 zip）。
+    export_teams = list(teams)
+    if track == "software":
+        export_teams = _order_teams_by_finals_roster(
+            export_teams, _load_software_finals_export_order()
+        )
+        team_labels = {
+            int(t.id): _safe_export_filename(str(int(t.id)), fallback=str(int(t.id)))
+            for t in export_teams
+        }
+    else:
+        team_labels = _unique_team_export_labels(export_teams)
 
     class _FileSnap:
         def __init__(self, path, filename):
@@ -2856,7 +2994,7 @@ def _build_answers_export_zip(
 
     if mode == "by_team":
         entries = []
-        for team in teams_with_files:
+        for team in export_teams:
             slots = []
             for q in range(1, q_count + 1):
                 folder = _question_folder_name(q, competition, track)
@@ -2867,7 +3005,7 @@ def _build_answers_export_zip(
         entries = []
         for q in range(1, q_count + 1):
             slots = []
-            for team in teams_with_files:
+            for team in export_teams:
                 folder = team_labels.get(int(team.id)) or _team_export_label(team)
                 slots.append((folder, _snap(answers_map.get((team.id, q)))))
             q_name = _safe_export_filename(
