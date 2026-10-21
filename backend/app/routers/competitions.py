@@ -1932,6 +1932,14 @@ def _advisor_team_matches_exam_paper(
     return True
 
 
+def _is_final_test_download_account(identity: Optional[AltAuthUserRecord]) -> bool:
+    """决赛压测账号 final_stu0000… 下载试卷时跳过赛道倒计时。"""
+    if identity is None:
+        return False
+    name = str(getattr(identity, "username", None) or "").strip().lower()
+    return name.startswith("final_stu")
+
+
 def _can_download_exam_paper(
     db: Session,
     competition: Competition,
@@ -1943,7 +1951,7 @@ def _can_download_exam_paper(
     cid = competition.id
     match_division = _exam_paper_requires_division_match(competition)
     track = (work_track or "").strip().lower() or None
-    if track:
+    if track and not _is_final_test_download_account(identity):
         from app.competition_exam_config import is_track_exam_download_open
 
         if not is_track_exam_download_open(competition, track, division):
@@ -4460,7 +4468,9 @@ async def download_competition_exam_paper(
     track = _resolve_identity_work_track_for_paper(db, competition, identity, div, work_track)
     from app.competition_exam_config import is_track_exam_download_open
 
-    if not is_track_exam_download_open(competition, track, div):
+    if not _is_final_test_download_account(identity) and not is_track_exam_download_open(
+        competition, track, div
+    ):
         raise HTTPException(
             status_code=403,
             detail="试卷下载尚未开始或该组别未配置赛道倒计时时间",

@@ -3983,6 +3983,13 @@ export default {
       const id = p.user_id != null ? p.user_id : p.id
       return id != null && Number.isFinite(Number(id)) ? Number(id) : null
     },
+    /** 决赛测试账号：下载试卷跳过赛道倒计时 */
+    isFinalTestDownloadAccount () {
+      if (!this.isUsingAltIdentity) return false
+      const p = getAltProfileFromStorage() || {}
+      const name = p.username != null ? String(p.username).trim().toLowerCase() : ''
+      return name.startsWith('final_stu')
+    },
     /** 当前登录老师姓名（组班时自动作为指导老师） */
     altCurrentUserDisplayName () {
       if (!this.isUsingAltIdentity) return ''
@@ -10516,6 +10523,7 @@ export default {
 
     isTrackExamDownloadOpen (track, division) {
       void this.countdownNowMs
+      if (this.isFinalTestDownloadAccount) return true
       if (!this.isCompetitionTrackEnabled(track)) return false
       const w = this.resolveTrackWindowForDivision(track, division)
       if (!w.enabled) return true
