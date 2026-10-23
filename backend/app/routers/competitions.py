@@ -1932,12 +1932,20 @@ def _advisor_team_matches_exam_paper(
     return True
 
 
+# 跳过赛道倒计时（可随时下载试卷；提交不受赛道窗口限制）
+_COUNTDOWN_BYPASS_USERNAMES = frozenset({"hfu_stu1", "hfu_stu2"})
+
+
 def _is_final_test_download_account(identity: Optional[AltAuthUserRecord]) -> bool:
-    """决赛压测账号 final_stu0000… 下载试卷时跳过赛道倒计时。"""
+    """压测/演示账号：下载试卷与提交跳过赛道倒计时。"""
     if identity is None:
         return False
     name = str(getattr(identity, "username", None) or "").strip().lower()
-    return name.startswith("final_stu")
+    if not name:
+        return False
+    if name.startswith("final_stu"):
+        return True
+    return name in _COUNTDOWN_BYPASS_USERNAMES
 
 
 def _can_download_exam_paper(
@@ -2052,18 +2060,20 @@ def _ensure_competition_allows_submissions(
     competition: Competition,
     work_track: Optional[str] = None,
     division: Optional[str] = None,
+    identity: Optional[AltAuthUserRecord] = None,
 ) -> None:
     """
     作品提交校验顺序：
     1) 赛道倒计时（若已启用；dual 时按组别取窗口，未填则禁止）
     2) 竞赛开始/结束时间与发布状态
+    豁免账号（hfu_stu1/2、final_stu*）跳过第 1 步。
     """
     from app.competition_exam_config import (
         get_competition_schedule_submit_block_detail,
         get_track_submit_block_detail,
     )
 
-    if work_track:
+    if work_track and not _is_final_test_download_account(identity):
         track_detail = get_track_submit_block_detail(competition, work_track, division)
         if track_detail:
             raise HTTPException(status_code=400, detail=track_detail)
@@ -8894,7 +8904,10 @@ async def upload_question_answer(
     _assert_work_track_allows_question_answers(track)
     qno = _validate_question_no(question_no, competition, track)
     _ensure_competition_allows_submissions(
-        competition, track, _peek_team_division(db, competition.id, team)
+        competition,
+        track,
+        _peek_team_division(db, competition.id, team),
+        identity=identity,
     )
     _assert_team_answers_not_locked(db, competition.id, team_id)
 
@@ -9004,7 +9017,10 @@ async def submit_team_question_answers(
     track = _resolve_team_work_track(db, competition.id, team)
     _assert_work_track_allows_question_answers(track)
     _ensure_competition_allows_submissions(
-        competition, track, _peek_team_division(db, competition.id, team)
+        competition,
+        track,
+        _peek_team_division(db, competition.id, team),
+        identity=identity,
     )
 
     already = (
@@ -9190,7 +9206,9 @@ async def delete_question_answer(
     team = db.query(Team).filter(Team.id == row.team_id).first()
     track = _peek_team_work_track(db, competition.id, team) if team else None
     division = _peek_team_division(db, competition.id, team) if team else None
-    _ensure_competition_allows_submissions(competition, track, division)
+    _ensure_competition_allows_submissions(
+        competition, track, division, identity=identity
+    )
 
     _require_active_team_member_for_answers(db, competition, row.team_id, identity)
     _assert_team_answers_not_locked(db, competition.id, row.team_id)
@@ -9261,7 +9279,9 @@ async def create_submission(
         student_id = identity.id
         work_track = _resolve_team_work_track(db, competition.id, team)
         division = _peek_team_division(db, competition.id, team)
-    _ensure_competition_allows_submissions(competition, work_track, division)
+    _ensure_competition_allows_submissions(
+        competition, work_track, division, identity=identity
+    )
     _assert_work_track_allows_zip(work_track)
 
     if not payload.file_id and not payload.content_text:
@@ -9344,7 +9364,9 @@ async def create_submission_upload(
         student_id = identity.id
         work_track = _resolve_team_work_track(db, competition.id, team)
         division = _peek_team_division(db, competition.id, team)
-    _ensure_competition_allows_submissions(competition, work_track, division)
+    _ensure_competition_allows_submissions(
+        competition, work_track, division, identity=identity
+    )
     _assert_work_track_allows_zip(work_track)
 
     if not (file and file.filename):

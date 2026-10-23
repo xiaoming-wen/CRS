@@ -3983,12 +3983,14 @@ export default {
       const id = p.user_id != null ? p.user_id : p.id
       return id != null && Number.isFinite(Number(id)) ? Number(id) : null
     },
-    /** 决赛测试账号：下载试卷跳过赛道倒计时 */
+    /** 压测/演示账号：下载试卷与提交跳过赛道倒计时（hfu_stu1/2、final_stu*） */
     isFinalTestDownloadAccount () {
       if (!this.isUsingAltIdentity) return false
       const p = getAltProfileFromStorage() || {}
       const name = p.username != null ? String(p.username).trim().toLowerCase() : ''
-      return name.startsWith('final_stu')
+      if (!name) return false
+      if (name.startsWith('final_stu')) return true
+      return name === 'hfu_stu1' || name === 'hfu_stu2'
     },
     /** 当前登录老师姓名（组班时自动作为指导老师） */
     altCurrentUserDisplayName () {
@@ -10548,6 +10550,7 @@ export default {
     getTrackCountdownSubmitBlockReason (track, division) {
       /** 仅赛道倒计时窗口（不含竞赛 start_at / end_at / status） */
       void this.countdownNowMs
+      if (this.isFinalTestDownloadAccount) return null
       const t = track != null ? String(track).trim().toLowerCase() : ''
       if (!t || !this.hasAnyEnabledTrackCountdown()) return null
       if (!this.isCompetitionTrackEnabled(t)) {
@@ -10651,6 +10654,7 @@ export default {
 
     isTrackSubmitClosed (track, division) {
       void this.countdownNowMs
+      if (this.isFinalTestDownloadAccount) return false
       const w = this.resolveTrackWindowForDivision(track, division)
       if (!w.enabled || !w.configured) return false
       const closeMs = w.submit_close_at ? new Date(w.submit_close_at).getTime() : NaN
@@ -10703,6 +10707,7 @@ export default {
 
     maybeWarnTrackEndingSoon () {
       if (!this.standaloneDetailMode || !this.isStudent || !this.hasAnyEnrollment) return
+      if (this.isFinalTestDownloadAccount) return
       const cid = this.activeCompetitionId
       if (cid == null) return
       let tracks = (this.myEnrolledWorkTracks || []).filter(t => t === 'software' || t === 'hardware' || t === 'works')
