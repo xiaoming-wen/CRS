@@ -683,14 +683,14 @@
                   已选：{{ submissionForm.file.name }}
                 </div>
               </a-form-item>
-              <a-button
-                type="primary"
-                :loading="submitLoading"
+                <a-button
+                  type="primary"
+                  :loading="submitLoading"
                 :disabled="submissionFormDisabled || !canSubmitZipPackage"
-                @click="handleSubmitSubmission"
-              >
-                提交作品
-              </a-button>
+                  @click="handleSubmitSubmission"
+                >
+                  提交作品
+                </a-button>
               <p v-if="enrollModalSubmissionLocked" class="muted" style="margin-top: 8px; font-size: 13px; color: #389e0d">
                 已提交作品
               </p>
@@ -708,7 +708,7 @@
             :title="'题目答案上传（共' + submissionQuestionCount + '题）'"
             style="margin-top: 16px"
           >
-            <a-alert
+          <a-alert
               v-if="competitionSubmissionBlocked"
               type="warning"
               show-icon
@@ -726,8 +726,8 @@
             />
             <a-alert
               v-else
-              type="info"
-              show-icon
+            type="info"
+            show-icon
               message="分题上传"
               description="每位队员可按自己负责的题目，分别向链接1～链接5上传答案文件；同题再次上传将覆盖。"
               style="margin-bottom: 12px"
@@ -808,9 +808,9 @@
             </p>
           </a-card>
 
-          <a-card
+              <a-card
             v-if="hasAnyEnrollment && showQuestionAnswerSubmissionPanel"
-            size="small"
+                size="small"
             class="sub-card"
             :bordered="true"
             title="题目答案状态"
@@ -826,14 +826,14 @@
                 <span>{{ slot.question_name || ('第' + slot.question_no + '题') }}</span>
                 <a-tag :color="(slot.uploaded || slot.submitted) ? 'green' : 'orange'" style="margin-left: 8px">
                   {{ (slot.uploaded || slot.submitted) ? '提交' : '未提交' }}
-                </a-tag>
+                  </a-tag>
                 <span v-if="slot.answer && slot.answer.filename" class="muted" style="margin-left: 8px">
                   {{ slot.answer.filename }}
                 </span>
                 <a-button
                   v-if="slot.answer && slot.answer.id"
                   size="small"
-                  style="margin-left: 8px"
+                    style="margin-left: 8px"
                   @click="downloadQuestionAnswer(slot.answer.id)"
                 >
                   下载
@@ -849,8 +849,8 @@
                   @click="deleteQuestionAnswer(slot.answer.id, slot.question_no)"
                 >
                   删除
-                </a-button>
-              </div>
+                  </a-button>
+                </div>
             </div>
           </a-card>
 
@@ -1250,103 +1250,106 @@
               <div class="admin-track-bar">
                 <span class="admin-track-bar__title">作品赛道</span>
                 <div class="admin-track-bar__actions">
-                  <a-button
-                    v-if="canExportAnswers"
-                    size="small"
-                    :loading="questionAnswersExportLoading === 'works:by_team'"
-                    :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
-                    @click="exportQuestionAnswersZip('by_team', 'works')"
-                  >
-                    导出答案（队伍）
-                  </a-button>
+                  <template v-if="canExportAnswers">
+                    <a-button
+                      v-for="divOpt in answerExportDivisionOptions"
+                      :key="'works-by-team-' + (divOpt.key || 'all')"
+                      size="small"
+                      :loading="questionAnswersExportLoading === ('works:by_team:' + (divOpt.key || 'all'))"
+                      :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                      @click="exportQuestionAnswersZip('by_team', 'works', divOpt.key)"
+                    >
+                      {{ answerExportButtonLabel(divOpt.label, '队伍') }}
+                    </a-button>
+                  </template>
                 </div>
-              </div>
-              <p
-                v-if="adminSubmissionsHiddenByWithdrawCount > 0"
-                class="muted"
-                style="margin: 0 0 8px; font-size: 13px"
-              >
-                仅展示当前有效报名周期内的提交。
-              </p>
+            </div>
+            <p
+              v-if="adminSubmissionsHiddenByWithdrawCount > 0"
+              class="muted"
+              style="margin: 0 0 8px; font-size: 13px"
+            >
+              仅展示当前有效报名周期内的提交。
+            </p>
               <a-empty v-if="adminWorksSubmissions.length === 0" description="暂无作品赛道压缩包提交" />
-              <div v-else class="submissions-list">
-                <a-card
+            <div v-else class="submissions-list">
+              <a-card
                   v-for="s in adminWorksSubmissions"
                   :key="'works-sub-' + s.id"
-                  size="small"
-                  class="submission-item"
-                  :bordered="false"
-                >
-                  <div class="submission-title-row">
+                size="small"
+                class="submission-item"
+                :bordered="false"
+              >
+                <div class="submission-title-row">
                     <div class="submission-title">
                       {{ s.team_name || (s.team_id != null ? ('队伍' + s.team_id) : (s.title || '-')) }}
                     </div>
-                    <a-tag :color="getSubmissionStatusColor(s.status)">
-                      {{ getSubmissionStatusText(s.status) }}
-                    </a-tag>
-                  </div>
-                  <div class="submission-meta muted" style="margin-top: 6px">
-                    <a-tag
-                      v-if="submissionDivisionLabel(s)"
-                      color="blue"
-                    >
-                      {{ submissionDivisionLabel(s) }}
-                    </a-tag>
+                  <a-tag :color="getSubmissionStatusColor(s.status)">
+                    {{ getSubmissionStatusText(s.status) }}
+                  </a-tag>
+                </div>
+                <div class="submission-meta muted" style="margin-top: 6px">
+                  <a-tag
+                    v-if="submissionDivisionLabel(s)"
+                    color="blue"
+                  >
+                    {{ submissionDivisionLabel(s) }}
+                  </a-tag>
                     <span :style="submissionDivisionLabel(s) ? 'margin-left: 12px' : ''">
                       队伍ID：{{ s.team_id != null ? s.team_id : '-' }}
                     </span>
                     <span style="margin-left: 12px">
                       队伍名：{{ s.team_name || (s.team_id != null ? ('队伍' + s.team_id) : '-') }}
                     </span>
-                  </div>
-                  <div v-if="isSubmissionGraded(s)" class="muted" style="margin-top: 4px; font-size: 12px">
-                    分数：{{ formatScoreCell(s) }}
-                  </div>
-                  <div class="row" style="margin-top: 10px">
-                    <template v-if="canReviewSubmissions">
-                      <a-button
-                        v-if="!isSubmissionGraded(s)"
-                        size="small"
-                        type="primary"
-                        :disabled="s.status === 'draft'"
+                </div>
+                <div v-if="isSubmissionGraded(s)" class="muted" style="margin-top: 4px; font-size: 12px">
+                  分数：{{ formatScoreCell(s) }}
+                </div>
+                <div class="row" style="margin-top: 10px">
+                  <template v-if="canReviewSubmissions">
+                    <a-button
+                      v-if="!isSubmissionGraded(s)"
+                      size="small"
+                      type="primary"
+                      :disabled="s.status === 'draft'"
                         @click.stop="fillGradeForm(s.id, false)"
-                      >
-                        评分
-                      </a-button>
-                      <a-button
-                        v-else
-                        size="small"
-                        type="primary"
+                    >
+                      评分
+                    </a-button>
+                    <a-button
+                      v-else
+                      size="small"
+                      type="primary"
                         @click.stop="fillGradeForm(s.id, true)"
-                      >
-                        修改评分
-                      </a-button>
-                    </template>
+                    >
+                      修改评分
+                    </a-button>
+                  </template>
                     <a-button
                       size="small"
                       style="margin-left: 8px"
                       :disabled="!s.file_id"
                       @click="downloadSubmission(s.id, s)"
                     >
-                      下载文件
-                    </a-button>
-                  </div>
-                </a-card>
-              </div>
+                    下载文件
+                  </a-button>
+                </div>
+              </a-card>
+            </div>
               <div v-if="adminWorksSubmissions.length > 0 && adminSubmissionsTotal > 0" style="display: flex; justify-content: flex-end; margin-top: 12px">
-                <a-pagination
-                  :current="adminSubmissionsPage"
-                  :page-size="adminSubmissionsPageSize"
-                  :total="adminSubmissionsTotal"
-                  :page-size-options="adminSubmissionsPageSizeOptions"
-                  :show-size-changer="true"
-                  :show-quick-jumper="true"
-                  :show-total="(total) => `共 ${total} 条`"
-                  size="small"
-                  @change="handleAdminSubmissionsPageChange"
-                  @showSizeChange="handleAdminSubmissionsPageChange"
-                />
-              </div>
+              <a-pagination
+                :current="adminSubmissionsPage"
+                :page-size="adminSubmissionsPageSize"
+                :total="adminSubmissionsTotal"
+                :page-size-options="adminSubmissionsPageSizeOptions"
+                :show-size-changer="true"
+                :show-quick-jumper="true"
+                :show-total="(total) => `共 ${total} 条`"
+                size="small"
+                @change="handleAdminSubmissionsPageChange"
+                @showSizeChange="handleAdminSubmissionsPageChange"
+              />
+            </div>
             </div>
 
             <!-- 软件 / 硬件赛道：分题答案列表 -->
@@ -1359,24 +1362,30 @@
               <div class="admin-track-bar">
                 <span class="admin-track-bar__title">{{ trackKey === 'software' ? '软件赛道' : '硬件赛道' }}</span>
                 <div class="admin-track-bar__actions">
-                  <a-button
-                    v-if="canExportAnswers"
-                    size="small"
-                    :loading="questionAnswersExportLoading === (trackKey + ':by_team')"
-                    :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
-                    @click="exportQuestionAnswersZip('by_team', trackKey)"
-                  >
-                    导出答案（队伍）
-                  </a-button>
-                  <a-button
-                    v-if="canExportAnswers"
-                    size="small"
-                    :loading="questionAnswersExportLoading === (trackKey + ':by_question')"
-                    :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
-                    @click="exportQuestionAnswersZip('by_question', trackKey)"
-                  >
-                    导出答案（题目）
-                  </a-button>
+                  <template v-if="canExportAnswers">
+                    <span
+                      v-for="divOpt in answerExportDivisionOptions"
+                      :key="trackKey + '-export-' + (divOpt.key || 'all')"
+                      class="admin-track-bar__export-group"
+                    >
+                      <a-button
+                        size="small"
+                        :loading="questionAnswersExportLoading === (trackKey + ':by_team:' + (divOpt.key || 'all'))"
+                        :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                        @click="exportQuestionAnswersZip('by_team', trackKey, divOpt.key)"
+                      >
+                        {{ answerExportButtonLabel(divOpt.label, '队伍') }}
+                      </a-button>
+                      <a-button
+                        size="small"
+                        :loading="questionAnswersExportLoading === (trackKey + ':by_question:' + (divOpt.key || 'all'))"
+                        :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                        @click="exportQuestionAnswersZip('by_question', trackKey, divOpt.key)"
+                      >
+                        {{ answerExportButtonLabel(divOpt.label, '题目') }}
+                      </a-button>
+                    </span>
+                  </template>
                 </div>
               </div>
               <a-empty
@@ -1508,14 +1517,14 @@
               <div class="admin-track-bar">
                 <span class="admin-track-bar__title">{{ track.label }}</span>
                 <div class="admin-track-bar__actions">
-                  <a-button
-                    type="primary"
+                <a-button
+                  type="primary"
                     size="small"
                     :loading="promotionCandidatesLoading && promotionModalWorkTrack === track.value"
                     @click="openPromoteModal(track.value)"
                   >
                 选择队伍晋级
-              </a-button>
+                </a-button>
               <a-upload
                 :show-upload-list="false"
                     :before-upload="(file) => beforeImportPromotionsExcel(file, track.value)"
@@ -1525,7 +1534,7 @@
                   导入 Excel 晋级
                 </a-button>
               </a-upload>
-            </div>
+              </div>
               </div>
               <div class="muted" style="margin-bottom: 8px; font-size: 12px">
                 仅显示 {{ track.label }} 已晋级用户。可直接导入「导出参赛表格」的 Excel（含「队伍编码」列）；也可自建表，须含「队伍ID」或「队伍编码」，可选「队伍名称」。仅导入本赛道初赛队伍。
@@ -1710,16 +1719,16 @@
         </div>
 
         <div class="row">
-          <a-button
-            v-if="showStudentTeamCreateJoinOps"
-            type="primary"
-            :loading="enrollLoading"
-            @click="openStudentCreateTeamModal"
+            <a-button
+              v-if="showStudentTeamCreateJoinOps"
+              type="primary"
+              :loading="enrollLoading"
+              @click="openStudentCreateTeamModal"
             :disabled="competitionEnrollActionsDisabled || !allowTeam || studentHasTeamForCurrentCompetition || isActiveCompetitionFinal"
-            style="margin-right: 8px"
-          >
-            创建队伍（自动队长）
-          </a-button>
+              style="margin-right: 8px"
+            >
+              创建队伍（自动队长）
+            </a-button>
           <a-tag v-if="finalStagePromoted" color="green">已晋级 · 无需再报名</a-tag>
         </div>
         <p v-if="teamEnrollActionBlockedForMember" class="muted" style="margin: 8px 0 0; font-size: 13px">
@@ -1755,14 +1764,14 @@
                 </div>
               </div>
               <div class="row" style="gap: 8px">
-                <a-button
-                  type="primary"
+            <a-button
+              type="primary"
                   size="small"
                   :loading="teamInviteRespondingId === inv.id"
                   @click="handleRespondTeamInvite(inv, 'accept')"
                 >
                   同意入队
-                </a-button>
+            </a-button>
                 <a-button
                   size="small"
                   :loading="teamInviteRespondingId === inv.id"
@@ -1770,7 +1779,7 @@
                 >
                   拒绝
                 </a-button>
-              </div>
+        </div>
             </div>
           </a-spin>
         </div>
@@ -2014,23 +2023,23 @@
           </template>
 
           <template v-if="showMemberLeaveTeamInEnrollModal">
-            <a-divider />
-            <a-form layout="vertical">
+          <a-divider />
+          <a-form layout="vertical">
               <a-form-item label="退出队伍">
-                <a-button
+              <a-button
                   danger
                   :loading="teamLoading"
                   :disabled="competitionTeamRosterLocked"
                   @click="handleMemberLeaveTeam"
                 >
                   退队
-                </a-button>
+              </a-button>
                 <p v-if="competitionTeamRosterLocked" class="muted" style="margin: 6px 0 0; font-size: 12px">
                   {{ competitionTeamRosterLockedMessage }}
                 </p>
               </a-form-item>
           </a-form>
-          </template>
+        </template>
         </div>
 
         <div class="standalone-modal-footer-actions">
@@ -2290,15 +2299,15 @@
             :description="teamSchoolReviewBlockedDescription"
             style="margin-bottom: 12px"
           />
-          <div class="row" style="margin-bottom: 12px; flex-wrap: wrap; gap: 8px">
+        <div class="row" style="margin-bottom: 12px; flex-wrap: wrap; gap: 8px">
             <a-button
               :loading="questionAnswersLoading"
               :disabled="!questionAnswerTeamId"
               @click="refreshQuestionAnswersBoard"
             >
               刷新上传状态
-            </a-button>
-          </div>
+          </a-button>
+        </div>
           <a-empty
             v-if="!questionAnswerTeamId"
             description="请先完成组队报名并等待校审通过"
@@ -2313,10 +2322,10 @@
                 {{ slot.question_name || ('第' + slot.question_no + '题') }}
                 <a-tag v-if="slot.uploaded || slot.submitted" color="green" style="margin-left: 8px">提交</a-tag>
                 <a-tag v-else color="orange" style="margin-left: 8px">未提交</a-tag>
-              </div>
+            </div>
               <div v-if="slot.answer && slot.answer.filename" class="muted" style="margin: 4px 0 8px">
                 当前文件：{{ slot.answer.filename }}
-              </div>
+            </div>
               <div class="row" style="flex-wrap: wrap; gap: 8px; align-items: center">
                 <input
                   :ref="'worksQFile_' + slot.question_no"
@@ -2350,9 +2359,9 @@
                   @click="deleteQuestionAnswer(slot.answer.id, slot.question_no)"
                 >
                   删除
-                </a-button>
-              </div>
+              </a-button>
             </div>
+        </div>
           </div>
 
           <div class="row" style="margin: 16px 0 8px; justify-content: flex-end">
@@ -2533,12 +2542,12 @@
           </a-form-item>
         </template>
         <template v-else>
-          <a-form-item label="开始时间">
-            <a-input type="datetime-local" v-model="createCompetitionForm.start_at" />
-          </a-form-item>
-          <a-form-item label="结束时间">
-            <a-input type="datetime-local" v-model="createCompetitionForm.end_at" />
-          </a-form-item>
+        <a-form-item label="开始时间">
+          <a-input type="datetime-local" v-model="createCompetitionForm.start_at" />
+        </a-form-item>
+        <a-form-item label="结束时间">
+          <a-input type="datetime-local" v-model="createCompetitionForm.end_at" />
+        </a-form-item>
         </template>
         <a-form-item label="赛道倒计时">
           <div class="muted" style="margin-bottom: 8px; font-size: 12px; line-height: 1.5">
@@ -2769,8 +2778,8 @@
             <a-input type="datetime-local" v-model="editCompetitionForm.start_at" />
           </a-form-item>
           <a-form-item label="初赛结束时间">
-            <a-input type="datetime-local" v-model="editCompetitionForm.end_at" />
-          </a-form-item>
+          <a-input type="datetime-local" v-model="editCompetitionForm.end_at" />
+        </a-form-item>
         </template>
         <!-- 单阶段升级为初赛+决赛：可同时填写初赛与决赛时间 -->
         <template v-else-if="editCompetitionForm.stage_mode === 'prelim_final' && editCompetitionOriginalStage === 'single'">
@@ -4462,6 +4471,16 @@ export default {
       if (this.canManageCompetitions) return true
       return this.isExpertAssignedToActiveCompetition
     },
+    /** dual 竞赛：导出答案拆成本科 / 高职两包 */
+    answerExportDivisionOptions () {
+      if (this.isCompetitionDualDivision(this.activeCompetition)) {
+        return [
+          { key: 'undergraduate', label: '本科' },
+          { key: 'vocational', label: '高职' }
+        ]
+      }
+      return [{ key: '', label: '' }]
+    },
     adminWorksSubmissions () {
       // 压缩包提交仅作品赛道可产生；同一队伍只展示最新一条
       return keepLatestSubmissionPerTeam(this.adminSubmissions || [])
@@ -5131,13 +5150,13 @@ export default {
       return this.mySubmissionsForCurrentEnrollment.length > 0
     },
     adminSubmissionsPanelTitle () {
-        if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
+      if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
         return `作品提交（${this.activeDivisionLabel} · 按赛道）`
       }
       return '作品提交（按赛道）'
     },
     adminSubmissionsRefreshLabel () {
-        if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
+      if (this.isActiveCompetitionDualDivision && this.activeDivisionLabel) {
         return `刷新${this.activeDivisionLabel}提交`
       }
       return '刷新'
@@ -6925,7 +6944,7 @@ export default {
           } else {
             this.examPapersForDetail = null
             this.$emit('exam-papers-changed')
-          }
+      }
       this.$nextTick(() => {
         this.syncDualDivisionContextAfterCompetitionSelect()
         if (this.showStandaloneCompetitionBriefingLayout && this.activeCompetitionId) {
@@ -7002,7 +7021,7 @@ export default {
           }
         }
         void this.syncEnrollModalTeamContextForCurrentTrack().finally(() => {
-          this.showStandaloneMyWorksModal = true
+        this.showStandaloneMyWorksModal = true
           this.$nextTick(() => {
             this.warnIfTrackSubmitBlocked(this.activeEnrollmentWorkTrack)
           })
@@ -9232,14 +9251,14 @@ export default {
       // 先赛道倒计时，再竞赛开始/结束时间
       const reason = this.getTrackSubmitBlockReason(this.activeEnrollmentWorkTrack)
       if (reason) {
-        if (showToast) {
+      if (showToast) {
           this.$warning({
             title: reason.title,
             content: reason.content,
             okText: '知道了'
           })
-        }
-        return false
+      }
+      return false
       }
       return true
     },
@@ -10099,7 +10118,7 @@ export default {
               : '创建成功（初赛+决赛）'
           )
         } else {
-          this.$message.success('创建成功，竞赛ID：' + (res && res.id ? res.id : '未知'))
+        this.$message.success('创建成功，竞赛ID：' + (res && res.id ? res.id : '未知'))
         }
         this.showCreateCompetitionModal = false
         this.resetCreateCompetitionForm()
@@ -11983,12 +12002,12 @@ export default {
         }
         let visible = raw
         if (!expertView) {
-          const enrollIndex = buildEnrollmentVisibilityIndex(
-            normalizeCompetitionApiList(indRes),
-            normalizeCompetitionApiList(teamRes)
-          )
+        const enrollIndex = buildEnrollmentVisibilityIndex(
+          normalizeCompetitionApiList(indRes),
+          normalizeCompetitionApiList(teamRes)
+        )
           visible = filterAdminSubmissionsByActiveEnrollments(raw, enrollIndex)
-          this.adminSubmissionsHiddenByWithdrawCount = Math.max(0, raw.length - visible.length)
+        this.adminSubmissionsHiddenByWithdrawCount = Math.max(0, raw.length - visible.length)
         } else {
           this.adminSubmissionsHiddenByWithdrawCount = 0
         }
@@ -12725,7 +12744,12 @@ export default {
       return '赛道'
     },
 
-    async exportQuestionAnswersZip (mode, workTrack) {
+    answerExportButtonLabel (divisionLabel, modeLabel) {
+      if (divisionLabel) return `导出${divisionLabel}（${modeLabel}）`
+      return `导出答案（${modeLabel}）`
+    },
+
+    async exportQuestionAnswersZip (mode, workTrack, division) {
       if (!this.canExportAnswers) return
       if (!this.activeCompetitionId) {
         this.$message.warning('请先选择竞赛')
@@ -12748,7 +12772,13 @@ export default {
         this.$message.warning('竞赛尚未结束，结束后才可导出答案（状态为「已结束」或已过结束时间）')
         return
       }
-      const loadingKey = `${track}:${mode}`
+      const div = String(division || '').trim().toLowerCase()
+      const divOk = div === 'undergraduate' || div === 'vocational'
+      if (this.isCompetitionDualDivision(this.activeCompetition) && !divOk) {
+        this.$message.warning('请选择本科或高职后再导出')
+        return
+      }
+      const loadingKey = `${track}:${mode}:${divOk ? div : 'all'}`
       this.questionAnswersExportLoading = loadingKey
       try {
         const token = getStoredAltToken()
@@ -12761,13 +12791,17 @@ export default {
           work_track: track,
           access_token: token
         })
+        if (divOk) params.set('division', div)
         const a = document.createElement('a')
         a.href = `/api/v1/competitions/${this.activeCompetitionId}/question-answers/export?${params.toString()}`
         a.style.display = 'none'
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
-        this.$message.success('已开始下载，请在浏览器下载栏查看压缩包（软件赛道.zip / 硬件赛道.zip / 作品赛道.zip）')
+        const packHint = divOk
+          ? (div === 'undergraduate' ? '本科' : '高职') + this.workTrackSectionLabel(track) + '.zip'
+          : '软件赛道.zip / 硬件赛道.zip / 作品赛道.zip'
+        this.$message.success('已开始下载，请在浏览器下载栏查看压缩包（' + packHint + '）')
       } catch (e) {
         this.$message.error('导出答案失败：' + this.getApiErrorMessage(e, '未知错误'))
       } finally {
@@ -13953,6 +13987,13 @@ export default {
 
 .admin-track-bar__actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-track-bar__export-group {
+  display: inline-flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;

@@ -336,14 +336,17 @@ export function submitCompetitionQuestionAnswers (competitionId, teamId) {
 }
 
 /**
- * 赛后导出答案 zip（按赛道）：
+ * 赛后导出答案 zip（按赛道，可再按组别）：
  * work_track=works|software|hardware
+ * division=undergraduate|vocational（可选）
  * mode=by_team → 外层含「队伍名.zip」；by_question → 外层含「题目名.zip」，内层文件夹为队伍名（作品赛道仅支持 by_team）
- * 下载文件名以后端 Content-Disposition 为准（赛道名称.zip）
+ * 下载文件名以后端 Content-Disposition 为准（本科软件赛道.zip / 软件赛道.zip）
  */
-export function exportCompetitionQuestionAnswers (competitionId, mode, workTrack) {
+export function exportCompetitionQuestionAnswers (competitionId, mode, workTrack, division) {
   const params = { mode }
   if (workTrack) params.work_track = workTrack
+  const div = division != null ? String(division).trim().toLowerCase() : ''
+  if (div === 'undergraduate' || div === 'vocational') params.division = div
   return axios({
     url: `/v1/competitions/${competitionId}/question-answers/export`,
     method: 'get',

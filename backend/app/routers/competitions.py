@@ -2941,6 +2941,7 @@ def _build_answers_export_zip(
     mode: str,
     work_track: Optional[str] = None,
     allowed_team_ids: Optional[set] = None,
+    division: Optional[str] = None,
 ) -> BytesIO:
     from app.competition_exam_config import get_competition_question_count
 
@@ -2953,6 +2954,7 @@ def _build_answers_export_zip(
     track = (work_track or "").strip().lower() or None
     if track in ("software", "hardware"):
         teams = _filter_teams_by_work_track(db, competition.id, teams, track)
+    teams = _filter_teams_by_division_query(teams, division)
     if allowed_team_ids is not None:
         teams = [t for t in teams if int(t.id) in allowed_team_ids]
     q_count = get_competition_question_count(competition, track)
@@ -3043,6 +3045,7 @@ def _build_works_submissions_export_zip(
     db: Session,
     competition: Competition,
     allowed_team_ids: Optional[set] = None,
+    division: Optional[str] = None,
 ) -> BytesIO:
     """作品赛道：按队伍导出压缩包作品，外层 zip 内含「队伍名.zip」。"""
     teams = (
@@ -3052,6 +3055,7 @@ def _build_works_submissions_export_zip(
         .all()
     )
     works_teams = _filter_teams_by_work_track(db, competition.id, teams, "works")
+    works_teams = _filter_teams_by_division_query(works_teams, division)
     works_team_ids = {t.id for t in works_teams}
     if allowed_team_ids is not None:
         works_team_ids = {tid for tid in works_team_ids if int(tid) in allowed_team_ids}
@@ -3089,6 +3093,10 @@ def _build_works_submissions_export_zip(
             track = _normalize_optional_work_track(getattr(enroll, "work_track", None) if enroll else None)
             if track != "works":
                 continue
+            if division:
+                enroll_div = str(getattr(enroll, "division", None) or "").strip().lower()
+                if enroll_div != division:
+                    continue
             key = f"student:{int(sub.student_id)}"
         if key in latest_by_key:
             continue
@@ -3531,6 +3539,24 @@ def _work_track_section_label(raw: Optional[str]) -> str:
         "software": "软件赛道",
         "hardware": "硬件赛道",
     }.get(v, v or "赛道")
+
+
+def _parse_export_division_param(raw: Optional[str]) -> Optional[str]:
+    v = str(raw or "").strip().lower()
+    if v in ("", "default", "all"):
+        return None
+    if v in ("undergraduate", "vocational"):
+        return v
+    raise HTTPException(
+        status_code=400, detail="division must be undergraduate or vocational"
+    )
+
+
+def _answers_export_zip_filename(work_track: str, division: Optional[str]) -> str:
+    track_label = _work_track_section_label(work_track)
+    if division in ("undergraduate", "vocational"):
+        return f"{_division_label_cn(division)}{track_label}.zip"
+    return f"{track_label}.zip"
 
 
 def _content_disposition_attachment(filename: str) -> str:
@@ -9074,15 +9100,19 @@ async def export_question_answers_zip(
         ...,
         description="works | software | hardware；按赛道导出，压缩包以赛道名称命名",
     ),
+    division: Optional[str] = Query(
+        None,
+        description="undergraduate | vocational；传入后仅导出该组别，压缩包名带本科/高职",
+    ),
     db: Session = Depends(get_db),
     identity: AltAuthUserRecord = Depends(get_alt_identity_header_or_query),
 ):
     """
-    赛后一键导出答案压缩包（按赛道）：
+    赛后一键导出答案压缩包（按赛道，可再按本科/高职拆包）：
     - works + by_team：作品赛道队伍压缩包作品（外层「队伍名.zip」）
     - software/hardware + by_team：外层含「队伍名.zip」
     - software/hardware + by_question：外层含「题目名.zip」，内层文件夹为队伍名
-    总压缩包文件名：作品赛道.zip / 软件赛道.zip / 硬件赛道.zip
+    总压缩包文件名：本科软件赛道.zip / 高职硬件赛道.zip；未传 division 时仍为「软件赛道.zip」
     """
     require_permission(identity.role, Permission.VIEW_COMPETITIONS)
     competition = _get_competition(db, competition_id)
@@ -9096,6 +9126,7 @@ async def export_question_answers_zip(
     mode_norm = (mode or "").strip().lower()
     if mode_norm not in ("by_team", "by_question"):
         raise HTTPException(status_code=400, detail="mode must be by_team or by_question")
+    div = _parse_export_division_param(division)
 
     allowed_team_ids = None
     if is_expert and not is_admin:
@@ -9108,15 +9139,20 @@ async def export_question_answers_zip(
                 detail="作品赛道仅支持按队伍导出（mode=by_team）",
             )
         buffer = _build_works_submissions_export_zip(
-            db, competition, allowed_team_ids=allowed_team_ids
+            db, competition, allowed_team_ids=allowed_team_ids, division=div
         )
     else:
         _assert_competition_uses_question_answers(competition)
         buffer = _build_answers_export_zip(
-            db, competition, mode_norm, work_track=track, allowed_team_ids=allowed_team_ids
+            db,
+            competition,
+            mode_norm,
+            work_track=track,
+            allowed_team_ids=allowed_team_ids,
+            division=div,
         )
 
-    filename = f"{_work_track_section_label(track)}.zip"
+    filename = _answers_export_zip_filename(track, div)
     headers = {
         "Content-Disposition": _content_disposition_attachment(filename),
         # 让 Nginx 立刻把数据转给浏览器，避免打包期间连接空等被断开
