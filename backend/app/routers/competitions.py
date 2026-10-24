@@ -2127,6 +2127,19 @@ def _team_export_label(team: Team) -> str:
     return _safe_export_filename(f"队伍{team.id}", fallback=f"队伍{team.id}")
 
 
+def _sort_teams_like_excel_roster(teams: list) -> list:
+    """与参赛对照表 Excel 相同：有学校的在前，同校按队名，再按队伍 ID。"""
+    return sorted(
+        teams,
+        key=lambda t: (
+            (getattr(t, "school", None) or "").strip() == "",
+            (getattr(t, "school", None) or "").strip(),
+            (t.name or "").strip() or f"队伍{t.id}",
+            int(t.id),
+        ),
+    )
+
+
 def _unique_team_export_labels(teams: list) -> dict:
     """
     为导出生成唯一队伍标签：同名队伍在队名后追加 _队伍ID，避免 zip 内重名覆盖。
@@ -2167,10 +2180,19 @@ def _norm_export_match_key(raw: Optional[str]) -> str:
     return re.sub(r"\s+", "", str(raw or "")).strip().lower()
 
 
+def _parse_export_team_id(raw) -> Optional[int]:
+    s = str(raw or "").strip()
+    if s.endswith(".0"):
+        s = s[:-2]
+    if s.isdigit():
+        return int(s)
+    return None
+
+
 def _load_software_finals_export_order(
     path: Optional[str] = None,
 ) -> List[dict]:
-    """读取决赛软件赛道导出顺序：先本科表行序，再高职表行序。"""
+    """读取决赛软件赛道导出顺序：先本科表行序，再高职表行序。优先匹配「队伍编码」。"""
     xlsx = (path or os.getenv("FINALS_SOFTWARE_EXPORT_ORDER_XLSX") or "").strip() or _SOFTWARE_FINALS_EXPORT_ORDER_XLSX
     if not os.path.isfile(xlsx):
         logging.warning("software finals export order xlsx missing: %s", xlsx)
@@ -2184,7 +2206,7 @@ def _load_software_finals_export_order(
                 continue
             ws = wb[sheet]
             header = None
-            school_i, name_i = 0, 1
+            school_i, name_i, id_i = 0, 1, None
             for raw in ws.iter_rows(values_only=True):
                 vals = list(raw)
                 if header is None:
@@ -2194,17 +2216,21 @@ def _load_software_finals_export_order(
                             school_i = i
                         if h in ("队名", "队伍名", "队伍名称", "队伍"):
                             name_i = i
+                        if h in ("队伍编码", "队伍ID", "队伍id", "team_id"):
+                            id_i = i
                     continue
                 school = vals[school_i] if school_i < len(vals) else None
                 name = vals[name_i] if name_i < len(vals) else None
                 name_s = str(name or "").strip()
-                if not name_s:
+                team_id = _parse_export_team_id(vals[id_i] if id_i is not None and id_i < len(vals) else None)
+                if not name_s and team_id is None:
                     continue
                 rows.append(
                     {
                         "division": div,
                         "school": str(school or "").strip(),
                         "name": name_s,
+                        "team_id": team_id,
                     }
                 )
     finally:
@@ -2256,13 +2282,23 @@ def _order_teams_by_finals_roster(teams: List[Team], roster: List[dict]) -> List
         for row in roster:
             if row.get("division") != div:
                 continue
-            hit = _pick_team_for_export_row(
-                remaining,
-                used,
-                division=div,
-                school=str(row.get("school") or ""),
-                name=str(row.get("name") or ""),
-            )
+            hit = None
+            row_tid = row.get("team_id")
+            if row_tid is not None:
+                for team in remaining:
+                    if id(team) in used:
+                        continue
+                    if int(team.id) == int(row_tid):
+                        hit = team
+                        break
+            if hit is None:
+                hit = _pick_team_for_export_row(
+                    remaining,
+                    used,
+                    division=div,
+                    school=str(row.get("school") or ""),
+                    name=str(row.get("name") or ""),
+                )
             if hit is None:
                 continue
             used.add(id(hit))
@@ -3917,15 +3953,7 @@ async def export_team_roster_excel(
                 if not track_teams:
                     continue
                 # 同一学校的队伍排在一起；同校内按队伍名称，再按队伍 ID 稳定排序
-                track_teams = sorted(
-                    track_teams,
-                    key=lambda t: (
-                        (getattr(t, "school", None) or "").strip() == "",
-                        (getattr(t, "school", None) or "").strip(),
-                        (t.name or "").strip() or f"队伍{t.id}",
-                        int(t.id),
-                    ),
-                )
+                track_teams = _sort_teams_like_excel_roster(track_teams)
                 _append_team_mapping_rows(
             ws,
             competition=comp,
