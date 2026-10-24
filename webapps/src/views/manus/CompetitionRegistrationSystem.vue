@@ -1250,18 +1250,33 @@
               <div class="admin-track-bar">
                 <span class="admin-track-bar__title">作品赛道</span>
                 <div class="admin-track-bar__actions">
-                  <template v-if="canExportAnswers">
+                  <template v-if="canExportAnswers && splitAnswerExportByDivision">
                     <a-button
-                      v-for="divOpt in answerExportDivisionOptions"
-                      :key="'works-by-team-' + (divOpt.key || 'all')"
                       size="small"
-                      :loading="questionAnswersExportLoading === ('works:by_team:' + (divOpt.key || 'all'))"
+                      :loading="questionAnswersExportLoading === 'works:by_team:undergraduate'"
                       :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
-                      @click="exportQuestionAnswersZip('by_team', 'works', divOpt.key)"
+                      @click="exportQuestionAnswersZip('by_team', 'works', 'undergraduate')"
                     >
-                      {{ answerExportButtonLabel(divOpt.label, '队伍') }}
+                      导出本科（队伍）
+                    </a-button>
+                    <a-button
+                      size="small"
+                      :loading="questionAnswersExportLoading === 'works:by_team:vocational'"
+                      :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                      @click="exportQuestionAnswersZip('by_team', 'works', 'vocational')"
+                    >
+                      导出高职（队伍）
                     </a-button>
                   </template>
+                  <a-button
+                    v-else-if="canExportAnswers"
+                    size="small"
+                    :loading="questionAnswersExportLoading === 'works:by_team:all'"
+                    :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                    @click="exportQuestionAnswersZip('by_team', 'works')"
+                  >
+                    导出答案（队伍）
+                  </a-button>
                 </div>
             </div>
             <p
@@ -1362,29 +1377,57 @@
               <div class="admin-track-bar">
                 <span class="admin-track-bar__title">{{ trackKey === 'software' ? '软件赛道' : '硬件赛道' }}</span>
                 <div class="admin-track-bar__actions">
-                  <template v-if="canExportAnswers">
-                    <span
-                      v-for="divOpt in answerExportDivisionOptions"
-                      :key="trackKey + '-export-' + (divOpt.key || 'all')"
-                      class="admin-track-bar__export-group"
+                  <template v-if="canExportAnswers && splitAnswerExportByDivision">
+                    <a-button
+                      size="small"
+                      :loading="questionAnswersExportLoading === (trackKey + ':by_team:undergraduate')"
+                      :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                      @click="exportQuestionAnswersZip('by_team', trackKey, 'undergraduate')"
                     >
-                      <a-button
-                        size="small"
-                        :loading="questionAnswersExportLoading === (trackKey + ':by_team:' + (divOpt.key || 'all'))"
-                        :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
-                        @click="exportQuestionAnswersZip('by_team', trackKey, divOpt.key)"
-                      >
-                        {{ answerExportButtonLabel(divOpt.label, '队伍') }}
-                      </a-button>
-                      <a-button
-                        size="small"
-                        :loading="questionAnswersExportLoading === (trackKey + ':by_question:' + (divOpt.key || 'all'))"
-                        :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
-                        @click="exportQuestionAnswersZip('by_question', trackKey, divOpt.key)"
-                      >
-                        {{ answerExportButtonLabel(divOpt.label, '题目') }}
-                      </a-button>
-                    </span>
+                      导出本科（队伍）
+                    </a-button>
+                    <a-button
+                      size="small"
+                      :loading="questionAnswersExportLoading === (trackKey + ':by_question:undergraduate')"
+                      :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                      @click="exportQuestionAnswersZip('by_question', trackKey, 'undergraduate')"
+                    >
+                      导出本科（题目）
+                    </a-button>
+                    <a-button
+                      size="small"
+                      :loading="questionAnswersExportLoading === (trackKey + ':by_team:vocational')"
+                      :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                      @click="exportQuestionAnswersZip('by_team', trackKey, 'vocational')"
+                    >
+                      导出高职（队伍）
+                    </a-button>
+                    <a-button
+                      size="small"
+                      :loading="questionAnswersExportLoading === (trackKey + ':by_question:vocational')"
+                      :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                      @click="exportQuestionAnswersZip('by_question', trackKey, 'vocational')"
+                    >
+                      导出高职（题目）
+                    </a-button>
+                  </template>
+                  <template v-else-if="canExportAnswers">
+                    <a-button
+                      size="small"
+                      :loading="questionAnswersExportLoading === (trackKey + ':by_team:all')"
+                      :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                      @click="exportQuestionAnswersZip('by_team', trackKey)"
+                    >
+                      导出答案（队伍）
+                    </a-button>
+                    <a-button
+                      size="small"
+                      :loading="questionAnswersExportLoading === (trackKey + ':by_question:all')"
+                      :disabled="!activeCompetitionId || !!questionAnswersExportLoading"
+                      @click="exportQuestionAnswersZip('by_question', trackKey)"
+                    >
+                      导出答案（题目）
+                    </a-button>
                   </template>
                 </div>
               </div>
@@ -4471,15 +4514,9 @@ export default {
       if (this.canManageCompetitions) return true
       return this.isExpertAssignedToActiveCompetition
     },
-    /** dual 竞赛：导出答案拆成本科 / 高职两包 */
-    answerExportDivisionOptions () {
-      if (this.isCompetitionDualDivision(this.activeCompetition)) {
-        return [
-          { key: 'undergraduate', label: '本科' },
-          { key: 'vocational', label: '高职' }
-        ]
-      }
-      return [{ key: '', label: '' }]
+    /** 超级管理员：作品/软件/硬件导出固定拆成本科、高职（不依赖竞赛对象上的 dual 字段） */
+    splitAnswerExportByDivision () {
+      return !!this.canManageCompetitions
     },
     adminWorksSubmissions () {
       // 压缩包提交仅作品赛道可产生；同一队伍只展示最新一条
@@ -12744,11 +12781,6 @@ export default {
       return '赛道'
     },
 
-    answerExportButtonLabel (divisionLabel, modeLabel) {
-      if (divisionLabel) return `导出${divisionLabel}（${modeLabel}）`
-      return `导出答案（${modeLabel}）`
-    },
-
     async exportQuestionAnswersZip (mode, workTrack, division) {
       if (!this.canExportAnswers) return
       if (!this.activeCompetitionId) {
@@ -12774,7 +12806,7 @@ export default {
       }
       const div = String(division || '').trim().toLowerCase()
       const divOk = div === 'undergraduate' || div === 'vocational'
-      if (this.isCompetitionDualDivision(this.activeCompetition) && !divOk) {
+      if (this.splitAnswerExportByDivision && !divOk) {
         this.$message.warning('请选择本科或高职后再导出')
         return
       }
